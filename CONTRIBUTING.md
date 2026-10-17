@@ -42,3 +42,6 @@ Please include your macOS version, the server type (Slurm / direct) and, if poss
 `/Applications/ServerIsland.app/Contents/MacOS/ServerIsland --diagnose <ssh-alias> slurm+` (**remove hostnames, usernames and paths before posting**) and the relevant part of `~/Library/Logs/ServerIsland/serverisland.log`.
 
 请附上 macOS 版本、服务器类型，以及 `--diagnose` 的输出和日志相关部分（**贴出来之前删掉主机名、用户名和路径**）。
+
+Questions that don't fit an issue: yanzihan@westlake.edu.cn
+不适合发 Issue 的问题可以发邮件：yanzihan@westlake.edu.cn

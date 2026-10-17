@@ -75,7 +75,7 @@ open build/ServerIsland.app --args --demo            # 演示模式
 5. **远端命令一律经过 `SSHRunner.run`**：它会自动在脚本前加上 PATH 补全（`pathPrelude`）；"连接后先执行"（`commands.preamble`）由各脚本自己加。
 6. **会写到服务器上、或改变服务器状态的操作，先征得用户同意**。测试用的作业要短、只占 CPU、跑完自己清理。不能在用户的服务器上执行取消 / kill。
 7. **不要擅自 git commit / push**，等维护者确认。
-8. **仓库是公开的：代码、文档、截图、视频、官网里都不能出现真实的用户名、主机别名、路径、分区名**，演示数据一律用 `DemoData.swift` 里的虚构信息（见 `references/website.md`）。维护者自己的环境信息只写在 `references/private/`（被 git 忽略）。
+8. **仓库是公开的：代码、文档、截图、视频、官网里都不能出现真实的用户名、主机别名、路径、分区名**，演示数据一律用 `DemoData.swift` 里的虚构信息（例外：README 等处维护者主动公开的联系邮箱）（见 `references/website.md`）。维护者自己的环境信息只写在 `references/private/`（被 git 忽略）。
 9. **用户的真实配置在 `~/Library/Application Support/ServerIsland/config.json`**。改它之前先退出 App，否则会被 App 覆盖。
 
 ## 文档索引（`references/`）
