@@ -5,7 +5,7 @@
 ## 版本
 
 - App：0.1.0（`Resources/Info.plist`）。
-- git：仓库还没有推送到 GitHub。公开前要清理历史（旧提交里有私人信息），见第 15 轮。
+- git：https://github.com/zhyan0603/ServerIsland 。2026-10-17 重建了干净的历史（旧历史备份在仓库外的 `serverisland-history-backup-2026-10-17.bundle`），本仓库的提交作者用 GitHub 隐私邮箱。
 - DMG：`build/ServerIsland-0.1.0.dmg`（通用二进制，ad-hoc 签名）。
 - 宣传视频：`promo/out/ServerIsland-v0.1.mp4`。
 
@@ -27,6 +27,7 @@
 14. 官网第一版（`site/`，GitHub Pages 工作流）；演示数据换成计算材料场景并去掉隐私信息；宣传视频同步修改并重新渲染；`--render-preview` 支持指定语言；`scripts/site_shots.sh`。
 15. 改为开源（GPL-3.0，版权 Zihan Yan 和贡献者；README 重写成热门开源项目的样子，顶部是真实界面拼成的动图 `docs/demo-{en,zh}.gif`，由 `scripts/readme_assets.sh` 生成）：放弃收费方案；README 改成英文 + `README.zh-CN.md`，加 LICENSE、CONTRIBUTING；官网加 GitHub 链接和开源分区；私有文档挪到被忽略的 `references/private/`，公开文档里的真实主机名、路径都改成通用说法。
 16. README 改成 GPUMDkit 的版式（logo + 链接行 + 徽章 + 简介）；原理图改成自己画的 SVG（中英文、深浅两版）；截图改成只有面板本身、透明背景（`SI_BARE=1 --render-preview`），整宽显示。
+17. 准备发布 v0.1.0：设置 → 通用加了"点个 Star / 反馈问题"按钮；DMG 安装说明补上 macOS 15 的步骤；CHANGELOG.md。
 
 ## 尚未验证（需要用户确认或等真实任务）
 
