@@ -1,13 +1,26 @@
 <!doctype html>
-<html lang="zh-CN" data-lang="zh">
+<html lang="en" data-lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ServerIsland — 把服务器装进刘海里</title>
-  <meta name="description" content="ServerIsland：住在 Mac 刘海里的服务器监控。Slurm 作业、GPU、VASP / LAMMPS / GPUMD / NEP 计算进度，一眼看清。">
-  <meta property="og:title" content="ServerIsland">
-  <meta property="og:description" content="住在 Mac 刘海里的服务器监控，为计算材料、化学和物理而做。">
-  <meta property="og:image" content="assets/shots/zh/expanded.png">
+  <title>ServerIsland — Your servers, in the notch</title>
+  <meta name="description" content="ServerIsland puts Slurm jobs, GPUs and the live progress of VASP, LAMMPS, GPUMD and NEP runs in your Mac's notch. Free and open source; nothing to install on the server.">
+  <meta property="og:title" content="ServerIsland — Your servers, in the notch">
+  <meta property="og:description" content="Slurm jobs, GPUs and VASP / LAMMPS / GPUMD / NEP progress in your Mac's notch. Free and open source.">
+  <meta property="og:image" content="assets/shots/en/expanded.png">
+  <script>
+    // 在页面显示之前选好语言，避免先闪一下另一种：用户手动选过的优先，否则跟随系统语言（中文 → 中文，其他 → 英文）
+    (function () {
+      var l = null;
+      try { l = localStorage.getItem("si-lang"); } catch (e) {}
+      if (l !== "zh" && l !== "en") {
+        var langs = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || ""];
+        l = /^zh/i.test(langs[0]) ? "zh" : "en";
+      }
+      document.documentElement.setAttribute("data-lang", l);
+      document.documentElement.setAttribute("lang", l === "zh" ? "zh-CN" : "en");
+    })();
+  </script>
   <link rel="icon" type="image/png" href="assets/favicon.png">
   <link rel="stylesheet" href="css/style.css">
 </head>
@@ -24,10 +37,9 @@
     <a href="#apps"><span lang="zh">计算软件</span><span lang="en">Software</span></a>
     <a href="#video"><span lang="zh">视频</span><span lang="en">Video</span></a>
     <a href="#opensource"><span lang="zh">开源</span><span lang="en">Open source</span></a>
-    <a href="#faq">FAQ</a>
   </nav>
   <div class="nav-right">
-    <a class="gh-link js-github" href="#download" aria-label="GitHub"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><span>GitHub</span></a>
+    <a class="gh-link js-github" href="#download" aria-label="GitHub"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><span>GitHub</span><span class="star-count js-star-count" hidden><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"/></svg><b class="js-stars"></b></span></a>
     <button class="lang-toggle" type="button" aria-label="Switch language">
       <span lang="zh">EN</span><span lang="en">中文</span>
     </button>
@@ -41,6 +53,7 @@
 <section class="hero" id="top">
   <canvas class="hero-sky" aria-hidden="true"></canvas>
   <div class="hero-inner">
+    <canvas class="tako hero-tako" data-mood="working" data-size="112" width="112" height="112" aria-hidden="true"></canvas>
     <canvas class="pixel-word" aria-label="ServerIsland"></canvas>
     <h1>
       <span lang="zh">把服务器装进刘海里</span>
@@ -56,7 +69,8 @@
         <span lang="zh">下载 macOS 版</span><span lang="en">Download for macOS</span>
       </a>
       <a class="btn btn-ghost js-github" href="#download"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-        <span lang="zh">在 GitHub 上查看</span><span lang="en">View on GitHub</span>
+        <span lang="zh">在 GitHub 上点个 Star</span><span lang="en">Star on GitHub</span>
+        <span class="star-count js-star-count" hidden><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"/></svg><b class="js-stars"></b></span>
       </a>
     </div>
     <p class="fine">
@@ -115,11 +129,18 @@
   </div>
 </section>
 
-<!-- 三个数字 -->
-<section class="stats reveal">
-  <div><b>0</b><span lang="zh">服务器端安装</span><span lang="en">things to install on servers</span></div>
-  <div><b>1</b><span lang="zh">每台机器每轮只开一个 SSH 通道</span><span lang="en">SSH channel per server per poll</span></div>
-  <div><b>~0.1 s</b><span lang="zh">一次轮询（连接复用）</span><span lang="en">per poll, with connection reuse</span></div>
+<!-- Tako -->
+<section class="section tako-section reveal">
+  <h2><span lang="zh">还有一只小章鱼</span><span lang="en">And a tiny octopus</span></h2>
+  <p class="section-lead"><span lang="zh">Tako 住在刘海里，心情跟着服务器走：在跑就忙，全完成了就开心，出错了会变红。</span>
+     <span lang="en">Tako lives in the notch and mirrors your servers: busy while jobs run, happy when they finish, red when something fails.</span></p>
+  <div class="moods">
+    <figure><canvas class="tako" data-mood="idle" data-size="64" width="64" height="64"></canvas><figcaption><span lang="zh">空闲</span><span lang="en">idle</span></figcaption></figure>
+    <figure><canvas class="tako" data-mood="working" data-size="64" width="64" height="64"></canvas><figcaption><span lang="zh">在跑</span><span lang="en">working</span></figcaption></figure>
+    <figure><canvas class="tako" data-mood="waiting" data-size="64" width="64" height="64"></canvas><figcaption><span lang="zh">排队</span><span lang="en">waiting</span></figcaption></figure>
+    <figure><canvas class="tako" data-mood="happy" data-size="64" width="64" height="64"></canvas><figcaption><span lang="zh">完成</span><span lang="en">done</span></figcaption></figure>
+    <figure><canvas class="tako" data-mood="sad" data-size="64" width="64" height="64"></canvas><figcaption><span lang="zh">出错</span><span lang="en">failed</span></figcaption></figure>
+  </div>
 </section>
 
 <!-- 功能 -->
@@ -190,21 +211,7 @@
   </div>
   <div class="shot-pair reveal">
     <figure class="shot"><img data-shot="detail-nep" alt="NEP training detail with loss curve" loading="lazy"><figcaption><span lang="zh">NEP 训练：loss 曲线增量更新</span><span lang="en">NEP training: incremental loss curve</span></figcaption></figure>
-    <figure class="shot"><img data-shot="settings-rule-editor" alt="Custom rule editor" loading="lazy"><figcaption><span lang="zh">自定义规则：填完点"测试"</span><span lang="en">Custom rules: fill in, hit Test</span></figcaption></figure>
-  </div>
-</section>
-
-<!-- Tako -->
-<section class="section tako-section reveal">
-  <h2><span lang="zh">还有一只小章鱼</span><span lang="en">And a tiny octopus</span></h2>
-  <p class="section-lead"><span lang="zh">Tako 住在刘海里，心情跟着服务器走：在跑就忙，全完成了就开心，出错了会变红。</span>
-     <span lang="en">Tako lives in the notch and mirrors your servers: busy while jobs run, happy when they finish, red when something fails.</span></p>
-  <div class="moods">
-    <figure><canvas class="tako" data-mood="idle" data-size="64" width="64" height="64"></canvas><figcaption><span lang="zh">空闲</span><span lang="en">idle</span></figcaption></figure>
-    <figure><canvas class="tako" data-mood="working" data-size="64" width="64" height="64"></canvas><figcaption><span lang="zh">在跑</span><span lang="en">working</span></figcaption></figure>
-    <figure><canvas class="tako" data-mood="waiting" data-size="64" width="64" height="64"></canvas><figcaption><span lang="zh">排队</span><span lang="en">waiting</span></figcaption></figure>
-    <figure><canvas class="tako" data-mood="happy" data-size="64" width="64" height="64"></canvas><figcaption><span lang="zh">完成</span><span lang="en">done</span></figcaption></figure>
-    <figure><canvas class="tako" data-mood="sad" data-size="64" width="64" height="64"></canvas><figcaption><span lang="zh">出错</span><span lang="en">failed</span></figcaption></figure>
+    <figure class="shot"><img class="crop-bottom" data-shot="settings-rule-editor" alt="Custom rule editor" loading="lazy"><figcaption><span lang="zh">自定义规则：填完点"测试"</span><span lang="en">Custom rules: fill in, hit Test</span></figcaption></figure>
   </div>
 </section>
 
@@ -212,7 +219,7 @@
 <section class="section" id="video">
   <h2 class="reveal"><span lang="zh">50 秒看完</span><span lang="en">The whole thing in 50 seconds</span></h2>
   <div class="video reveal">
-    <video src="assets/promo.mp4" poster="assets/promo-poster.jpg" controls preload="none" playsinline></video>
+    <video class="js-promo" src="assets/promo-en.mp4" poster="assets/promo-poster-en.jpg" controls preload="none" playsinline></video>
   </div>
 </section>
 
@@ -233,6 +240,14 @@
   <a class="btn btn-primary btn-large js-download-real" href="#">
     <span lang="zh">下载 DMG（macOS 14+）</span><span lang="en">Download DMG (macOS 14+)</span>
   </a>
+  <div class="star-cta">
+    <p><span lang="zh">ServerIsland 免费开源。如果它帮你少敲了几次 <code>squeue</code>，在 GitHub 上点个 Star，能让更多人看到它。</span>
+       <span lang="en">ServerIsland is free and open source. If it saves you a few <code>squeue</code>s a day, a star on GitHub helps others find it.</span></p>
+    <a class="btn btn-ghost js-github" href="#download"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"/></svg>
+      <span lang="zh">点个 Star</span><span lang="en">Star on GitHub</span>
+      <span class="star-count js-star-count" hidden><b class="js-stars"></b></span>
+    </a>
+  </div>
   <p class="fine"><span lang="zh">也可以从源码构建：</span><span lang="en">Or build from source:</span></p>
   <pre class="build"><code>git clone <span class="js-repo-url">https://github.com/…/serverisland</span>.git
 cd serverisland && ./scripts/build_app.sh --run</code></pre>
@@ -263,26 +278,10 @@ cd serverisland && ./scripts/build_app.sh --run</code></pre>
   </div>
 </section>
 
-<!-- FAQ -->
-<section class="section faq" id="faq">
-  <h2 class="reveal">FAQ</h2>
-  <div class="faq-list reveal">
-    <details><summary><span lang="zh">要钱吗？</span><span lang="en">Is it free?</span></summary><p><span lang="zh">完全免费，源码在 GitHub 上，GPL-3.0 许可证。</span><span lang="en">Yes. It's free software under the GPL-3.0 license.</span></p></details>
-    <details><summary><span lang="zh">服务器上需要装什么吗？</span><span lang="en">Do I need to install anything on the server?</span></summary><p><span lang="zh">不需要。ServerIsland 通过 ssh 发送一小段 bash 脚本，读取 squeue、nvidia-smi、/proc 和计算软件的输出文件，不写任何东西。</span><span lang="en">No. It sends a small bash script over ssh that reads squeue, nvidia-smi, /proc and your output files. It never writes anything.</span></p></details>
-    <details><summary><span lang="zh">没有刘海的 Mac 能用吗？</span><span lang="en">What about Macs without a notch?</span></summary><p><span lang="zh">可以。没有刘海的屏幕会在顶部中间显示一个虚拟的岛，用法完全一样。</span><span lang="en">Yes — screens without a notch get a virtual island at the top center that works the same way.</span></p></details>
-    <details><summary><span lang="zh">我的软件不在支持列表里？</span><span lang="en">My software isn't supported?</span></summary><p><span lang="zh">在设置 → 进度识别里加一条自定义规则：指定文件和关键字（或正则），可以当场在服务器的真实目录上测试。只要你的程序会把进度写进文件，就能识别。</span><span lang="en">Add a custom rule under Settings → Progress Detection: a file plus a keyword or regex, testable on a real directory right away. If your program writes its progress to a file, ServerIsland can read it.</span></p></details>
-    <details><summary><span lang="zh">支持 PBS / LSF 吗？Windows 呢？</span><span lang="en">PBS / LSF? Windows?</span></summary><p><span lang="zh">目前只支持 Slurm 和直连服务器，只有 macOS 版。</span><span lang="en">Currently Slurm and direct servers only, on macOS only.</span></p></details>
-    <details><summary><span lang="zh">会不会误取消我的作业？</span><span lang="en">Could it cancel a job by accident?</span></summary><p><span lang="zh">取消功能默认关闭，需要在每台服务器的设置里单独打开。打开后也要长按按钮、再确认一次；执行前还会在服务器上核对作业号和运行时间，对不上就不执行。</span><span lang="en">Cancelling is off by default and must be enabled per server. Even then it takes a long press and a confirmation, and the job ID and runtime are re-checked on the server before anything runs.</span></p></details>
-  </div>
-</section>
-
 <footer class="footer">
   <canvas class="tako" data-mood="idle" data-size="20" width="20" height="20"></canvas>
-  <span>ServerIsland · <span class="js-version">0.1.0</span></span>
-  <span class="muted">© 2026 Zihan Yan &amp; contributors · GPL-3.0</span>
+  <span>© 2026 Zihan Yan</span>
   <a class="muted js-github" href="#download">GitHub</a>
-  <a class="muted" href="mailto:yanzihan@westlake.edu.cn">yanzihan@westlake.edu.cn</a>
-  <span class="muted"><span lang="zh">截图均为演示数据</span><span lang="en">Screenshots use demo data</span></span>
 </footer>
 
 <script src="js/config.js"></script>

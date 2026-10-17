@@ -10,9 +10,9 @@
 | `site/css/style.css` | 配色、圆角、卡片和 App / 宣传视频一致（`--mint #5BE6B5` 等）；900px、640px 两档窄屏 |
 | `site/js/config.js` | **部署前只改这里**：版本号、GitHub 仓库地址 `repo`（GitHub / Issues / 下载按钮都由它生成）、可选的 DMG 直链 |
 | `site/js/tako.js` | Tako 像素网格，和 `Pet.swift`、`promo/index.html` 同一张 |
-| `site/js/main.js` | 语言切换（记在 localStorage，默认跟浏览器语言）、像素字组装动画、夜空星星、刘海演示状态机（收起 → 提示 → 收起 → 展开，鼠标悬停时一直展开）、滚动出现 |
+| `site/js/main.js` | 语言切换（默认英文；`index.html` 开头的小脚本按系统首选语言选中文 / 英文，手动切换后记在 localStorage）、宣传视频按语言换中 / 英文版、GitHub Star 数、像素字组装动画、夜空星星、刘海演示状态机（收起 → 提示 → 收起 → 展开，鼠标悬停时一直展开）、滚动出现 |
 | `site/assets/shots/{zh,en}/` | App 截图，由 `scripts/site_shots.sh` 生成 |
-| `site/assets/promo.mp4`、`promo-poster.jpg` | 宣传视频的网页版（1280 宽、CRF 27，约几 MB） |
+| `site/assets/promo[-en].mp4`、`promo-poster[-en].jpg` | 宣传视频的网页版（中 / 英文，1280 宽、CRF 27，约 4 MB） |
 | `.github/workflows/pages.yml` | 推送到 main 且 `site/` 有变化时自动部署 |
 
 ## 常用操作

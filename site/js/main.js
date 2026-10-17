@@ -18,10 +18,18 @@
     document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
     document.title = TITLES[lang];
     $$("img[data-shot]").forEach(img => { img.src = `assets/shots/${lang}/${img.dataset.shot}.png`; });
+    // 宣传视频：中文页面放中文版，英文页面放英文版
+    $$("video.js-promo").forEach(v => {
+      const src = lang === "zh" ? "assets/promo.mp4" : "assets/promo-en.mp4";
+      if (!v.getAttribute("src") || !v.getAttribute("src").endsWith(src.split("/")[1])) {
+        v.pause(); v.src = src; v.poster = lang === "zh" ? "assets/promo-poster.jpg" : "assets/promo-poster-en.jpg";
+      }
+    });
     if (save) { try { localStorage.setItem("si-lang", lang); } catch (e) { /* 隐私模式下忽略 */ } }
     island.refreshText();
   }
-  const lang0 = storedLang() || (/^zh/i.test(navigator.language || "") ? "zh" : "en");
+  // 和 index.html 开头的小脚本一致：手动选过的优先，否则跟随系统语言
+  const lang0 = document.documentElement.dataset.lang === "zh" ? "zh" : "en";
   const isZh = () => document.documentElement.dataset.lang === "zh";
   $(".lang-toggle").addEventListener("click", () => setLang(isZh() ? "en" : "zh", true));
 
@@ -31,6 +39,17 @@
   if (repo) {
     $$(".js-github").forEach(a => { a.href = repo + (a.dataset.path || ""); a.target = "_blank"; a.rel = "noopener"; });
     $$(".js-repo-url").forEach(el => { el.textContent = repo; });
+  }
+  if (repo) {
+    const m = repo.match(/github\.com\/([^/]+\/[^/]+)/);
+    if (m && window.fetch) {
+      fetch("https://api.github.com/repos/" + m[1]).then(r => r.ok ? r.json() : null).then(d => {
+        if (!d || typeof d.stargazers_count !== "number") return;
+        const n = d.stargazers_count, txt = n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, "") + "k" : String(n);
+        $$(".js-stars").forEach(el => { el.textContent = txt; });
+        $$(".js-star-count").forEach(el => { el.hidden = false; });
+      }).catch(() => {});
+    }
   }
   const dl = cfg.downloadURL || (repo ? repo + "/releases/latest" : "");
   $$(".js-download-real").forEach(a => {
