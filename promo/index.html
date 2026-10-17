@@ -24,6 +24,9 @@
 const TL = window.TIMELINE;
 // ?vertical：竖屏版（手机），1080 × 1920；时间轴、音乐完全相同，只是重新排版
 const VERT = location.search.includes("vertical");
+// ?en：英文版。画面上的文字都用 T(中文, English)
+const EN = new URLSearchParams(location.search).has("en");
+const T = (zh, en) => EN ? en : zh;
 const W = VERT ? 1080 : TL.width, H = VERT ? 1920 : TL.height, BEAT = 60 / TL.bpm;
 const cv = document.getElementById("c");
 cv.width = W; cv.height = H;
@@ -333,8 +336,9 @@ function drawDesktop(c, B, o = {}) {
   c.fillStyle = "rgba(255,255,255,0.20)"; c.fillRect(0, 0, SW, MENU);
   text(c, "", 22, 22, { size: 17, color: "#fff" });
   text(c, "Finder", 52, 22, { size: 14, weight: 700 });
-  ["文件", "编辑", "显示", "前往", "窗口", "帮助"].forEach((s, i) => text(c, s, 120 + i * 52, 22, { size: 14 }));
-  text(c, "10月16日 周五  18:42", SW - 20, 22, { size: 14, align: "right" });
+  let mx = 120;
+  T(["文件", "编辑", "显示", "前往", "窗口", "帮助"], ["File", "Edit", "View", "Go", "Window", "Help"]).forEach(s => { mx += text(c, s, mx, 22, { size: 14 }) + 24; });
+  text(c, T("10月16日 周五  18:42", "Fri Oct 16  18:42"), SW - 20, 22, { size: 14, align: "right" });
   // 菜单栏右侧：ServerIsland 图标（像素章鱼剪影）
   drawTako(c, SW - 196, 25, 15, "idle", 1, { shadow: false, glow: false });
   c.save(); c.fillStyle = "#fff"; c.globalAlpha *= 0.9;
@@ -438,7 +442,7 @@ function drawCard(c, x, y, w, card, B) {
     px += 6;
     parts.forEach(([g, v, col], i) => { text(c, g + " " + v, px, cy + 14, { size: 10, weight: 600, color: col }); px += widths[i] + 8; });
   }
-  text(c, card.meta || "刚刚 · 96ms", x + w - pad, cy + 15, { size: 10, color: COL.ter, align: "right" });
+  text(c, card.meta || T("刚刚 · 96ms", "now · 96ms"), x + w - pad, cy + 15, { size: 10, color: COL.ter, align: "right" });
   cy += 20;
   if (card.metrics) {
     cy += 10;
@@ -489,12 +493,12 @@ function drawIdleRow(c, x, y, w) {
   c.fillStyle = "rgba(255,255,255,0.04)"; rr(c, x, y, w, 36, 14); c.fill();
   c.strokeStyle = "rgba(255,255,255,0.08)"; c.lineWidth = 0.6; rr(c, x, y, w, 36, 14); c.stroke();
   text(c, "☾", x + 14, y + 23, { size: 12, color: COL.ter });
-  let px = x + 32 + text(c, "2 台空闲", x + 32, y + 22.5, { size: 11, weight: 600, color: COL.sec }) + 12;
-  for (const n of ["老服务器", "3090 工作站"]) {
+  let px = x + 32 + text(c, T("2 台空闲", "2 idle"), x + 32, y + 22.5, { size: 11, weight: 600, color: COL.sec }) + 12;
+  for (const n of T(["老服务器", "3090 工作站"], ["Old server", "3090 Workstation"])) {
     c.fillStyle = COL.mint; c.beginPath(); c.arc(px + 2.5, y + 18.5, 2.5, 0, 7); c.fill();
     px += 9 + text(c, n, px + 9, y + 22.5, { size: 11, color: COL.ter }) + 12;
   }
-  text(c, "展开 ⌄", x + w - 14, y + 22.5, { size: 10, weight: 500, color: COL.cyan, align: "right" });
+  text(c, T("展开 ⌄", "Show ⌄"), x + w - 14, y + 22.5, { size: 10, weight: 500, color: COL.cyan, align: "right" });
 }
 function islandHeader(c, x, w, B, o = {}) {
   drawTako(c, x + 22, 26, 15, o.mood || "working", Math.floor(B * 2), { shadow: false });
@@ -542,11 +546,11 @@ function drawToast(c, x, w, B, t) {
 
 // ------------------------------------------------------------------ 字幕（屏幕空间）
 const CAPTIONS = [
-  { from: 12, to: 19.6, tag: "01", title: "住在刘海里的小章鱼", sub: "有任务就手舞足蹈 · 排队时打瞌睡 · 出错会晕" },
-  { from: 22, to: 31.6, tag: "02", title: "悬停展开，一眼看完所有服务器", sub: "每台机器一张卡片 · 服务器上什么都不用装" },
-  { from: 33, to: 43.6, tag: "03", title: "Slurm 作业，看得更明白", sub: "数组作业合并显示 · 排队原因说人话 · 分区空闲一目了然" },
-  { from: 45, to: 55.6, tag: "04", title: "认得你的计算", sub: "NEP · GPUMD · VASP · LAMMPS 自动识别进度" },
-  { from: 57, to: 67.6, tag: "05", title: "完成「叮咚」，失败「咚咚」", sub: "刘海弹窗 + 提示音，不用盯着终端" },
+  { from: 12, to: 19.6, tag: "01", title: T("住在刘海里的小章鱼", "A tiny octopus in your notch"), sub: T("有任务就手舞足蹈 · 排队时打瞌睡 · 出错会晕", "Dances while jobs run · naps in the queue · dizzy on errors") },
+  { from: 22, to: 31.6, tag: "02", title: T("悬停展开，一眼看完所有服务器", "Hover to see every server"), sub: T("每台机器一张卡片 · 服务器上什么都不用装", "One card per server · nothing to install on the server") },
+  { from: 33, to: 43.6, tag: "03", title: T("Slurm 作业，看得更明白", "Slurm, made readable"), sub: T("数组作业合并显示 · 排队原因说人话 · 分区空闲一目了然", "Arrays in one row · pending reasons in plain words · free nodes at a glance") },
+  { from: 45, to: 55.6, tag: "04", title: T("认得你的计算", "It knows your simulations"), sub: T("NEP · GPUMD · VASP · LAMMPS 自动识别进度", "Progress for NEP · GPUMD · VASP · LAMMPS, detected automatically") },
+  { from: 57, to: 67.6, tag: "05", title: T("完成「叮咚」，失败「咚咚」", "Ding when it's done, dong when it's not"), sub: T("刘海弹窗 + 提示音，不用盯着终端", "Notch alerts with sounds — stop babysitting the terminal") },
 ];
 function drawCaption(c, B) {
   for (const cap of CAPTIONS) {
@@ -656,7 +660,7 @@ function sceneIntro(c, B) {
   const ks = prog(B, 6, 6.8, easeOutCubic);
   if (ks > 0) {
     c.save(); c.globalAlpha = ks * (1 - prog(B, 7.4, 8));
-    text(c, "把服务器装进刘海里", W / 2, tagY + 16 * (1 - ks), { size: 40, weight: 500, color: "rgba(255,255,255,0.86)", align: "center", spacing: 8 });
+    text(c, T("把服务器装进刘海里", "Your servers, in the notch"), W / 2, tagY + 16 * (1 - ks), { size: 40, weight: 500, color: "rgba(255,255,255,0.86)", align: "center", spacing: 8 });
     c.restore();
   }
 }
@@ -678,7 +682,7 @@ function macWorld(c, B, cam, islandKeys, content, extra) {
 function sceneNotch(c, B) {
   const cam = camKeys(B, [[8, { x: MID, y: SH / 2 + 30, z: 0.92 }], [9.5, { x: MID, y: SH / 2, z: 1.0 }], [11.5, { x: MID, y: 165, z: 2.85 }], [20, { x: MID, y: 172, z: 2.95 }]]);
   const keys = [[0, "hidden"], [10.8, "collapsed"]];
-  const moods = [["working", "有任务在跑"], ["waiting", "排队中"], ["happy", "完成啦"], ["sad", "出错了"]];
+  const moods = [["working", T("有任务在跑", "Working")], ["waiting", T("排队中", "Queued")], ["happy", T("完成啦", "Done!")], ["sad", T("出错了", "Error")]];
   const mi = clamp(Math.floor((B - 13) / 1.6), 0, 3);
   macWorld(c, B, cam, keys, (x, w, s) => {
     if (s.name === "collapsed") { c.save(); c.globalAlpha = clamp(s.since * 3); drawWings(c, x, w, B, { mood: B > 13 ? moods[mi][0] : "working" }); c.restore(); }
@@ -720,21 +724,21 @@ function panelCards(B) {
   const nepK = clamp(0.36 + t * 0.006), lmpK = clamp(0.38 + t * 0.004), mdK = clamp(0.248 + t * 0.0006);
   return [
     {
-      name: "4090 工作站", badge: "DIRECT", meta: "刚刚 · 96ms", counts: [["⚡", 2, COL.mint]],
-      metrics: [["CPU", 0.42, "42%"], ["内存", 0.18, "5.6/31G"], ["GPU", 0.96, "96% · 2.6/24G"]],
+      name: T("4090 工作站", "4090 Workstation"), badge: "DIRECT", meta: T("刚刚 · 96ms", "now · 96ms"), counts: [["⚡", 2, COL.mint]],
+      metrics: [["CPU", 0.42, "42%"], [T("内存", "MEM"), 0.18, "5.6/31G"], ["GPU", 0.96, "96% · 2.6/24G"]],
       jobs: [
-        { icon: "atom", col: COL.mint, name: "nep", id: "pid 41022", right: `${Math.round(nepK * 100)}% · 约剩 7m`, rightCol: COL.mint, detail: `NEP 训练 · ${Math.round(nepK * 20000).toLocaleString()}/20,000 代`, k: nepK, real: true },
-        { icon: "atom", col: COL.mint, name: "lmp", id: "pid 41377", right: `${Math.round(lmpK * 100)}% · 约剩 12m`, rightCol: COL.mint, detail: `LAMMPS MD · ${Math.round(lmpK * 1000000).toLocaleString()}/1.00M 步`, k: lmpK, real: true },
+        { icon: "atom", col: COL.mint, name: "nep", id: "pid 41022", right: `${Math.round(nepK * 100)}% · ${T("约剩 ", "~")}7m`, rightCol: COL.mint, detail: `${T("NEP 训练", "NEP training")} · ${Math.round(nepK * 20000).toLocaleString()}/20,000 ${T("代", "gen")}`, k: nepK, real: true },
+        { icon: "atom", col: COL.mint, name: "lmp", id: "pid 41377", right: `${Math.round(lmpK * 100)}% · ${T("约剩 ", "~")}12m`, rightCol: COL.mint, detail: `LAMMPS MD · ${Math.round(lmpK * 1000000).toLocaleString()}/1.00M ${T("步", "steps")}`, k: lmpK, real: true },
       ],
     },
     {
-      name: "HPC 集群", badge: "SLURM", meta: "12秒前 · 140ms", counts: [["⚡", 7, COL.mint], ["⏳", 20, COL.amber]],
+      name: T("HPC 集群", "HPC Cluster"), badge: "SLURM", meta: T("12秒前 · 140ms", "12s ago · 140ms"), counts: [["⚡", 7, COL.mint], ["⏳", 20, COL.amber]],
       jobs: [
-        { icon: "atom", col: COL.mint, name: "aimd_Li3PS4_900K", id: "#8812044", right: `${Math.round(mdK * 100)}% · 约剩 1d`, rightCol: COL.mint, detail: `VASP MD · ${Math.round(mdK * 5000).toLocaleString()}/5,000 步`, k: mdK, real: true },
-        { icon: "stack", col: COL.mint, name: "eos_scan", id: "数组 #8812300", idCol: COL.violet, right: `完成 ${16 + Math.floor(clamp(t / 4) * 4)}/40`, rightCol: COL.mint, seg: [0.35 + clamp(t / 4) * 0.1, 0.05, 0.15],
-          segText: [["运行 6", COL.cyan], ["排队 18", COL.sec], ["失败 2", COL.coral]] },
-        { icon: "hour", col: COL.amber, name: "phonon_Si_444", id: "#8812355", right: "上限 12:00:00", pending: "优先级排队中 · cpu" },
-        { icon: "hour", col: COL.amber, name: "band_LiCoO2", id: "#8812356", right: "上限 6:00:00", pending: "依赖永远无法满足 · cpu", warn: true },
+        { icon: "atom", col: COL.mint, name: "aimd_Li3PS4_900K", id: "#8812044", right: `${Math.round(mdK * 100)}% · ${T("约剩 ", "~")}1d`, rightCol: COL.mint, detail: `VASP MD · ${Math.round(mdK * 5000).toLocaleString()}/5,000 ${T("步", "steps")}`, k: mdK, real: true },
+        { icon: "stack", col: COL.mint, name: "eos_scan", id: T("数组 #8812300", "array #8812300"), idCol: COL.violet, right: T(`完成 ${16 + Math.floor(clamp(t / 4) * 4)}/40`, `${16 + Math.floor(clamp(t / 4) * 4)}/40 done`), rightCol: COL.mint, seg: [0.35 + clamp(t / 4) * 0.1, 0.05, 0.15],
+          segText: [[T("运行 6", "6 running"), COL.cyan], [T("排队 18", "18 pending"), COL.sec], [T("失败 2", "2 failed"), COL.coral]] },
+        { icon: "hour", col: COL.amber, name: "phonon_Si_444", id: "#8812355", right: T("上限 12:00:00", "limit 12:00:00"), pending: T("优先级排队中 · cpu", "Queued by priority · cpu") },
+        { icon: "hour", col: COL.amber, name: "band_LiCoO2", id: "#8812356", right: T("上限 6:00:00", "limit 6:00:00"), pending: T("依赖永远无法满足 · cpu", "Dependency never satisfied · cpu"), warn: true },
       ],
     },
   ];
@@ -776,8 +780,8 @@ function sceneExpand(c, B) {
 function scenePartitions(c, x, w, B, a) {
   c.save(); c.globalAlpha = a;
   text(c, "‹", x + 26, 28, { size: 20, color: COL.sec, align: "center" });
-  text(c, "分区空闲资源", x + 48, 22, { size: 13.5, weight: 600 });
-  text(c, "HPC 集群 · 按空闲 GPU 排序", x + 48, 37, { size: 10.5, color: COL.ter });
+  text(c, T("分区空闲资源", "Free resources"), x + 48, 22, { size: 13.5, weight: 600 });
+  text(c, T("HPC 集群 · 按空闲 GPU 排序", "HPC Cluster · sorted by free GPUs"), x + 48, 37, { size: 10.5, color: COL.ter });
   const rows = [["gpu-v100", "V100", 19, 96, 210, 1152], ["gpu-a100", "A100", 5, 64, 64, 512], ["cpu", "", 0, 0, 2960, 15360], ["bigmem", "", 0, 0, 384, 512], ["debug", "", 0, 0, 128, 128]];
   let y = MENU + 22;
   rows.forEach(([n, model, gi, gt, ci, ct], i) => {
@@ -785,17 +789,17 @@ function scenePartitions(c, x, w, B, a) {
     c.save(); c.globalAlpha = a * k; c.translate(30 * (1 - k), 0);
     c.fillStyle = COL.card; rr(c, x + 14, y, w - 28, 54, 10); c.fill();
     const nw = text(c, n, x + 26, y + 20, { size: 12.5, weight: 600 });
-    if (i === 2) badge(c, "默认", x + 32 + nw, y + 19, COL.violet);
+    if (i === 2) badge(c, T("默认", "DEFAULT"), x + 32 + nw, y + 19, COL.violet);
     if (model) text(c, model, x + 32 + nw, y + 20, { size: 9.5, font: MONO, color: COL.ter });
     const fill = k;
     if (gt > 0) {
       text(c, "GPU", x + 26, y + 42, { size: 9.5, weight: 600, color: COL.ter });
       bar(c, x + 58, y + 37, 160, gi / gt * fill, COL.cyan, 5);
-      text(c, `空闲 ${Math.round(gi * fill)}/${gt}`, x + 300, y + 42, { size: 10.5, weight: 500, color: COL.sec, align: "right" });
+      text(c, `${T("空闲 ", "free ")}${Math.round(gi * fill)}/${gt}`, x + 300, y + 42, { size: 10.5, weight: 500, color: COL.sec, align: "right" });
     }
     text(c, "CPU", x + 330, y + 42, { size: 9.5, weight: 600, color: COL.ter });
     bar(c, x + 362, y + 37, 160, ci / ct * fill, COL.mint, 5);
-    text(c, `空闲 ${Math.round(ci * fill)}/${ct}`, x + w - 26, y + 42, { size: 10.5, weight: 500, color: COL.sec, align: "right" });
+    text(c, `${T("空闲 ", "free ")}${Math.round(ci * fill)}/${ct}`, x + w - 26, y + 42, { size: 10.5, weight: 500, color: COL.sec, align: "right" });
     c.restore();
     y += 60;
   });
@@ -814,7 +818,7 @@ function sceneSlurm(c, B) {
       // 数组进度在这一段明显推进
       const t = clamp((B - 32) / 6);
       cards[1].jobs[1].seg = [0.35 + t * 0.2, 0.05 + (B > 35 ? 0.025 : 0), 0.15];
-      cards[1].jobs[1].right = `完成 ${16 + Math.round(t * 9)}/40`;
+      cards[1].jobs[1].right = T(`完成 ${16 + Math.round(t * 9)}/40`, `${16 + Math.round(t * 9)}/40 done`);
       cards[1].jobs[1].hl = prog(B, 33, 33.5) * (1 - prog(B, 35.6, 36));
       cards[1].jobs[3].hl = prog(B, 36, 36.3) * (1 - prog(B, 37.6, 38));
       let y = MENU + 8;
@@ -840,12 +844,15 @@ function sceneSlurm(c, B) {
       if (B > 36 && B < 38.2) {
         const k = easeOutBack(prog(B, 36, 36.4)), o = 1 - prog(B, 37.8, 38.2);
         c.save(); c.globalAlpha = k * o;
-        const bx = VERT ? MID - 150 : MID + 70, by = 404;
+        const bx = VERT ? MID - 150 : (EN ? MID + 10 : MID + 70), by = 404;
         c.translate(bx, by); c.scale(k, k);
-        c.fillStyle = "rgba(20,10,14,0.95)"; rr(c, 0, 0, 300, 58, 12); c.fill();
-        c.strokeStyle = "rgba(255,110,110,0.5)"; c.lineWidth = 1; rr(c, 0, 0, 300, 58, 12); c.stroke();
+        // 气泡宽度跟着文字走（英文比中文长）
+        c.font = `600 12.5px ${FONT}`;
+        const bw = Math.max(300, c.measureText(T("依赖的作业失败了，这个作业不会再开始", "The job it depends on failed — this one won't start")).width + 28);
+        c.fillStyle = "rgba(20,10,14,0.95)"; rr(c, 0, 0, bw, 58, 12); c.fill();
+        c.strokeStyle = "rgba(255,110,110,0.5)"; c.lineWidth = 1; rr(c, 0, 0, bw, 58, 12); c.stroke();
         text(c, "DependencyNeverSatisfied", 14, 22, { size: 11, font: MONO, color: COL.ter });
-        text(c, "依赖的作业失败了，这个作业不会再开始", 14, 43, { size: 12.5, weight: 600, color: COL.coral });
+        text(c, T("依赖的作业失败了，这个作业不会再开始", "The job it depends on failed — this one won't start"), 14, 43, { size: 12.5, weight: 600, color: COL.coral });
         c.restore();
       }
     }
@@ -866,16 +873,18 @@ function sceneNep(c, B) {
     c.save(); c.globalAlpha = a;
     text(c, "‹", x + 26, 28, { size: 20, color: COL.sec, align: "center" });
     text(c, "nep", x + 48, 22, { size: 13.5, weight: 600 });
-    text(c, "4090 工作站 · PID 41022", x + 48, 37, { size: 10.5, color: COL.ter });
+    text(c, T("4090 工作站 · PID 41022", "4090 Workstation · PID 41022"), x + 48, 37, { size: 10.5, color: COL.ter });
     c.fillStyle = "rgba(91,230,181,0.16)"; rr(c, x + w - 84, 8, 66, 22, 11); c.fill();
-    text(c, "运行中", x + w - 51, 23, { size: 10.5, weight: 700, color: COL.mint, align: "center" });
+    text(c, T("运行中", "Running"), x + w - 51, 23, { size: 10.5, weight: 700, color: COL.mint, align: "center" });
     // 进度：代数在这一段从 7,800 涨到 19,400
     const kk = prog(B, 50.4, 55.6, easeInOutCubic);
     const gen = Math.round(lerp(7800, 19400, kk));
     const y0 = MENU + 18;
     c.fillStyle = COL.card; rr(c, x + 14, y0, w - 28, 108, 12); c.fill();
-    const fields = [["软件", "NEP 训练"], ["速度", "26.4 代/秒"], ["进度", `${gen.toLocaleString()} / 20,000 代（${Math.round(gen / 200)}%）`], ["预计剩余", `${Math.floor((20000 - gen) / 26.4 / 60)}:${String(Math.round((20000 - gen) / 26.4 % 60)).padStart(2, "0")}`],
-      ["Loss", `Total ${(0.32 * Math.pow(gen / 1000, -0.21)).toFixed(4)} · Force ${(0.13 * Math.pow(gen / 1000, -0.22)).toFixed(4)}`], ["目录", "~/projects/Li3PS4/nep-train"]];
+    const eta = `${Math.floor((20000 - gen) / 26.4 / 60)}:${String(Math.round((20000 - gen) / 26.4 % 60)).padStart(2, "0")}`;
+    const fields = [[T("软件", "Software"), T("NEP 训练", "NEP training")], [T("速度", "Speed"), T("26.4 代/秒", "26.4 gen/s")],
+      [T("进度", "Progress"), T(`${gen.toLocaleString()} / 20,000 代（${Math.round(gen / 200)}%）`, `${gen.toLocaleString()} / 20,000 gen (${Math.round(gen / 200)}%)`)], [T("预计剩余", "ETA"), eta],
+      ["Loss", `Total ${(0.32 * Math.pow(gen / 1000, -0.21)).toFixed(4)} · Force ${(0.13 * Math.pow(gen / 1000, -0.22)).toFixed(4)}`], [T("目录", "Directory"), "~/projects/Li3PS4/nep-train"]];
     fields.forEach(([k, v], i) => {
       const col = i % 2, row = Math.floor(i / 2);
       text(c, k, x + 28 + col * 310, y0 + 26 + row * 30, { size: 10, weight: 500, color: COL.ter });
@@ -935,11 +944,11 @@ function sceneNep(c, B) {
         const kr = easeOutBack(prog(B, 48.2, 48.8));
         c.save(); c.translate(fx + fw / 2, fy + fh - 58); c.scale(kr, kr);
         c.fillStyle = "#0B0F1E"; rr(c, -230, -26, 460, 52, 26); c.fill();
-        text(c, "nep.in  +  loss.out   →   NEP 训练", 0, 7, { size: 18, weight: 700, color: COL.mint, align: "center", font: FONT });
+        text(c, T("nep.in  +  loss.out   →   NEP 训练", "nep.in  +  loss.out   →   NEP training"), 0, 7, { size: 18, weight: 700, color: COL.mint, align: "center", font: FONT });
         c.restore();
       }
       // 其他软件也认得：依次弹出
-      [["INCAR + OSZICAR → VASP", COL.cyan], ["log.lammps → LAMMPS", COL.amber], ["自定义规则 → 你的程序", COL.violet]].forEach(([label, col], i) => {
+      [["INCAR + OSZICAR → VASP", COL.cyan], ["log.lammps → LAMMPS", COL.amber], [T("自定义规则 → 你的程序", "custom rule → your code"), COL.violet]].forEach(([label, col], i) => {
         const kp = easeOutBack(prog(B, 48.7 + i * 0.4, 49.1 + i * 0.4));
         if (kp <= 0) return;
         const pw = 204, px = fx + (fw - pw * 3 - 14 * 2) / 2 + i * (pw + 14) + pw / 2, py = fy + fh - 118;
@@ -974,8 +983,8 @@ function sceneAlerts(c, B) {
   const cam = camKeys(B, [[56, { x: MID, y: 225, z: 1.8 }], [57.4, { x: MID, y: 175, z: 2.75 }], [68, { x: MID, y: 178, z: 2.85 }]]);
   const keys = [[0, "detail"], [56.2, "collapsed"], [57.8, "toast"], [61.2, "collapsed"], [61.8, "toast"], [65.2, "collapsed"]];
   const toastOf = B => B < 61.2
-    ? { ok: true, host: "4090 工作站", min: 6, title: "NEP 训练完成", sub: "20,000 代 · Total 0.1382 · nep-train" }
-    : { ok: false, host: "4090 工作站", min: 8, title: "LAMMPS MD 提前结束", sub: "停在 386,000/1.00M 步 · npt-1200K" };
+    ? { ok: true, host: T("4090 工作站", "4090 Workstation"), min: 6, title: T("NEP 训练完成", "NEP training finished"), sub: T("20,000 代 · Total 0.1382 · nep-train", "20,000 gen · Total 0.1382 · nep-train") }
+    : { ok: false, host: T("4090 工作站", "4090 Workstation"), min: 8, title: T("LAMMPS MD 提前结束", "LAMMPS MD ended early"), sub: T("停在 386,000/1.00M 步 · npt-1200K", "stopped at 386,000/1.00M steps · npt-1200K") };
   macWorld(c, B, cam, keys, (x, w, s) => {
     if (s.name === "collapsed") {
       c.save(); c.globalAlpha = clamp(s.since * 3);
@@ -996,7 +1005,7 @@ function sceneAlerts(c, B) {
         const k = easeOutBack(prog(B, 65, 65.4)), o = 1 - prog(B, 67.4, 68);
         c.save(); c.globalAlpha = k * o; c.translate(MID - 260, MENU + 36); c.scale(k, k);
         c.fillStyle = "rgba(10,12,22,0.92)"; rr(c, -84, -18, 168, 36, 18); c.fill();
-        text(c, "🔕  已静音 HPC 集群", 0, 5.5, { size: 12.5, weight: 600, color: COL.amber, align: "center" });
+        text(c, T("🔕  已静音 HPC 集群", "🔕  HPC Cluster muted"), 0, 5.5, { size: 12.5, weight: 600, color: COL.amber, align: "center" });
         c.restore();
       }
     }
@@ -1004,9 +1013,13 @@ function sceneAlerts(c, B) {
 }
 
 // 6. 蒙太奇：九张功能卡，小章鱼逐张跳过
-const CHIPS = [["🧪", "VASP / LAMMPS", "MD 看百分比，优化看离子步"], ["🧩", "自定义识别规则", "文件 + 关键字，当场测试"], ["📈", "loss / 能量曲线", "点开详情就能看"],
-  ["🏝", "空闲机器合并", "没任务的收成一行"], ["⏸", "暂停 / 静音单台", "知道没任务就别查"], ["🔑", "动态口令登录", "输入只交给 ssh，不保存"],
-  ["✋", "按住 + 二次确认", "取消作业不怕误触"], ["🗂", "最近 24 小时", "sacct 没开也能记"], ["🌏", "中文 / English", "一键切换"]];
+const CHIPS = EN
+  ? [["🧪", "VASP / LAMMPS", "MD in %, relaxations in steps"], ["🧩", "Custom rules", "A file + a keyword, tested live"], ["📈", "Live curves", "Loss and energy in job details"],
+     ["🏝", "Idle servers fold", "No jobs? Just one line."], ["⏸", "Pause or mute", "Skip the ones you know are idle"], ["🔑", "OTP logins", "Typed into ssh, never stored"],
+     ["✋", "Hold + confirm", "No accidental cancels"], ["🗂", "Last 24 hours", "Works without sacct, too"], ["🌏", "English / 中文", "Switch in one click"]]
+  : [["🧪", "VASP / LAMMPS", "MD 看百分比，优化看离子步"], ["🧩", "自定义识别规则", "文件 + 关键字，当场测试"], ["📈", "loss / 能量曲线", "点开详情就能看"],
+     ["🏝", "空闲机器合并", "没任务的收成一行"], ["⏸", "暂停 / 静音单台", "知道没任务就别查"], ["🔑", "动态口令登录", "输入只交给 ssh，不保存"],
+     ["✋", "按住 + 二次确认", "取消作业不怕误触"], ["🗂", "最近 24 小时", "sacct 没开也能记"], ["🌏", "中文 / English", "一键切换"]];
 function sceneMontage(c, B) {
   drawNight(c, B + 40, 1);
   // 轻微脉动的网格光
@@ -1014,7 +1027,7 @@ function sceneMontage(c, B) {
   c.fillStyle = `rgba(91,230,181,${0.04 + 0.04 * (1 - pulse)})`; c.fillRect(0, 0, W, H);
   const kt = prog(B, 68, 68.8, easeOutBack), kout = prog(B, 79.3, 80);
   c.save(); c.globalAlpha = kt * (1 - kout);
-  text(c, "还有更多", W / 2, VERT ? 190 : 150, { size: 60, weight: 700, align: "center" });
+  text(c, T("还有更多", "And there's more"), W / 2, VERT ? 190 : 150, { size: 60, weight: 700, align: "center" });
   c.restore();
   // 横屏 3×3；竖屏单列
   const cw = VERT ? 880 : 480, ch = VERT ? 150 : 170, gap = VERT ? 22 : 34;
@@ -1095,20 +1108,21 @@ function sceneOutro(c, B) {
     drawWord(c, W / 2, L.word, L.cell, prog(B, 90.4, 92.2), 1, 5);
     const kt = prog(B, 92, 93, easeOutCubic);
     c.globalAlpha = (1 - end) * kt;
-    text(c, "把服务器装进刘海里", W / 2, L.tag + 14 * (1 - kt), { size: 44, weight: 600, align: "center", spacing: 6 });
+    text(c, T("把服务器装进刘海里", "Your servers, in the notch"), W / 2, L.tag + 14 * (1 - kt), { size: 44, weight: 600, align: "center", spacing: 6 });
     const kv = prog(B, 93, 94, easeOutCubic);
     c.globalAlpha = (1 - end) * kv;
-    c.fillStyle = "rgba(91,230,181,0.16)"; rr(c, W / 2 - 170, L.pill, 340, 48, 24); c.fill();
-    text(c, "v0.1.0 · 免费开源", W / 2, L.pill + 32, { size: 22, weight: 700, color: COL.mint, align: "center" });
+    const pw = EN ? 400 : 340;
+    c.fillStyle = "rgba(91,230,181,0.16)"; rr(c, W / 2 - pw / 2, L.pill, pw, 48, 24); c.fill();
+    text(c, T("v0.1.0 · 免费开源", "v0.1.0 · Free & open source"), W / 2, L.pill + 32, { size: 22, weight: 700, color: COL.mint, align: "center" });
     const kf = prog(B, 94, 95, easeOutCubic);
     c.globalAlpha = (1 - end) * kf;
     if (VERT) {
-      text(c, "Slurm / 直连服务器 · 服务器上什么都不用装", W / 2, L.f1, { size: 30, color: "rgba(255,255,255,0.72)", align: "center" });
+      text(c, T("Slurm / 直连服务器 · 服务器上什么都不用装", "Slurm & Linux servers · nothing to install"), W / 2, L.f1, { size: 30, color: "rgba(255,255,255,0.72)", align: "center" });
       text(c, "NEP · GPUMD · VASP · LAMMPS", W / 2, L.f2, { size: 30, color: "rgba(255,255,255,0.72)", align: "center" });
       text(c, "github.com/zhyan0603/ServerIsland", W / 2, L.f3, { size: 28, weight: 600, color: COL.mint, align: "center", font: MONO });
       text(c, "GPL-3.0 · macOS 14+", W / 2, L.f3 + 44, { size: 24, color: "rgba(255,255,255,0.5)", align: "center" });
     } else {
-      text(c, "Slurm / 直连服务器 · NEP / GPUMD / VASP / LAMMPS · 服务器上什么都不用装", W / 2, L.f1, { size: 24, color: "rgba(255,255,255,0.7)", align: "center" });
+      text(c, T("Slurm / 直连服务器 · NEP / GPUMD / VASP / LAMMPS · 服务器上什么都不用装", "Slurm & Linux servers · NEP / GPUMD / VASP / LAMMPS · nothing to install on the server"), W / 2, L.f1, { size: 24, color: "rgba(255,255,255,0.7)", align: "center" });
       text(c, "github.com/zhyan0603/ServerIsland  ·  GPL-3.0  ·  macOS 14+", W / 2, L.f2, { size: 22, color: "rgba(255,255,255,0.55)", align: "center" });
     }
     c.restore();

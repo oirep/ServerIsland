@@ -1,6 +1,6 @@
 # 宣传视频（`promo/`）
 
-成品：`promo/out/ServerIsland-v0.1.mp4`（横屏 1920×1080）和 `promo/out/ServerIsland-v0.1-vertical.mp4`（竖屏 1080×1920，手机用）。参数：60fps、50 秒（100 拍 @ 120 BPM）、H.264 CRF 15，AAC 256k / 48kHz，响度约 -12.6 LUFS。成品不进 git；官网用的网页版在 `site/assets/promo.mp4`。
+成品：`promo/out/ServerIsland-v0.1.mp4`（横屏 1920×1080）、`promo/out/ServerIsland-v0.1-vertical.mp4`（竖屏 1080×1920，手机用）和 `promo/out/ServerIsland-v0.1-en.mp4`（英文横屏）。参数：60fps、50 秒（100 拍 @ 120 BPM）、H.264 CRF 15，AAC 256k / 48kHz，响度约 -12.6 LUFS。成品不进 git；官网用的网页版在 `site/assets/promo.mp4`。
 `references/claudevedio.mp4` 是用户放进来的参考视频。
 
 ## 技术栈
@@ -22,6 +22,7 @@
 python3 promo/music.py                       # → promo/out/music.wav（约 2 秒）
 node promo/render.mjs                        # 完整视频（约 7 分钟）
 node promo/render.mjs --vertical             # 竖屏版（同样约 7 分钟），--stills / --from 也能和它一起用
+node promo/render.mjs --en                   # 英文版（可以和 --vertical 组合）
 node promo/render.mjs --stills 3,12.5,29     # 只导出这些秒数的静帧
 node promo/render.mjs --from 10 --to 16      # 只渲染一段 → out/part-10-16.mp4
 ```
@@ -99,3 +100,9 @@ node promo/render.mjs --from 10 --to 16      # 只渲染一段 → out/part-10-1
 - 竖屏下 Mac 场景先画夜空（`drawNight`），电脑上下不是一片黑。
 - 单独排版的地方：片头（Tako、像素字、标语的纵向位置）、字幕（标题 58px、衬底更高）、功能卡片（单列 880×150）、片尾（logo 更大，特性行拆成多行）、排队原因气泡的位置。
 - 改画面时两个版本都要导静帧看一眼：`node promo/render.mjs --stills …` 和 `node promo/render.mjs --vertical --stills …`。
+
+## 英文版（`?en`，2026-10-17）
+
+- 画面上的所有文字都写成 `T("中文", "English")`，地址带 `?en` 时用英文；功能卡片 `CHIPS` 是整段二选一。
+- 英文比中文长的地方要留意：菜单栏按实际宽度排、片尾版本胶囊加宽、排队原因气泡按文字宽度自适应。
+- 新增画面文字时记得同时写英文；检查方法：`node promo/render.mjs --en --stills …`。

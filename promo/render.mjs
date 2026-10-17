@@ -3,6 +3,7 @@
 //
 //   node promo/render.mjs                   # 完整视频 → promo/out/ServerIsland-v0.1.mp4
 //   node promo/render.mjs --vertical        # 竖屏版（1080×1920，手机）→ promo/out/ServerIsland-v0.1-vertical.mp4
+//   node promo/render.mjs --en              # 英文版 → promo/out/ServerIsland-v0.1-en.mp4（可以和 --vertical 一起用）
 //   node promo/render.mjs --stills 2,5,12   # 只导出这些时刻（秒）的静帧，便于检查
 //   node promo/render.mjs --from 20 --to 26 # 只渲染一段（调试用）
 import { spawn } from "node:child_process";
@@ -20,6 +21,8 @@ const opt = (k, d) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] :
 const stills = opt("--stills");
 const FPS = Number(opt("--fps", 60));
 const VERT = args.includes("--vertical");
+const EN = args.includes("--en");
+const query = [VERT && "vertical", EN && "en"].filter(Boolean).join("&");
 const VW = VERT ? 1080 : 1920, VH = VERT ? 1920 : 1080;
 
 const browser = await puppeteer.launch({
@@ -31,7 +34,7 @@ const browser = await puppeteer.launch({
 const page = await browser.newPage();
 page.on("pageerror", e => console.error("页面错误:", e.message));
 page.on("console", m => { if (m.type() === "error") console.error("console:", m.text()); });
-await page.goto("file://" + join(HERE, "index.html") + (VERT ? "?vertical" : ""), { waitUntil: "load" });
+await page.goto("file://" + join(HERE, "index.html") + (query ? "?" + query : ""), { waitUntil: "load" });
 await page.evaluate(() => window.ready);
 const DURATION = await page.evaluate(() => window.TIMELINE.durationBeats * 60 / window.TIMELINE.bpm);
 
@@ -41,7 +44,7 @@ if (stills) {
   for (const s of stills.split(",").map(Number)) {
     await page.evaluate(t => window.renderFrame(t), s);
     const buf = await shot();
-    const f = join(OUT, `${VERT ? "vstill" : "still"}-${String(s).replace(".", "_")}.png`);
+    const f = join(OUT, `${VERT ? "vstill" : "still"}${EN ? "-en" : ""}-${String(s).replace(".", "_")}.png`);
     writeFileSync(f, buf);
     console.log("wrote", f);
   }
@@ -51,7 +54,7 @@ if (stills) {
 
 const from = Number(opt("--from", 0)), to = Number(opt("--to", DURATION));
 const partial = from > 0 || to < DURATION;
-const suffix = VERT ? "-vertical" : "";
+const suffix = (EN ? "-en" : "") + (VERT ? "-vertical" : "");
 const video = join(OUT, partial ? `part-${from}-${to}${suffix}.mp4` : `ServerIsland-v0.1${suffix}.mp4`);
 const total = Math.round((to - from) * FPS);
 
