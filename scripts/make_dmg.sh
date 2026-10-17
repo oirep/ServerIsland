@@ -58,19 +58,26 @@ cat > "$STAGE/安装说明 · Install.txt" <<'EOF'
 ServerIsland 安装说明
 ====================
 1. 把 ServerIsland 拖进旁边的「Applications / 应用程序」文件夹。
-2. 第一次打开时，macOS 可能提示“无法验证开发者”（这个版本没有经过 Apple 公证）：
-   - 在“应用程序”里右键 ServerIsland →“打开”→ 再点“打开”；
-   - 或者：系统设置 → 隐私与安全性 → 页面底部点“仍要打开”；
+2. 第一次打开时，macOS 会提示“无法验证开发者”（这个版本没有经过 Apple 公证），允许一次即可：
+   - macOS 15 及以后：先双击打开一次（会被拦住），再到 系统设置 → 隐私与安全性，
+     在页面下方找到 ServerIsland，点“仍要打开”；
+   - macOS 14：在“应用程序”里按住 Control 点 ServerIsland →“打开”→ 再点“打开”；
    - 或者在终端执行：xattr -dr com.apple.quarantine /Applications/ServerIsland.app
 3. 打开后它只出现在菜单栏和刘海里（不占 Dock）；第一次会打开设置，从 ~/.ssh/config 添加服务器。
+
+ServerIsland 是免费的开源软件（GPL-3.0）：https://github.com/zhyan0603/ServerIsland
 
 Install
 =======
 1. Drag ServerIsland into the Applications folder.
-2. On first launch macOS may say the developer cannot be verified (this build is not notarized):
-   right-click ServerIsland in Applications → Open → Open, or run
-   xattr -dr com.apple.quarantine /Applications/ServerIsland.app
+2. macOS will say the developer cannot be verified (this build is not notarized). Allow it once:
+   - macOS 15 and later: double-click the app once (it gets blocked), then open
+     System Settings → Privacy & Security, scroll down and click "Open Anyway";
+   - macOS 14: Control-click ServerIsland in Applications → Open → Open;
+   - or run: xattr -dr com.apple.quarantine /Applications/ServerIsland.app
 3. ServerIsland lives in the menu bar and the notch. Settings opens on first launch.
+
+ServerIsland is free and open source (GPL-3.0): https://github.com/zhyan0603/ServerIsland
 EOF
 # DMG 卷图标用 App 图标
 cp Resources/AppIcon.icns "$STAGE/.VolumeIcon.icns"
