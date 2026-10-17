@@ -1,6 +1,6 @@
 # 宣传视频（`promo/`）
 
-成品：`promo/out/ServerIsland-v0.1.mp4`。参数：1920×1080、60fps、50 秒（100 拍 @ 120 BPM）、H.264 CRF 15，AAC 256k / 48kHz，响度约 -12.6 LUFS。成品不进 git。
+成品：`promo/out/ServerIsland-v0.1.mp4`（横屏 1920×1080）和 `promo/out/ServerIsland-v0.1-vertical.mp4`（竖屏 1080×1920，手机用）。参数：60fps、50 秒（100 拍 @ 120 BPM）、H.264 CRF 15，AAC 256k / 48kHz，响度约 -12.6 LUFS。成品不进 git；官网用的网页版在 `site/assets/promo.mp4`。
 `references/claudevedio.mp4` 是用户放进来的参考视频。
 
 ## 技术栈
@@ -21,6 +21,7 @@
 ```bash
 python3 promo/music.py                       # → promo/out/music.wav（约 2 秒）
 node promo/render.mjs                        # 完整视频（约 7 分钟）
+node promo/render.mjs --vertical             # 竖屏版（同样约 7 分钟），--stills / --from 也能和它一起用
 node promo/render.mjs --stills 3,12.5,29     # 只导出这些秒数的静帧
 node promo/render.mjs --from 10 --to 16      # 只渲染一段 → out/part-10-16.mp4
 ```
@@ -35,12 +36,12 @@ node promo/render.mjs --from 10 --to 16      # 只渲染一段 → out/part-10-1
 |---|---|---|---|
 | intro | 0–8 | 夜空、像素海浪；Tako 落地（冲击波、粒子）；像素字 ServerIsland 组装；标语"把服务器装进刘海里"；Tako 跳出画面 | 2 whoosh、3 boing、4 shimmer、7.5 whoosh、8 impact |
 | notch | 8–20 | 闪白切到 MacBook；Tako 跳上菜单栏、钻进刘海；岛展开出两翼；下方气泡依次展示 4 种心情 | 9 boing、10.5 bloop、11 pop |
-| expand | 20–32 | 光标点刘海，面板弹开，出现两张卡片（4090 工作站、HPC 集群），进度条推进，任务行高亮 | 20.75 click、21 whoosh |
+| expand | 20–32 | 光标点刘海，面板弹开：4090 工作站（nep、lmp）、HPC 集群（VASP MD、数组、两个排队），卡片标题有运行 / 排队数，底部是"2 台空闲"一行 | 20.75 click、21 whoosh |
 | slurm | 32–44 | 数组作业的分段进度推进；排队原因气泡；滑入分区空闲页；Tako 在页上跳两下；镜头慢推 | 32 impact、36 pop、38 whoosh、40/42 boing |
-| nep | 44–56 | 文件夹窗口里依次弹出 nep.in / train.xyz / loss.out / nep.txt，Tako 逐个跳上去；高亮出"nep.in + loss.out → NEP 训练"；镜头移到岛的详情页：代数增长、loss 曲线 | 44–47 pop（音阶上行）、48 shimmer |
-| alerts | 56–68 | 收起；"NEP 训练完成"弹窗配叮咚，菜单栏上的 Tako 开心地蹦；"gpumd_600K 提前结束"配咚咚，Tako 变红；"已静音 HPC 集群"小提示 | 58 ding、62 dong、65 click |
-| montage | 68–80 | 九张功能卡每拍弹出一张（暂停、轮询、固定、动态口令、24 小时、长按确认、监听 PID、磁盘、中英文），Tako 逐张跳 | 68 impact、69–77 pop（音阶上行） |
-| outro | 80–100 | Tako 在桌面上大跳 4 次后钻回刘海；画面变暗；logo、像素字、"v0.1.0 · 第一个版本"、特性行；最后的 hit；淡出到黑 | 80 impact、81/83/85 boing、88 bloop、90 shimmer、96 impact |
+| nep | 44–56 | 文件夹窗口里依次弹出 nep.in / train.xyz / loss.out / nep.txt，Tako 逐个跳上去；高亮出"nep.in + loss.out → NEP 训练"，再依次弹出 VASP / LAMMPS / 自定义规则三个识别标签；镜头移到岛的详情页：代数增长、loss 曲线 | 44–47 pop（音阶上行）、48 shimmer |
+| alerts | 56–68 | 收起；"NEP 训练完成"弹窗配叮咚，菜单栏上的 Tako 开心地蹦；"LAMMPS MD 提前结束"配咚咚，Tako 变红；"已静音 HPC 集群"小提示 | 58 ding、62 dong、65 click |
+| montage | 68–80 | 九张功能卡每拍弹出一张（VASP / LAMMPS、自定义规则、曲线、空闲合并、暂停 / 静音、动态口令、长按确认、24 小时、中英文），Tako 逐张跳；竖屏是单列 | 68 impact、69–77 pop（音阶上行） |
+| outro | 80–100 | Tako 在桌面上大跳 4 次后钻回刘海；画面变暗；logo、像素字、"v0.1.0 · 免费开源"、特性行和 GitHub 地址；最后的 hit；淡出到黑 | 80 impact、81/83/85 boing、88 bloop、90 shimmer、96 impact |
 
 字幕在 `CAPTIONS`（第 12、22、33、45、57 拍开始，编号 01–05）：左下角、逐字弹出，底部有渐暗衬底。
 
@@ -90,3 +91,11 @@ node promo/render.mjs --from 10 --to 16      # 只渲染一段 → out/part-10-1
 2. 静帧检查看不出"画面静止"的问题。要跑 `freezedetect`：分区页曾经静止了 1.8 秒，后来加了镜头慢推和 Tako 跳跃。
 3. 岛的展开发生在 cue 那一刻时，弹出的文字会比声音晚出现。所以关键帧要提前。
 4. ffmpeg 拼图时，单张输出要加 `-frames:v 1`；用 `color` 源时要加 `d=1`。
+
+## 竖屏版（`?vertical`，2026-10-17）
+
+- 同一份 `index.html`，地址带 `?vertical` 时 `W × H = 1080 × 1920`；时间轴、音乐、卡点完全一样。
+- **Mac 场景的镜头自动换算**（`vertCam`）：横屏镜头能看到的世界宽度 `V = 1920 / z`，按分段线性表 `VKNOTS` 换算成竖屏要看到的宽度——特写（刘海两翼、提示）保持差不多的放大，看面板时让 668 宽的面板刚好占满，全景时整台电脑放得下；纵向让画面顶部贴着刘海。所以 Mac 场景不用为竖屏单独写镜头。
+- 竖屏下 Mac 场景先画夜空（`drawNight`），电脑上下不是一片黑。
+- 单独排版的地方：片头（Tako、像素字、标语的纵向位置）、字幕（标题 58px、衬底更高）、功能卡片（单列 880×150）、片尾（logo 更大，特性行拆成多行）、排队原因气泡的位置。
+- 改画面时两个版本都要导静帧看一眼：`node promo/render.mjs --stills …` 和 `node promo/render.mjs --vertical --stills …`。

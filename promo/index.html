@@ -22,8 +22,13 @@
 // ServerIsland v0.1 发布视频 —— 全部画面都是时间 t 的纯函数，renderFrame(t) 可逐帧确定地重现。
 // =====================================================================================
 const TL = window.TIMELINE;
-const W = TL.width, H = TL.height, BEAT = 60 / TL.bpm;
+// ?vertical：竖屏版（手机），1080 × 1920；时间轴、音乐完全相同，只是重新排版
+const VERT = location.search.includes("vertical");
+const W = VERT ? 1080 : TL.width, H = VERT ? 1920 : TL.height, BEAT = 60 / TL.bpm;
 const cv = document.getElementById("c");
+cv.width = W; cv.height = H;
+document.getElementById("stage").style.width = W + "px";
+document.getElementById("stage").style.height = H + "px";
 const ctx = cv.getContext("2d");
 const LOGO = document.getElementById("logo");
 
@@ -235,8 +240,25 @@ function buildWallpaper() {
   wallpaper = oc;
 }
 
+// 竖屏：横屏镜头能看到的世界宽度 V = 1920 / z，换算成竖屏要看到的宽度（单调、连续）：
+// 特写（刘海两翼、提示）保持差不多的放大；看面板时让 668 宽的面板刚好占满；全景时整台电脑都放得下。
+const VKNOTS = [[0, 0], [680, 480], [900, 690], [1300, 740], [1960, 1960]];
+function vertCam(cam) {
+  const V = 1920 / cam.z;
+  let Vt = V;
+  for (let i = 1; i < VKNOTS.length; i++) {
+    const [a, fa] = VKNOTS[i - 1], [b, fb] = VKNOTS[i];
+    if (V <= b || i === VKNOTS.length - 1) { Vt = fa + (fb - fa) * clamp((V - a) / (b - a), 0, 1.5); break; }
+  }
+  const z = W / Vt, hh = H / 2 / z;
+  let y;
+  if (2 * hh >= SH + 140) y = SH / 2 + 30;                       // 整台电脑放得下：居中
+  else y = Math.min(Math.max(cam.y, -30 + hh), SH + 70 - hh);     // 否则顶部贴着刘海
+  return { x: cam.x, y, z };
+}
 // 摄像机：世界坐标点 (cx, cy) 位于画面中心，缩放 z
 function withCamera(c, cam, fn) {
+  if (VERT) cam = vertCam(cam);
   c.save();
   c.translate(W / 2, H / 2); c.scale(cam.z, cam.z); c.translate(-cam.x, -cam.y);
   fn();
@@ -331,7 +353,7 @@ const SPEC = {
   hidden: { w: NOTCH_W, h: MENU, ear: 0, bot: 8 },
   collapsed: { w: NOTCH_W + 2 * 62 + 12, h: MENU, ear: 6, bot: 10 },
   toast: { w: 445, h: MENU + 60, ear: 10, bot: 22 },
-  panel: { w: 668, h: MENU + 8 + 336 + 14, ear: 14, bot: 26 },
+  panel: { w: 668, h: MENU + 8 + 420 + 14, ear: 14, bot: 26 },
   detail: { w: 668, h: MENU + 8 + 300 + 14, ear: 14, bot: 26 },
 };
 // keys: [[beat, specName]]，在两个状态之间用弹簧过渡
@@ -404,7 +426,18 @@ function drawCard(c, x, y, w, card, B) {
   let cy = y + pad;
   c.fillStyle = COL.mint; c.shadowColor = COL.mint; c.shadowBlur = 5; c.beginPath(); c.arc(x + pad + 3, cy + 10, 3.3, 0, 7); c.fill(); c.shadowBlur = 0;
   const nw = text(c, card.name, x + pad + 13, cy + 15, { size: 13, weight: 600 });
-  badge(c, card.badge, x + pad + 20 + nw, cy + 14, card.badge === "SLURM" ? COL.violet : COL.cyan);
+  const bw0 = badge(c, card.badge, x + pad + 20 + nw, cy + 14, card.badge === "SLURM" ? COL.violet : COL.cyan);
+  // 这台机器自己的运行 / 排队数（App 里卡片标题上的小胶囊）
+  if (card.counts) {
+    let px = x + pad + 28 + nw + bw0;
+    const parts = card.counts.filter(([, v]) => v > 0);
+    c.font = `600 10px ${FONT}`;
+    const widths = parts.map(([g, v]) => c.measureText(g + " " + v).width);
+    const cw = widths.reduce((a, b) => a + b, 0) + (parts.length - 1) * 8 + 12;
+    c.fillStyle = "rgba(255,255,255,0.07)"; rr(c, px, cy + 3, cw, 15, 7.5); c.fill();
+    px += 6;
+    parts.forEach(([g, v, col], i) => { text(c, g + " " + v, px, cy + 14, { size: 10, weight: 600, color: col }); px += widths[i] + 8; });
+  }
   text(c, card.meta || "刚刚 · 96ms", x + w - pad, cy + 15, { size: 10, color: COL.ter, align: "right" });
   cy += 20;
   if (card.metrics) {
@@ -434,7 +467,15 @@ function drawCard(c, x, y, w, card, B) {
       c.save(); rr(c, bx, by, bw, 4, 2); c.clip();
       const [d, f, r] = j.seg; c.fillStyle = COL.mint; c.fillRect(bx, by, bw * d, 4); c.fillStyle = COL.coral; c.fillRect(bx + bw * d + 1, by, bw * f, 4);
       c.fillStyle = "rgba(92,194,255,0.55)"; c.fillRect(bx + bw * (d + f) + 2, by, bw * r, 4); c.restore();
-      text(c, j.detail, x + w - pad, cy + 28, { size: 10, color: j.detailCol || COL.ter, align: "right" });
+      if (j.segText) {
+        let rx = x + w - pad;
+        for (let i = j.segText.length - 1; i >= 0; i--) {
+          const [str, col] = j.segText[i];
+          c.font = `400 10px ${FONT}`; const sw = c.measureText(str).width;
+          text(c, str, rx, cy + 28, { size: 10, color: col, align: "right" }); rx -= sw;
+          if (i > 0) { c.font = `400 10px ${FONT}`; const dw = c.measureText(" · ").width; text(c, " · ", rx, cy + 28, { size: 10, color: COL.ter, align: "right" }); rx -= dw; }
+        }
+      } else text(c, j.detail, x + w - pad, cy + 28, { size: 10, color: j.detailCol || COL.ter, align: "right" });
     } else {
       const bw = w - pad * 2 - 32 - 220;
       bar(c, lx, cy + 22, bw, j.k, j.real ? null : "rgba(255,255,255,0.45)");
@@ -444,10 +485,21 @@ function drawCard(c, x, y, w, card, B) {
   }
   return h;
 }
+function drawIdleRow(c, x, y, w) {
+  c.fillStyle = "rgba(255,255,255,0.04)"; rr(c, x, y, w, 36, 14); c.fill();
+  c.strokeStyle = "rgba(255,255,255,0.08)"; c.lineWidth = 0.6; rr(c, x, y, w, 36, 14); c.stroke();
+  text(c, "☾", x + 14, y + 23, { size: 12, color: COL.ter });
+  let px = x + 32 + text(c, "2 台空闲", x + 32, y + 22.5, { size: 11, weight: 600, color: COL.sec }) + 12;
+  for (const n of ["老服务器", "3090 工作站"]) {
+    c.fillStyle = COL.mint; c.beginPath(); c.arc(px + 2.5, y + 18.5, 2.5, 0, 7); c.fill();
+    px += 9 + text(c, n, px + 9, y + 22.5, { size: 11, color: COL.ter }) + 12;
+  }
+  text(c, "展开 ⌄", x + w - 14, y + 22.5, { size: 10, weight: 500, color: COL.cyan, align: "right" });
+}
 function islandHeader(c, x, w, B, o = {}) {
   drawTako(c, x + 22, 26, 15, o.mood || "working", Math.floor(B * 2), { shadow: false });
   text(c, "ServerIsland", x + 38, 21, { size: 12.5, weight: 600 });
-  text(c, "⚡ " + (o.run ?? 8), x + 132, 21, { size: 11, weight: 600, color: COL.mint });
+  text(c, "⚡ " + (o.run ?? 9), x + 132, 21, { size: 11, weight: 600, color: COL.mint });
   text(c, "⏳ " + (o.pend ?? 20), x + 162, 21, { size: 11, weight: 600, color: COL.amber });
   const rx = x + w - 14;
   [["⚙", 0], ["↻", 30], ["📌", 60]].forEach(([g, d]) => {
@@ -462,7 +514,7 @@ function islandHeader(c, x, w, B, o = {}) {
 function drawWings(c, x, w, B, o = {}) {
   const cy = MENU / 2;
   drawTako(c, MID - NOTCH_W / 2 - 40, cy + 9, 17, o.mood || "working", Math.floor(B * 2), { shadow: false });
-  text(c, String(o.run ?? 3), MID - NOTCH_W / 2 - 20, cy + 5, { size: 13, weight: 600 });
+  text(c, String(o.run ?? 9), MID - NOTCH_W / 2 - 20, cy + 5, { size: 13, weight: 600 });
   const k = o.k ?? 0.63;
   ring(c, MID + NOTCH_W / 2 + 22, cy, 6.5, k);
   text(c, Math.round(k * 100) + "%", MID + NOTCH_W / 2 + 33, cy + 4.5, { size: 11, weight: 600, color: COL.mint });
@@ -491,9 +543,9 @@ function drawToast(c, x, w, B, t) {
 // ------------------------------------------------------------------ 字幕（屏幕空间）
 const CAPTIONS = [
   { from: 12, to: 19.6, tag: "01", title: "住在刘海里的小章鱼", sub: "有任务就手舞足蹈 · 排队时打瞌睡 · 出错会晕" },
-  { from: 22, to: 31.6, tag: "02", title: "悬停展开，一眼看完所有服务器", sub: "SSH 连接复用 · 服务器上什么都不用装" },
+  { from: 22, to: 31.6, tag: "02", title: "悬停展开，一眼看完所有服务器", sub: "每台机器一张卡片 · 服务器上什么都不用装" },
   { from: 33, to: 43.6, tag: "03", title: "Slurm 作业，看得更明白", sub: "数组作业合并显示 · 排队原因说人话 · 分区空闲一目了然" },
-  { from: 45, to: 55.6, tag: "04", title: "认得你的计算", sub: "NEP / GPUMD 自动识别进度、速度和剩余时间" },
+  { from: 45, to: 55.6, tag: "04", title: "认得你的计算", sub: "NEP · GPUMD · VASP · LAMMPS 自动识别进度" },
   { from: 57, to: 67.6, tag: "05", title: "完成「叮咚」，失败「咚咚」", sub: "刘海弹窗 + 提示音，不用盯着终端" },
 ];
 function drawCaption(c, B) {
@@ -501,12 +553,13 @@ function drawCaption(c, B) {
     if (B < cap.from - 0.1 || B > cap.to + 0.1) continue;
     const kin = prog(B, cap.from, cap.from + 1.2, easeOutQuint), kout = prog(B, cap.to - 0.6, cap.to, easeInCubic);
     const a = kin * (1 - kout);
-    const x = 110, y = 880;
+    const x = VERT ? 70 : 110, y = VERT ? H - 300 : 880, ts = VERT ? 58 : 68;
     c.save();
     // 底部渐暗衬底
-    const bg = c.createLinearGradient(0, H - 330, 0, H);
-    bg.addColorStop(0, "rgba(5,8,20,0)"); bg.addColorStop(1, `rgba(5,8,20,${0.78 * a})`);
-    c.fillStyle = bg; c.fillRect(0, H - 330, W, 330);
+    const bh = VERT ? 520 : 330;
+    const bg = c.createLinearGradient(0, H - bh, 0, H);
+    bg.addColorStop(0, "rgba(5,8,20,0)"); bg.addColorStop(1, `rgba(5,8,20,${0.82 * a})`);
+    c.fillStyle = bg; c.fillRect(0, H - bh, W, bh);
     const lg = c.createLinearGradient(0, 0, 900, 0);
     lg.addColorStop(0, `rgba(5,8,20,${0.45 * a})`); lg.addColorStop(1, "rgba(5,8,20,0)");
     c.fillStyle = lg; c.fillRect(0, H - 330, 900, 330);
@@ -522,14 +575,14 @@ function drawCaption(c, B) {
     [...cap.title].forEach((ch, i) => {
       const ki = prog(B, cap.from + 0.1 + i * 0.06, cap.from + 0.7 + i * 0.06, easeOutBack);
       c.globalAlpha = a * clamp(ki * 1.5);
-      c.font = `700 68px ${FONT}`;
+      c.font = `700 ${ts}px ${FONT}`;
       const cw = c.measureText(ch).width;
-      text(c, ch, cx, y + 24 * (1 - ki), { size: 68, weight: 700 });
+      text(c, ch, cx, y + 24 * (1 - ki), { size: ts, weight: 700 });
       cx += cw;
     });
     c.restore();
     c.globalAlpha = a * prog(B, cap.from + 0.6, cap.from + 1.4);
-    text(c, cap.sub, tx + 2, y + 58, { size: 30, color: "rgba(255,255,255,0.78)" });
+    text(c, cap.sub, tx + 2, y + 58, { size: VERT ? 28 : 30, color: "rgba(255,255,255,0.78)" });
     c.restore();
   }
 }
@@ -573,7 +626,7 @@ function flash(c, B, b0, dur = 0.6, col = "255,255,255", max = 0.85) {
 // 0. 片头：夜空，小章鱼落地，像素字组装
 function sceneIntro(c, B) {
   drawNight(c, B);
-  const ground = 650;
+  const ground = VERT ? 920 : 650, wordY = VERT ? 1140 : 820, tagY = VERT ? 1260 : 935;
   // 小章鱼从天而降
   let p, mood = "idle", tick = Math.floor(B * 2);
   if (B < 3) {
@@ -599,17 +652,18 @@ function sceneIntro(c, B) {
   burst(c, B, 3, W / 2, ground - 10, { n: 22, speed: 340, size: 10, grav: 260, seed: 3 });
   // 像素字 + 标语
   const kw = prog(B, 4, 6.2);
-  if (kw > 0) drawWord(c, W / 2, 820, 15, kw, 1 - prog(B, 7.4, 8));
+  if (kw > 0) drawWord(c, W / 2, wordY, VERT ? 13 : 15, kw, 1 - prog(B, 7.4, 8));
   const ks = prog(B, 6, 6.8, easeOutCubic);
   if (ks > 0) {
     c.save(); c.globalAlpha = ks * (1 - prog(B, 7.4, 8));
-    text(c, "把服务器装进刘海里", W / 2, 935 + 16 * (1 - ks), { size: 40, weight: 500, color: "rgba(255,255,255,0.86)", align: "center", spacing: 8 });
+    text(c, "把服务器装进刘海里", W / 2, tagY + 16 * (1 - ks), { size: 40, weight: 500, color: "rgba(255,255,255,0.86)", align: "center", spacing: 8 });
     c.restore();
   }
 }
 
 // Mac 场景通用：画桌面 + 岛 + 世界坐标里的额外内容
 function macWorld(c, B, cam, islandKeys, content, extra) {
+  if (VERT) drawNight(c, B + 20, 1);
   withCamera(c, cam, () => {
     drawLaptop(c);
     drawDesktop(c, B);
@@ -663,20 +717,22 @@ function sceneNotch(c, B) {
 // 面板内容（卡片）
 function panelCards(B) {
   const t = (B - 20) * BEAT;
-  const nepK = clamp(0.36 + t * 0.006), mdK = clamp(0.6 + t * 0.004);
+  const nepK = clamp(0.36 + t * 0.006), lmpK = clamp(0.38 + t * 0.004), mdK = clamp(0.248 + t * 0.0006);
   return [
     {
-      name: "4090 工作站", badge: "DIRECT", meta: "刚刚 · 96ms",
+      name: "4090 工作站", badge: "DIRECT", meta: "刚刚 · 96ms", counts: [["⚡", 2, COL.mint]],
       metrics: [["CPU", 0.42, "42%"], ["内存", 0.18, "5.6/31G"], ["GPU", 0.96, "96% · 2.6/24G"]],
       jobs: [
         { icon: "atom", col: COL.mint, name: "nep", id: "pid 41022", right: `${Math.round(nepK * 100)}% · 约剩 7m`, rightCol: COL.mint, detail: `NEP 训练 · ${Math.round(nepK * 20000).toLocaleString()}/20,000 代`, k: nepK, real: true },
-        { icon: "atom", col: COL.mint, name: "gpumd", id: "pid 41377", right: `${Math.round(mdK * 100)}% · 约剩 8m`, rightCol: COL.mint, detail: `GPUMD 模拟 · ${(mdK * 2).toFixed(2)}M/2.00M 步`, k: mdK, real: true },
+        { icon: "atom", col: COL.mint, name: "lmp", id: "pid 41377", right: `${Math.round(lmpK * 100)}% · 约剩 12m`, rightCol: COL.mint, detail: `LAMMPS MD · ${Math.round(lmpK * 1000000).toLocaleString()}/1.00M 步`, k: lmpK, real: true },
       ],
     },
     {
-      name: "HPC 集群", badge: "SLURM", meta: "12秒前 · 140ms",
+      name: "HPC 集群", badge: "SLURM", meta: "12秒前 · 140ms", counts: [["⚡", 7, COL.mint], ["⏳", 20, COL.amber]],
       jobs: [
-        { icon: "stack", col: COL.mint, name: "eos_scan", id: "数组 #8812300", idCol: COL.violet, right: `完成 ${16 + Math.floor(clamp(t / 4) * 4)}/40`, rightCol: COL.mint, seg: [0.35 + clamp(t / 4) * 0.1, 0.05, 0.15], detail: "运行 6 · 排队 18 · 失败 2", detailCol: "rgba(255,110,110,0.85)" },
+        { icon: "atom", col: COL.mint, name: "aimd_Li3PS4_900K", id: "#8812044", right: `${Math.round(mdK * 100)}% · 约剩 1d`, rightCol: COL.mint, detail: `VASP MD · ${Math.round(mdK * 5000).toLocaleString()}/5,000 步`, k: mdK, real: true },
+        { icon: "stack", col: COL.mint, name: "eos_scan", id: "数组 #8812300", idCol: COL.violet, right: `完成 ${16 + Math.floor(clamp(t / 4) * 4)}/40`, rightCol: COL.mint, seg: [0.35 + clamp(t / 4) * 0.1, 0.05, 0.15],
+          segText: [["运行 6", COL.cyan], ["排队 18", COL.sec], ["失败 2", COL.coral]] },
         { icon: "hour", col: COL.amber, name: "phonon_Si_444", id: "#8812355", right: "上限 12:00:00", pending: "优先级排队中 · cpu" },
         { icon: "hour", col: COL.amber, name: "band_LiCoO2", id: "#8812356", right: "上限 6:00:00", pending: "依赖永远无法满足 · cpu", warn: true },
       ],
@@ -686,7 +742,7 @@ function panelCards(B) {
 
 // 2. 悬停展开
 function sceneExpand(c, B) {
-  const cam = camKeys(B, [[20, { x: MID, y: 172, z: 2.95 }], [21.2, { x: MID, y: 230, z: 1.75 }], [31, { x: MID, y: 250, z: 1.7 }], [32, { x: MID, y: 250, z: 1.72 }]]);
+  const cam = camKeys(B, [[20, { x: MID, y: 172, z: 2.95 }], [21.2, { x: MID, y: 296, z: 1.56 }], [31, { x: MID, y: 306, z: 1.52 }], [32, { x: MID, y: 306, z: 1.54 }]]);
   const keys = [[0, "collapsed"], [20.85, "panel"]];
   macWorld(c, B, cam, keys, (x, w, s) => {
     if (s.name === "collapsed") { drawWings(c, x, w, B); return; }
@@ -702,6 +758,8 @@ function sceneExpand(c, B) {
       y += drawCard(c, x + 14, y, w - 28, cd, B) + 8;
       c.restore();
     });
+    const ki = easeOutCubic(clamp((s.since - 0.44) * 2.6));
+    c.save(); c.globalAlpha = a * ki; c.translate(0, 18 * (1 - ki)); drawIdleRow(c, x + 14, y, w - 28); c.restore();
     c.restore();
   }, {
     above: () => {
@@ -720,15 +778,15 @@ function scenePartitions(c, x, w, B, a) {
   text(c, "‹", x + 26, 28, { size: 20, color: COL.sec, align: "center" });
   text(c, "分区空闲资源", x + 48, 22, { size: 13.5, weight: 600 });
   text(c, "HPC 集群 · 按空闲 GPU 排序", x + 48, 37, { size: 10.5, color: COL.ter });
-  const rows = [["16V100", "V100", 100, 1264, 800, 10112], ["4V100", "V100", 43, 140, 360, 1120], ["8V100V0", "V100", 36, 112, 216, 672], ["DSPRHBM", "", 0, 0, 1584, 1872], ["8A100M80", "A100", 0, 8, 0, 128]];
+  const rows = [["gpu-v100", "V100", 19, 96, 210, 1152], ["gpu-a100", "A100", 5, 64, 64, 512], ["cpu", "", 0, 0, 2960, 15360], ["bigmem", "", 0, 0, 384, 512], ["debug", "", 0, 0, 128, 128]];
   let y = MENU + 22;
   rows.forEach(([n, model, gi, gt, ci, ct], i) => {
     const k = easeOutCubic(clamp((B - 38.3 - i * 0.18) * 1.6));
     c.save(); c.globalAlpha = a * k; c.translate(30 * (1 - k), 0);
     c.fillStyle = COL.card; rr(c, x + 14, y, w - 28, 54, 10); c.fill();
     const nw = text(c, n, x + 26, y + 20, { size: 12.5, weight: 600 });
-    if (i === 1) badge(c, "默认", x + 32 + nw, y + 19, COL.violet);
-    if (model) text(c, model, x + 32 + nw + (i === 1 ? 40 : 0), y + 20, { size: 9.5, font: MONO, color: COL.ter });
+    if (i === 2) badge(c, "默认", x + 32 + nw, y + 19, COL.violet);
+    if (model) text(c, model, x + 32 + nw, y + 20, { size: 9.5, font: MONO, color: COL.ter });
     const fill = k;
     if (gt > 0) {
       text(c, "GPU", x + 26, y + 42, { size: 9.5, weight: 600, color: COL.ter });
@@ -744,7 +802,7 @@ function scenePartitions(c, x, w, B, a) {
   c.restore();
 }
 function sceneSlurm(c, B) {
-  const cam = camKeys(B, [[32, { x: MID, y: 250, z: 1.72 }], [33.5, { x: MID, y: 300, z: 2.05 }], [37.5, { x: MID, y: 320, z: 2.1 }], [38.6, { x: MID, y: 230, z: 1.75 }], [44, { x: MID + 30, y: 215, z: 1.98 }]]);
+  const cam = camKeys(B, [[32, { x: MID, y: 306, z: 1.54 }], [33.5, { x: MID, y: 316, z: 2.0 }], [37.5, { x: MID, y: 352, z: 2.05 }], [38.6, { x: MID, y: 230, z: 1.75 }], [44, { x: MID + 30, y: 215, z: 1.98 }]]);
   const keys = [[0, "panel"]];
   macWorld(c, B, cam, keys, (x, w, s) => {
     const showPart = B >= 38;
@@ -755,12 +813,13 @@ function sceneSlurm(c, B) {
       const cards = panelCards(B);
       // 数组进度在这一段明显推进
       const t = clamp((B - 32) / 6);
-      cards[1].jobs[0].seg = [0.35 + t * 0.2, 0.05 + (B > 35 ? 0.025 : 0), 0.15];
-      cards[1].jobs[0].right = `完成 ${16 + Math.round(t * 9)}/40`;
-      cards[1].jobs[0].hl = prog(B, 33, 33.5) * (1 - prog(B, 35.6, 36));
-      cards[1].jobs[2].hl = prog(B, 36, 36.3) * (1 - prog(B, 37.6, 38));
+      cards[1].jobs[1].seg = [0.35 + t * 0.2, 0.05 + (B > 35 ? 0.025 : 0), 0.15];
+      cards[1].jobs[1].right = `完成 ${16 + Math.round(t * 9)}/40`;
+      cards[1].jobs[1].hl = prog(B, 33, 33.5) * (1 - prog(B, 35.6, 36));
+      cards[1].jobs[3].hl = prog(B, 36, 36.3) * (1 - prog(B, 37.6, 38));
       let y = MENU + 8;
       cards.forEach(cd => { y += drawCard(c, x + 14, y, w - 28, cd, B) + 8; });
+      drawIdleRow(c, x + 14, y, w - 28);
       c.restore();
     }
     if (showPart) { c.save(); c.translate(60 * (1 - kp), 0); scenePartitions(c, x, w, B, kp); c.restore(); }
@@ -781,7 +840,7 @@ function sceneSlurm(c, B) {
       if (B > 36 && B < 38.2) {
         const k = easeOutBack(prog(B, 36, 36.4)), o = 1 - prog(B, 37.8, 38.2);
         c.save(); c.globalAlpha = k * o;
-        const bx = MID + 70, by = 352;
+        const bx = VERT ? MID - 150 : MID + 70, by = 404;
         c.translate(bx, by); c.scale(k, k);
         c.fillStyle = "rgba(20,10,14,0.95)"; rr(c, 0, 0, 300, 58, 12); c.fill();
         c.strokeStyle = "rgba(255,110,110,0.5)"; c.lineWidth = 1; rr(c, 0, 0, 300, 58, 12); c.stroke();
@@ -879,6 +938,19 @@ function sceneNep(c, B) {
         text(c, "nep.in  +  loss.out   →   NEP 训练", 0, 7, { size: 18, weight: 700, color: COL.mint, align: "center", font: FONT });
         c.restore();
       }
+      // 其他软件也认得：依次弹出
+      [["INCAR + OSZICAR → VASP", COL.cyan], ["log.lammps → LAMMPS", COL.amber], ["自定义规则 → 你的程序", COL.violet]].forEach(([label, col], i) => {
+        const kp = easeOutBack(prog(B, 48.7 + i * 0.4, 49.1 + i * 0.4));
+        if (kp <= 0) return;
+        const pw = 204, px = fx + (fw - pw * 3 - 14 * 2) / 2 + i * (pw + 14) + pw / 2, py = fy + fh - 118;
+        c.save(); c.translate(px, py); c.scale(kp, kp);
+        c.shadowColor = "rgba(0,0,0,0.3)"; c.shadowBlur = 16; c.shadowOffsetY = 6;
+        c.fillStyle = "rgba(11,15,30,0.94)"; rr(c, -pw / 2, -17, pw, 34, 17); c.fill();
+        c.shadowBlur = 0; c.shadowOffsetY = 0;
+        c.strokeStyle = col; c.globalAlpha *= 0.7; c.lineWidth = 1.5; rr(c, -pw / 2, -17, pw, 34, 17); c.stroke(); c.globalAlpha /= 0.7;
+        text(c, label, 0, 5, { size: 13, weight: 700, color: col, align: "center" });
+        c.restore();
+      });
       c.restore();
     },
     above: () => {
@@ -903,7 +975,7 @@ function sceneAlerts(c, B) {
   const keys = [[0, "detail"], [56.2, "collapsed"], [57.8, "toast"], [61.2, "collapsed"], [61.8, "toast"], [65.2, "collapsed"]];
   const toastOf = B => B < 61.2
     ? { ok: true, host: "4090 工作站", min: 6, title: "NEP 训练完成", sub: "20,000 代 · Total 0.1382 · nep-train" }
-    : { ok: false, host: "4090 工作站", min: 8, title: "gpumd 提前结束", sub: "停在 1.24M/2.00M 步 · kappa-300K" };
+    : { ok: false, host: "4090 工作站", min: 8, title: "LAMMPS MD 提前结束", sub: "停在 386,000/1.00M 步 · npt-1200K" };
   macWorld(c, B, cam, keys, (x, w, s) => {
     if (s.name === "collapsed") {
       c.save(); c.globalAlpha = clamp(s.since * 3);
@@ -932,9 +1004,9 @@ function sceneAlerts(c, B) {
 }
 
 // 6. 蒙太奇：九张功能卡，小章鱼逐张跳过
-const CHIPS = [["⏸", "暂停单台服务器", "知道没任务就别查"], ["⏱", "自定义轮询", "15 秒到 1 小时，或仅手动"], ["📌", "固定面板", "鼠标移开也不收起"],
-  ["🔑", "动态口令登录", "输入只交给 ssh，不保存"], ["🗂", "最近 24 小时", "sacct 没开也能记"], ["✋", "按住 + 二次确认", "取消作业不怕误触"],
-  ["👁", "监听任意 PID", "结束时一定提醒"], ["💾", "磁盘快满提醒", "home 满了先告诉你"], ["🌏", "中文 / English", "一键切换"]];
+const CHIPS = [["🧪", "VASP / LAMMPS", "MD 看百分比，优化看离子步"], ["🧩", "自定义识别规则", "文件 + 关键字，当场测试"], ["📈", "loss / 能量曲线", "点开详情就能看"],
+  ["🏝", "空闲机器合并", "没任务的收成一行"], ["⏸", "暂停 / 静音单台", "知道没任务就别查"], ["🔑", "动态口令登录", "输入只交给 ssh，不保存"],
+  ["✋", "按住 + 二次确认", "取消作业不怕误触"], ["🗂", "最近 24 小时", "sacct 没开也能记"], ["🌏", "中文 / English", "一键切换"]];
 function sceneMontage(c, B) {
   drawNight(c, B + 40, 1);
   // 轻微脉动的网格光
@@ -942,10 +1014,12 @@ function sceneMontage(c, B) {
   c.fillStyle = `rgba(91,230,181,${0.04 + 0.04 * (1 - pulse)})`; c.fillRect(0, 0, W, H);
   const kt = prog(B, 68, 68.8, easeOutBack), kout = prog(B, 79.3, 80);
   c.save(); c.globalAlpha = kt * (1 - kout);
-  text(c, "还有这些小细节", W / 2, 150, { size: 60, weight: 700, align: "center" });
+  text(c, "还有更多", W / 2, VERT ? 190 : 150, { size: 60, weight: 700, align: "center" });
   c.restore();
-  const cw = 480, ch = 170, gap = 34, gx = W / 2 - (cw * 3 + gap * 2) / 2, gy = 230;
-  const pos = i => [gx + (i % 3) * (cw + gap), gy + Math.floor(i / 3) * (ch + gap)];
+  // 横屏 3×3；竖屏单列
+  const cw = VERT ? 880 : 480, ch = VERT ? 150 : 170, gap = VERT ? 22 : 34;
+  const gx = VERT ? (W - cw) / 2 : W / 2 - (cw * 3 + gap * 2) / 2, gy = VERT ? 260 : 230;
+  const pos = i => VERT ? [gx, gy + i * (ch + gap)] : [gx + (i % 3) * (cw + gap), gy + Math.floor(i / 3) * (ch + gap)];
   CHIPS.forEach(([ic, t1, t2], i) => {
     const b = 69 + i;
     const k = easeOutBack(prog(B, b - 0.05, b + 0.35), 2.2);
@@ -1007,28 +1081,38 @@ function sceneOutro(c, B) {
   // 变暗 + 标志
   if (dim > 0) {
     c.fillStyle = `rgba(6,9,22,${0.82 * dim})`; c.fillRect(0, 0, W, H);
+    const L = VERT
+      ? { logo: 600, logoSz: 360, word: 900, cell: 12, tag: 1020, pill: 1072, f1: 1196, f2: 1240, f3: 1300 }
+      : { logo: 300, logoSz: 300, word: 545, cell: 12, tag: 655, pill: 700, f1: 810, f2: 852 };
     const k = easeOutBack(prog(B, 90, 90.9), 1.4);
     const end = prog(B, 98.4, 100);
     c.save(); c.globalAlpha = (1 - end);
     if (LOGO.complete && k > 0) {
-      const sz = 300 * k;
+      const sz = L.logoSz * k;
       c.save(); c.shadowColor = "rgba(91,230,181,0.5)"; c.shadowBlur = 80;
-      c.drawImage(LOGO, W / 2 - sz / 2, 300 - sz / 2 + 10 * Math.sin(B * Math.PI / 2), sz, sz); c.restore();
+      c.drawImage(LOGO, W / 2 - sz / 2, L.logo - sz / 2 + 10 * Math.sin(B * Math.PI / 2), sz, sz); c.restore();
     }
-    drawWord(c, W / 2, 545, 12, prog(B, 90.4, 92.2), 1, 5);
+    drawWord(c, W / 2, L.word, L.cell, prog(B, 90.4, 92.2), 1, 5);
     const kt = prog(B, 92, 93, easeOutCubic);
     c.globalAlpha = (1 - end) * kt;
-    text(c, "把服务器装进刘海里", W / 2, 655 + 14 * (1 - kt), { size: 44, weight: 600, align: "center", spacing: 6 });
+    text(c, "把服务器装进刘海里", W / 2, L.tag + 14 * (1 - kt), { size: 44, weight: 600, align: "center", spacing: 6 });
     const kv = prog(B, 93, 94, easeOutCubic);
     c.globalAlpha = (1 - end) * kv;
-    c.fillStyle = "rgba(91,230,181,0.16)"; rr(c, W / 2 - 150, 700, 300, 48, 24); c.fill();
-    text(c, "v0.1.0 · 第一个版本", W / 2, 732, { size: 22, weight: 700, color: COL.mint, align: "center" });
+    c.fillStyle = "rgba(91,230,181,0.16)"; rr(c, W / 2 - 170, L.pill, 340, 48, 24); c.fill();
+    text(c, "v0.1.0 · 免费开源", W / 2, L.pill + 32, { size: 22, weight: 700, color: COL.mint, align: "center" });
     const kf = prog(B, 94, 95, easeOutCubic);
     c.globalAlpha = (1 - end) * kf;
-    text(c, "Slurm / 直连服务器 · NEP / GPUMD · 无需在服务器安装任何东西", W / 2, 810, { size: 24, color: "rgba(255,255,255,0.7)", align: "center" });
-    text(c, "macOS 14+ · Apple Silicon / Intel · DMG 下载即用", W / 2, 852, { size: 22, color: "rgba(255,255,255,0.5)", align: "center" });
+    if (VERT) {
+      text(c, "Slurm / 直连服务器 · 服务器上什么都不用装", W / 2, L.f1, { size: 30, color: "rgba(255,255,255,0.72)", align: "center" });
+      text(c, "NEP · GPUMD · VASP · LAMMPS", W / 2, L.f2, { size: 30, color: "rgba(255,255,255,0.72)", align: "center" });
+      text(c, "github.com/zhyan0603/ServerIsland", W / 2, L.f3, { size: 28, weight: 600, color: COL.mint, align: "center", font: MONO });
+      text(c, "GPL-3.0 · macOS 14+", W / 2, L.f3 + 44, { size: 24, color: "rgba(255,255,255,0.5)", align: "center" });
+    } else {
+      text(c, "Slurm / 直连服务器 · NEP / GPUMD / VASP / LAMMPS · 服务器上什么都不用装", W / 2, L.f1, { size: 24, color: "rgba(255,255,255,0.7)", align: "center" });
+      text(c, "github.com/zhyan0603/ServerIsland  ·  GPL-3.0  ·  macOS 14+", W / 2, L.f2, { size: 22, color: "rgba(255,255,255,0.55)", align: "center" });
+    }
     c.restore();
-    burst(c, B, 96, W / 2, 300, { n: 60, speed: 520, size: 9, grav: 200, seed: 96, dur: 2.2 });
+    burst(c, B, 96, W / 2, L.logo, { n: 60, speed: 520, size: 9, grav: 200, seed: 96, dur: 2.2 });
     flash(c, B, 96, 0.5, "91,230,181", 0.25);
   }
   flash(c, B, 80, 0.4, "255,255,255", 0.5);
