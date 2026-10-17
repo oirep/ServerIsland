@@ -198,6 +198,12 @@ struct HostSidebarRow: View {
 
 // MARK: - 通用
 
+/// 项目的网址。
+enum AppLinks {
+    static let repo = URL(string: "https://github.com/zhyan0603/ServerIsland")!
+    static let issues = URL(string: "https://github.com/zhyan0603/ServerIsland/issues")!
+}
+
 struct GeneralSettingsView: View {
     @ObservedObject var store: ConfigStore
     @ObservedObject var engine: MonitorEngine
@@ -222,6 +228,25 @@ struct GeneralSettingsView: View {
                 .padding(.vertical, 4)
                 Picker(L("语言", "Language"), selection: $store.settings.language) {
                     ForEach(AppLanguage.allCases) { Text($0.label).tag($0) }
+                }
+                // 开源项目：请用户点 Star / 反馈问题
+                HStack(spacing: 10) {
+                    Image(systemName: "star.fill").foregroundStyle(.yellow)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(L("喜欢 ServerIsland？", "Enjoying ServerIsland?"))
+                        Text(L("它是免费的开源软件，在 GitHub 上点个 Star 能让更多人看到它。",
+                               "It's free and open source — a star on GitHub helps others find it."))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button {
+                        NSWorkspace.shared.open(AppLinks.repo)
+                    } label: {
+                        Label(L("点个 Star", "Star on GitHub"), systemImage: "star")
+                    }
+                    Button(L("反馈问题", "Report an Issue")) {
+                        NSWorkspace.shared.open(AppLinks.issues)
+                    }
                 }
             }
 
