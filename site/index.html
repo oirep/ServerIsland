@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="zh-CN" data-lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ServerIsland — 把服务器装进刘海里</title>
+  <meta name="description" content="ServerIsland：住在 Mac 刘海里的服务器监控。Slurm 作业、GPU、VASP / LAMMPS / GPUMD / NEP 计算进度，一眼看清。">
+  <meta property="og:title" content="ServerIsland">
+  <meta property="og:description" content="住在 Mac 刘海里的服务器监控，为计算材料、化学和物理而做。">
+  <meta property="og:image" content="assets/shots/zh/expanded.png">
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- 导航 -->
+<header class="nav">
+  <a class="brand" href="#top">
+    <canvas class="tako" data-mood="idle" data-size="26" width="26" height="26" aria-hidden="true"></canvas>
+    <span>ServerIsland</span>
+  </a>
+  <nav class="nav-links">
+    <a href="#features"><span lang="zh">功能</span><span lang="en">Features</span></a>
+    <a href="#apps"><span lang="zh">计算软件</span><span lang="en">Software</span></a>
+    <a href="#video"><span lang="zh">视频</span><span lang="en">Video</span></a>
+    <a href="#opensource"><span lang="zh">开源</span><span lang="en">Open source</span></a>
+    <a href="#faq">FAQ</a>
+  </nav>
+  <div class="nav-right">
+    <a class="gh-link js-github" href="#download" aria-label="GitHub"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><span>GitHub</span></a>
+    <button class="lang-toggle" type="button" aria-label="Switch language">
+      <span lang="zh">EN</span><span lang="en">中文</span>
+    </button>
+    <a class="btn btn-small js-download" href="#download">
+      <span lang="zh">下载</span><span lang="en">Download</span>
+    </a>
+  </div>
+</header>
+
+<!-- 首屏 -->
+<section class="hero" id="top">
+  <canvas class="hero-sky" aria-hidden="true"></canvas>
+  <div class="hero-inner">
+    <canvas class="pixel-word" aria-label="ServerIsland"></canvas>
+    <h1>
+      <span lang="zh">把服务器装进刘海里</span>
+      <span lang="en">Your servers, in the notch</span>
+    </h1>
+    <p class="lead">
+      <span lang="zh">Slurm 作业、GPU 占用、VASP / LAMMPS / GPUMD / NEP 的计算进度，<br>住在 Mac 刘海里，一眼看清。服务器上什么都不用装。</span>
+      <span lang="en">Slurm jobs, GPUs and the progress of VASP, LAMMPS, GPUMD and NEP runs —<br>living in your Mac's notch. Nothing to install on the server.</span>
+    </p>
+    <div class="cta">
+      <a class="btn btn-primary js-download" href="#download">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M16.4 12.6c0-2.6 2.1-3.8 2.2-3.9-1.2-1.8-3.1-2-3.7-2-1.6-.2-3.1.9-3.9.9-.8 0-2-.9-3.4-.9-1.7 0-3.3 1-4.2 2.6-1.8 3.1-.5 7.7 1.3 10.2.9 1.2 1.9 2.6 3.2 2.6 1.3-.1 1.8-.8 3.3-.8 1.6 0 2 .8 3.4.8 1.4 0 2.3-1.3 3.1-2.5 1-1.4 1.4-2.8 1.4-2.9 0 0-2.7-1-2.7-4.1zM13.9 5c.7-.9 1.2-2 1.1-3.2-1 0-2.3.7-3 1.6-.7.8-1.3 2-1.1 3.1 1.2.1 2.3-.6 3-1.5z"/></svg>
+        <span lang="zh">下载 macOS 版</span><span lang="en">Download for macOS</span>
+      </a>
+      <a class="btn btn-ghost js-github" href="#download"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        <span lang="zh">在 GitHub 上查看</span><span lang="en">View on GitHub</span>
+      </a>
+    </div>
+    <p class="fine">
+      <span lang="zh">免费开源（GPL-3.0）· macOS 14 及以上 · Apple 芯片与 Intel 通用 · v<span class="js-version">0.1.0</span></span>
+      <span lang="en">Free & open source (GPL-3.0) · macOS 14+ · Apple silicon & Intel · v<span class="js-version">0.1.0</span></span>
+    </p>
+  </div>
+
+  <!-- 动态的刘海演示 -->
+  <div class="mac" aria-label="ServerIsland demo">
+    <div class="mac-screen">
+      <div class="menubar">
+        <span class="apple"></span><b>Finder</b>
+        <span lang="zh">文件</span><span lang="en">File</span>
+        <span lang="zh">编辑</span><span lang="en">Edit</span>
+        <span lang="zh">显示</span><span lang="en">View</span>
+        <span class="menubar-right">10:24</span>
+      </div>
+      <div class="island" data-state="collapsed">
+        <!-- 收起：两翼 -->
+        <div class="wings">
+          <div class="wing-left"><canvas class="tako" data-mood="working" data-size="20" width="20" height="20"></canvas><b class="js-running">12</b></div>
+          <div class="wing-right"><svg class="ring" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.5" class="ring-track"/><circle cx="10" cy="10" r="7.5" class="ring-fill js-ring"/></svg><b class="js-ring-text">39%</b></div>
+        </div>
+        <!-- 提示 -->
+        <div class="toast">
+          <canvas class="tako" data-mood="happy" data-size="34" width="34" height="34"></canvas>
+          <div>
+            <div class="toast-title js-toast-title">NEP 训练完成</div>
+            <div class="toast-sub js-toast-sub">4090 工作站 · 20,000 代 · nep-train</div>
+          </div>
+        </div>
+        <!-- 展开面板 -->
+        <div class="panel">
+          <div class="panel-head">
+            <canvas class="tako" data-mood="working" data-size="16" width="16" height="16"></canvas>
+            <b>ServerIsland</b>
+            <span class="chip mint">⚡ <i class="js-running">12</i></span>
+            <span class="chip amber">⏳ 20</span>
+          </div>
+          <div class="card">
+            <div class="card-head"><i class="dot"></i><b><span lang="zh">HPC 集群</span><span lang="en">HPC Cluster</span></b><em class="badge violet">SLURM</em><span class="chip mint small">⚡ 9</span><span class="chip amber small">⏳ 20</span></div>
+            <div class="job" data-k="0.25" data-speed="0.0004"><i class="ico"><svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="10" ry="4"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(120 12 12)"/></g><circle cx="12" cy="12" r="2" fill="currentColor"/></svg></i><div class="job-main"><div class="job-top"><b>aimd_Li3PS4_900K</b><span class="muted mono">#8812044</span><span class="right mint js-pct"></span></div><div class="bar"><i></i></div><div class="job-sub">VASP MD · <span class="js-steps" data-total="5000"></span></div></div></div>
+            <div class="job"><i class="ico"><svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="10" ry="4"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(120 12 12)"/></g><circle cx="12" cy="12" r="2" fill="currentColor"/></svg></i><div class="job-main"><div class="job-top"><b>relax_LiCoO2_hse</b><span class="muted mono">#8812101</span><span class="right">3:12:16 / 1d</span></div><div class="bar time"><i style="width:13%"></i></div><div class="job-sub"><span lang="zh">VASP 结构优化 · 17 离子步</span><span lang="en">VASP relaxation · 17 ionic steps</span></div></div></div>
+            <div class="job"><i class="ico violet"><svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M12 2 2 7l10 5 10-5-10-5Zm-8.3 9.2L2 12l10 5 10-5-1.7-.8L12 15l-8.3-3.8Zm0 5L2 17l10 5 10-5-1.7-.8L12 20l-8.3-3.8Z"/></svg></i><div class="job-main"><div class="job-top"><b>eos_scan</b><span class="violet mono"><span lang="zh">数组</span><span lang="en">array</span> #8812300</span><span class="right mint"><span lang="zh">完成 16/40</span><span lang="en">16/40 done</span></span></div><div class="bar seg"><i class="s-done" style="width:35%"></i><i class="s-fail" style="width:5%"></i><i class="s-run" style="width:15%"></i></div><div class="job-sub"><span class="cyan"><span lang="zh">运行 6</span><span lang="en">6 running</span></span> · <span lang="zh">排队 18</span><span lang="en">18 pending</span> · <span class="coral"><span lang="zh">失败 2</span><span lang="en">2 failed</span></span></div></div></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><i class="dot"></i><b><span lang="zh">4090 工作站</span><span lang="en">4090 Workstation</span></b><em class="badge cyan">DIRECT</em><span class="chip mint small">⚡ 3</span></div>
+            <div class="job" data-k="0.39" data-speed="0.0012"><i class="ico"><svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="10" ry="4"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(120 12 12)"/></g><circle cx="12" cy="12" r="2" fill="currentColor"/></svg></i><div class="job-main"><div class="job-top"><b>nep</b><span class="muted mono">pid 41022</span><span class="right mint js-pct"></span></div><div class="bar"><i></i></div><div class="job-sub"><span lang="zh">NEP 训练</span><span lang="en">NEP training</span> · <span class="js-steps" data-total="20000"></span></div></div></div>
+            <div class="job" data-k="0.38" data-speed="0.0009"><i class="ico"><svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="10" ry="4"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(120 12 12)"/></g><circle cx="12" cy="12" r="2" fill="currentColor"/></svg></i><div class="job-main"><div class="job-top"><b>lmp</b><span class="muted mono">pid 41377</span><span class="right mint js-pct"></span></div><div class="bar"><i></i></div><div class="job-sub">LAMMPS MD · <span class="js-steps" data-total="1000000"></span></div></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="hint"><span lang="zh">↑ 鼠标移到刘海上试试</span><span lang="en">↑ Hover the notch</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- 三个数字 -->
+<section class="stats reveal">
+  <div><b>0</b><span lang="zh">服务器端安装</span><span lang="en">things to install on servers</span></div>
+  <div><b>1</b><span lang="zh">每台机器每轮只开一个 SSH 通道</span><span lang="en">SSH channel per server per poll</span></div>
+  <div><b>~0.1 s</b><span lang="zh">一次轮询（连接复用）</span><span lang="en">per poll, with connection reuse</span></div>
+</section>
+
+<!-- 功能 -->
+<section class="section" id="features">
+  <h2 class="reveal"><span lang="zh">为算材料、算化学、算物理的人而做</span><span lang="en">Built for computational materials, chemistry and physics</span></h2>
+  <p class="section-lead reveal"><span lang="zh">不用再开终端敲 squeue、nvidia-smi、tail loss.out。</span><span lang="en">Stop typing squeue, nvidia-smi and tail loss.out all day.</span></p>
+
+  <div class="feature reveal">
+    <div class="feature-text">
+      <span class="eyebrow">01</span>
+      <h3><span lang="zh">每台服务器一张卡片</span><span lang="en">One card per server</span></h3>
+      <p><span lang="zh">鼠标移到刘海上就展开。集群和工作站分开显示，每张卡片上有自己的运行数、排队数、CPU / 内存 / GPU。没有任务的机器自动合并成一行，不占地方。</span>
+         <span lang="en">Hover the notch to expand. Clusters and workstations each get a card with their own running / pending counts, CPU, memory and GPUs. Idle servers fold into a single line.</span></p>
+      <ul class="ticks">
+        <li><span lang="zh">读取 ~/.ssh/config，跳板机、密钥都照常生效</span><span lang="en">Reads ~/.ssh/config — ProxyJump and keys just work</span></li>
+        <li><span lang="zh">动态口令集群：输入一次，连接一直保持</span><span lang="en">OTP clusters: log in once, stay connected</span></li>
+        <li><span lang="zh">每台机器可以单独暂停、静音、设轮询间隔</span><span lang="en">Pause, mute or set the interval per server</span></li>
+      </ul>
+    </div>
+    <figure class="shot"><img data-shot="expanded" alt="ServerIsland expanded panel" loading="lazy"></figure>
+  </div>
+
+  <div class="feature flip reveal">
+    <div class="feature-text">
+      <span class="eyebrow">02</span>
+      <h3><span lang="zh">Slurm：数组、排队原因、分区空闲</span><span lang="en">Slurm: arrays, pending reasons, free nodes</span></h3>
+      <p><span lang="zh">几十个元素的数组作业合并成一行，绿 / 红 / 蓝分段显示完成、失败、运行中。排队原因翻译成人话；需要你处理的（比如依赖永远无法满足）会标红。还能按需查看各分区还有多少空闲 CPU 和 GPU。</span>
+         <span lang="en">Job arrays collapse into one row with done / failed / running segments. Pending reasons are explained in plain words, and the ones that need you are flagged. Check free CPUs and GPUs per partition on demand.</span></p>
+    </div>
+    <figure class="shot"><img data-shot="partitions" alt="Partitions page" loading="lazy"></figure>
+  </div>
+
+  <div class="feature reveal">
+    <div class="feature-text">
+      <span class="eyebrow">03</span>
+      <h3><span lang="zh">完成和失败，刘海会告诉你</span><span lang="en">The notch tells you when it's done</span></h3>
+      <p><span lang="zh">任务结束时刘海弹出提示，成功和失败是两种不同的提示音。没有开启作业记录的集群，也会按计算软件的输出判断是正常结束还是提前退出，不靠猜。</span>
+         <span lang="en">When a job ends, the notch pops up — with different sounds for success and failure. Even on clusters without job accounting, ServerIsland checks the software's own output to tell a clean finish from an early exit.</span></p>
+    </div>
+    <figure class="shot stack">
+      <img data-shot="toast" alt="Finished alert" loading="lazy">
+      <img data-shot="toast-failed" alt="Failed alert" loading="lazy">
+    </figure>
+  </div>
+
+  <div class="feature flip reveal">
+    <div class="feature-text">
+      <span class="eyebrow">04</span>
+      <h3><span lang="zh">点开就是详情和日志末尾</span><span lang="en">Details and log tail, one click away</span></h3>
+      <p><span lang="zh">作业信息、工作目录、实时刷新的日志末尾，一键复制路径或 tail -f 命令。取消任务默认关闭；打开后也要长按、二次确认，执行前还会在服务器上再核对一遍。</span>
+         <span lang="en">Job info, working directory and a live log tail; copy the path or a tail -f command in one click. Cancelling is off by default — and even when on, it takes a long press, a confirmation and a server-side re-check.</span></p>
+    </div>
+    <figure class="shot"><img data-shot="detail-confirm" alt="Job detail with cancel confirmation" loading="lazy"></figure>
+  </div>
+</section>
+
+<!-- 计算软件 -->
+<section class="section apps" id="apps">
+  <h2 class="reveal"><span lang="zh">认识你的计算软件</span><span lang="en">Knows your simulation software</span></h2>
+  <p class="section-lead reveal"><span lang="zh">按工作目录里的文件判断，只读文件末尾。格式和预期不一致时宁可不显示，也不给你一个错的进度。</span>
+     <span lang="en">Detected from files in the working directory, reading only their tails. If anything doesn't match, it shows nothing rather than a wrong number.</span></p>
+  <div class="app-grid reveal">
+    <div class="app-card"><b>NEP / GNEP</b><code>loss.out + nep.in</code><p><span lang="zh">代数、loss、预计剩余时间；详情页有 loss 曲线</span><span lang="en">Generation, losses, ETA — plus a loss curve</span></p></div>
+    <div class="app-card"><b>GPUMD</b><code>run.in + thermo.out</code><p><span lang="zh">步数和速度，目标是 run.in 里所有 run 之和</span><span lang="en">Steps and speed; target is the sum of all runs</span></p></div>
+    <div class="app-card"><b>VASP</b><code>INCAR + OSZICAR</code><p><span lang="zh">MD 显示百分比；结构优化显示离子步和能量曲线</span><span lang="en">MD as a percentage; relaxations show ionic steps and an energy curve</span></p></div>
+    <div class="app-card"><b>LAMMPS</b><code>log.lammps</code><p><span lang="zh">最后一段 run 的步数；以 Total wall time 判断正常结束</span><span lang="en">Steps of the last run; "Total wall time" marks a clean finish</span></p></div>
+    <div class="app-card custom"><b><span lang="zh">你自己的程序</span><span lang="en">Your own code</span></b><code>epoch 37/100</code><p><span lang="zh">写一条规则：文件 + 关键字，当场在真实目录上测试</span><span lang="en">Write a rule — file + keyword — and test it on a real directory</span></p></div>
+  </div>
+  <div class="shot-pair reveal">
+    <figure class="shot"><img data-shot="detail-nep" alt="NEP training detail with loss curve" loading="lazy"><figcaption><span lang="zh">NEP 训练：loss 曲线增量更新</span><span lang="en">NEP training: incremental loss curve</span></figcaption></figure>
+    <figure class="shot"><img data-shot="settings-rule-editor" alt="Custom rule editor" loading="lazy"><figcaption><span lang="zh">自定义规则：填完点"测试"</span><span lang="en">Custom rules: fill in, hit Test</span></figcaption></figure>
+  </div>
+</section>
+
+<!-- Tako -->
+<section class="section tako-section reveal">
+  <h2><span lang="zh">还有一只小章鱼</span><span lang="en">And a tiny octopus</span></h2>
+  <p class="section-lead"><span lang="zh">Tako 住在刘海里，心情跟着服务器走：在跑就忙，全完成了就开心，出错了会变红。</span>
+     <span lang="en">Tako lives in the notch and mirrors your servers: busy while jobs run, happy when they finish, red when something fails.</span></p>
+  <div class="moods">
+    <figure><canvas class="tako" data-mood="idle" data-size="64" width="64" height="64"></canvas><figcaption><span lang="zh">空闲</span><span lang="en">idle</span></figcaption></figure>
+    <figure><canvas class="tako" data-mood="working" data-size="64" width="64" height="64"></canvas><figcaption><span lang="zh">在跑</span><span lang="en">working</span></figcaption></figure>
+    <figure><canvas class="tako" data-mood="waiting" data-size="64" width="64" height="64"></canvas><figcaption><span lang="zh">排队</span><span lang="en">waiting</span></figcaption></figure>
+    <figure><canvas class="tako" data-mood="happy" data-size="64" width="64" height="64"></canvas><figcaption><span lang="zh">完成</span><span lang="en">done</span></figcaption></figure>
+    <figure><canvas class="tako" data-mood="sad" data-size="64" width="64" height="64"></canvas><figcaption><span lang="zh">出错</span><span lang="en">failed</span></figcaption></figure>
+  </div>
+</section>
+
+<!-- 视频 -->
+<section class="section" id="video">
+  <h2 class="reveal"><span lang="zh">50 秒看完</span><span lang="en">The whole thing in 50 seconds</span></h2>
+  <div class="video reveal">
+    <video src="assets/promo.mp4" poster="assets/promo-poster.jpg" controls preload="none" playsinline></video>
+  </div>
+</section>
+
+<!-- 隐私 -->
+<section class="section privacy reveal">
+  <div class="privacy-grid">
+    <div><h3><span lang="zh">只在你的 Mac 上运行</span><span lang="en">Runs only on your Mac</span></h3><p><span lang="zh">没有账号、没有云端、不收集任何数据。所有连接都是你的 Mac 直接 ssh 到你的服务器。</span><span lang="en">No account, no cloud, no telemetry. Your Mac talks to your servers over ssh, and that's it.</span></p></div>
+    <div><h3><span lang="zh">用系统自带的 ssh</span><span lang="en">Uses the system ssh</span></h3><p><span lang="zh">不保存密码。需要密码或动态口令的机器，用系统原生对话框输入，连接复用后不再打扰。</span><span lang="en">No stored passwords. Password / OTP prompts use a native dialog, then the connection is reused.</span></p></div>
+    <div><h3><span lang="zh">轻量到感觉不到</span><span lang="en">Featherweight</span></h3><p><span lang="zh">每台机器每轮一个 SSH 通道，只读小文件和文件末尾；可以按机器调间隔，或只手动刷新。</span><span lang="en">One SSH channel per server per poll, reading only small files and tails. Tune the interval per server, or refresh manually.</span></p></div>
+  </div>
+</section>
+
+<!-- 下载 -->
+<section class="section download reveal" id="download">
+  <canvas class="tako big" data-mood="happy" data-size="96" width="96" height="96"></canvas>
+  <h2><span lang="zh">下载 ServerIsland</span><span lang="en">Get ServerIsland</span></h2>
+  <p class="section-lead"><span lang="zh">免费、开源，GPL-3.0 许可证。</span><span lang="en">Free and open source under the GPL-3.0 license.</span></p>
+  <a class="btn btn-primary btn-large js-download-real" href="#">
+    <span lang="zh">下载 DMG（macOS 14+）</span><span lang="en">Download DMG (macOS 14+)</span>
+  </a>
+  <p class="fine"><span lang="zh">也可以从源码构建：</span><span lang="en">Or build from source:</span></p>
+  <pre class="build"><code>git clone <span class="js-repo-url">https://github.com/…/serverisland</span>.git
+cd serverisland && ./scripts/build_app.sh --run</code></pre>
+  <details class="first-open">
+    <summary><span lang="zh">第一次打开提示"无法验证开发者"？</span><span lang="en">"Cannot verify the developer" on first launch?</span></summary>
+    <p><span lang="zh">ServerIsland 没有经过 Apple 公证，第一次打开时 macOS 会拦一下，只需要允许一次：</span>
+       <span lang="en">ServerIsland isn't notarized by Apple, so macOS blocks the first launch. You only need to allow it once:</span></p>
+    <ul>
+      <li><span lang="zh"><b>macOS 15 及以后</b>：先双击打开一次（会被拦住），然后到 系统设置 → 隐私与安全性，往下找到 ServerIsland，点"仍要打开"。</span>
+          <span lang="en"><b>macOS 15 and later</b>: double-click the app once (it will be blocked), then open System Settings → Privacy &amp; Security, scroll down and click "Open Anyway".</span></li>
+      <li><span lang="zh"><b>macOS 14</b>：按住 Control 点 App 图标，选"打开"，再点"打开"。</span>
+          <span lang="en"><b>macOS 14</b>: Control-click the app icon, choose Open, then Open again.</span></li>
+    </ul>
+    <p><span lang="zh">或者在终端里执行一行命令：</span><span lang="en">Or run this once in Terminal:</span></p>
+    <pre><code>xattr -dr com.apple.quarantine /Applications/ServerIsland.app</code></pre>
+  </details>
+</section>
+
+<!-- 开源 -->
+<section class="section oss reveal" id="opensource">
+  <h2><span lang="zh">开源，一起把它做得更好</span><span lang="en">Open source — help make it better</span></h2>
+  <p class="section-lead"><span lang="zh">你的计算软件还不在列表里？你用的是 PBS 或 LSF？欢迎提 Issue 或直接发 Pull Request。</span>
+     <span lang="en">Your simulation package isn't supported yet? Using PBS or LSF? Open an issue or send a pull request.</span></p>
+  <div class="oss-grid">
+    <a class="oss-card js-github" href="#download"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><b>GitHub</b><span><span lang="zh">源码、Releases、点个 Star</span><span lang="en">Source, releases — and a star</span></span></a>
+    <a class="oss-card js-github" data-path="/issues" href="#download"><b>Issues</b><span><span lang="zh">报告问题、提需求</span><span lang="en">Bugs and feature requests</span></span></a>
+    <a class="oss-card js-github" data-path="/blob/main/CONTRIBUTING.md" href="#download"><b>Contributing</b><span><span lang="zh">新增一种计算软件的识别，从这里开始</span><span lang="en">Add a detector for your software — start here</span></span></a>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section class="section faq" id="faq">
+  <h2 class="reveal">FAQ</h2>
+  <div class="faq-list reveal">
+    <details><summary><span lang="zh">要钱吗？</span><span lang="en">Is it free?</span></summary><p><span lang="zh">完全免费，源码在 GitHub 上，GPL-3.0 许可证。</span><span lang="en">Yes. It's free software under the GPL-3.0 license.</span></p></details>
+    <details><summary><span lang="zh">服务器上需要装什么吗？</span><span lang="en">Do I need to install anything on the server?</span></summary><p><span lang="zh">不需要。ServerIsland 通过 ssh 发送一小段 bash 脚本，读取 squeue、nvidia-smi、/proc 和计算软件的输出文件，不写任何东西。</span><span lang="en">No. It sends a small bash script over ssh that reads squeue, nvidia-smi, /proc and your output files. It never writes anything.</span></p></details>
+    <details><summary><span lang="zh">没有刘海的 Mac 能用吗？</span><span lang="en">What about Macs without a notch?</span></summary><p><span lang="zh">可以。没有刘海的屏幕会在顶部中间显示一个虚拟的岛，用法完全一样。</span><span lang="en">Yes — screens without a notch get a virtual island at the top center that works the same way.</span></p></details>
+    <details><summary><span lang="zh">我的软件不在支持列表里？</span><span lang="en">My software isn't supported?</span></summary><p><span lang="zh">在设置 → 进度识别里加一条自定义规则：指定文件和关键字（或正则），可以当场在服务器的真实目录上测试。只要你的程序会把进度写进文件，就能识别。</span><span lang="en">Add a custom rule under Settings → Progress Detection: a file plus a keyword or regex, testable on a real directory right away. If your program writes its progress to a file, ServerIsland can read it.</span></p></details>
+    <details><summary><span lang="zh">支持 PBS / LSF 吗？Windows 呢？</span><span lang="en">PBS / LSF? Windows?</span></summary><p><span lang="zh">目前只支持 Slurm 和直连服务器，只有 macOS 版。</span><span lang="en">Currently Slurm and direct servers only, on macOS only.</span></p></details>
+    <details><summary><span lang="zh">会不会误取消我的作业？</span><span lang="en">Could it cancel a job by accident?</span></summary><p><span lang="zh">取消功能默认关闭，需要在每台服务器的设置里单独打开。打开后也要长按按钮、再确认一次；执行前还会在服务器上核对作业号和运行时间，对不上就不执行。</span><span lang="en">Cancelling is off by default and must be enabled per server. Even then it takes a long press and a confirmation, and the job ID and runtime are re-checked on the server before anything runs.</span></p></details>
+  </div>
+</section>
+
+<footer class="footer">
+  <canvas class="tako" data-mood="idle" data-size="20" width="20" height="20"></canvas>
+  <span>ServerIsland · <span class="js-version">0.1.0</span></span>
+  <span class="muted">© 2026 Zihan Yan &amp; contributors · GPL-3.0</span>
+  <a class="muted js-github" href="#download">GitHub</a>
+  <span class="muted"><span lang="zh">截图均为演示数据</span><span lang="en">Screenshots use demo data</span></span>
+</footer>
+
+<script src="js/config.js"></script>
+<script src="js/tako.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

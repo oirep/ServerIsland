@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# ServerIsland 进度上报小工具（放到服务器上，例如 ~/bin/si-progress）
+#
+# 用法：
+#   si-progress <名称> <进度 0-1 或 0-100> [说明文字]
+#   si-progress train 0.42 "epoch 3/10 · loss 1.84"
+#   si-progress train done            # 标记完成
+#   si-progress train failed "OOM"    # 标记失败
+#   si-progress train clear           # 删除这条进度
+#
+# 在 Slurm 作业里运行时会自动带上 $SLURM_JOB_ID，ServerIsland 会把进度合并到对应作业上。
+# 文件写到 ~/.serverisland/progress/<名称>.json，ServerIsland 轮询时顺便读取，开销可以忽略。
+set -euo pipefail
+
+name="${1:?用法: si-progress <名称> <进度|done|failed|clear> [说明]}"
+value="${2:?缺少进度}"
+message="${3:-}"
+dir="$HOME/.serverisland/progress"
+file="$dir/$name.json"
+mkdir -p "$dir"
+
+json_escape() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+
+status="running"
+progress="$value"
+case "$value" in
+  done)   status="done"; progress=1 ;;
+  failed) status="failed"; progress=null ;;
+  clear)  rm -f "$file"; exit 0 ;;
+esac
+
+# 数组作业的元素用 "主编号_序号"（与 squeue 显示一致），普通作业用 SLURM_JOB_ID。
+if [ -n "${SLURM_ARRAY_JOB_ID:-}" ] && [ -n "${SLURM_ARRAY_TASK_ID:-}" ]; then
+  jobid="${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
+else
+  jobid="${SLURM_JOB_ID:-}"
+fi
+tmp="$file.$$"
+printf '{"name":"%s","progress":%s,"message":"%s","status":"%s","jobid":"%s","updated":%s}\n' \
+  "$(json_escape "$name")" "$progress" "$(json_escape "$message")" "$status" "$jobid" "$(date +%s)" > "$tmp"
+mv "$tmp" "$file"

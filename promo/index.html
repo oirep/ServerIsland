@@ -1,0 +1,1094 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>ServerIsland v0.1</title>
+<style>
+  html, body { margin: 0; background: #000; overflow: hidden; }
+  #stage { position: relative; width: 1920px; height: 1080px; }
+  canvas { display: block; }
+  /* 预览模式下缩放到窗口（录制时 1:1） */
+  body.preview #stage { transform-origin: 0 0; }
+  #hint { position: fixed; left: 12px; bottom: 10px; color: #8aa; font: 12px system-ui; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="c" width="1920" height="1080"></canvas></div>
+<img id="logo" src="../Branding/logo-1024.png" style="display:none">
+<script src="timeline.js"></script>
+<script>
+"use strict";
+// =====================================================================================
+// ServerIsland v0.1 发布视频 —— 全部画面都是时间 t 的纯函数，renderFrame(t) 可逐帧确定地重现。
+// =====================================================================================
+const TL = window.TIMELINE;
+const W = TL.width, H = TL.height, BEAT = 60 / TL.bpm;
+const cv = document.getElementById("c");
+const ctx = cv.getContext("2d");
+const LOGO = document.getElementById("logo");
+
+const FONT = '"PingFang SC", system-ui, -apple-system, sans-serif';
+const MONO = '"SF Mono", Menlo, monospace';
+
+// ------------------------------------------------------------------ 工具
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, k) => a + (b - a) * k;
+const easeOutCubic = k => 1 - Math.pow(1 - k, 3);
+const easeInCubic = k => k * k * k;
+const easeInOutCubic = k => k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+const easeOutBack = (k, s = 1.7) => 1 + (s + 1) * Math.pow(k - 1, 3) + s * Math.pow(k - 1, 2);
+const easeOutQuint = k => 1 - Math.pow(1 - k, 5);
+// 阻尼弹簧（x 单位：拍），0→1 带一点回弹
+function spring(x, stiff = 9, damp = 0.62) {
+  if (x <= 0) return 0;
+  const w = stiff, z = damp, wd = w * Math.sqrt(1 - z * z);
+  return 1 - Math.exp(-z * w * x) * (Math.cos(wd * x) + (z * w / wd) * Math.sin(wd * x));
+}
+const prog = (B, b0, b1, e = x => x) => e(clamp((B - b0) / (b1 - b0)));
+// 窗口：淡入 [a, a+fi]，淡出 [b-fo, b]
+const win = (B, a, b, fi = 0.4, fo = 0.4) => Math.min(prog(B, a, a + fi), 1 - prog(B, b - fo, b));
+function rnd(i) { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+
+function rr(c, x, y, w, h, r) {
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
+  c.beginPath();
+  c.moveTo(x + r, y); c.lineTo(x + w - r, y); c.quadraticCurveTo(x + w, y, x + w, y + r);
+  c.lineTo(x + w, y + h - r); c.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  c.lineTo(x + r, y + h); c.quadraticCurveTo(x, y + h, x, y + h - r);
+  c.lineTo(x, y + r); c.quadraticCurveTo(x, y, x + r, y); c.closePath();
+}
+function text(c, s, x, y, o = {}) {
+  c.font = `${o.weight || 400} ${o.size || 16}px ${o.font || FONT}`;
+  c.fillStyle = o.color || "#fff";
+  c.textAlign = o.align || "left";
+  c.textBaseline = o.base || "alphabetic";
+  if (o.spacing) c.letterSpacing = o.spacing + "px"; else c.letterSpacing = "0px";
+  c.fillText(s, x, y);
+  return c.measureText(s).width;
+}
+const COL = {
+  mint: "#5BE6B5", cyan: "#5CC2FF", amber: "#FFBF4D", coral: "#FF6E6E", blue: "#73A0FF", violet: "#A88CFF",
+  text: "rgba(255,255,255,0.94)", sec: "rgba(255,255,255,0.58)", ter: "rgba(255,255,255,0.36)",
+  card: "rgba(255,255,255,0.06)", track: "rgba(255,255,255,0.10)",
+};
+
+// ------------------------------------------------------------------ 小章鱼 Tako（与 App 内 Pet.swift 同一张像素网格）
+const HEAD = ["......BBBB......", "....BBBBBBBB....", "...BHHBBBBBBB...", "..BHHBBBBBBBBB..", "..BHBBBBBBBBBB..",
+  ".BBBBBBBBBBBBBB.", ".BBBBBBBBBBBBBB.", ".BBBBBBBBBBBBBB.", ".BBBBBBBBBBBBBB.", "..SBBBBBBBBBBS.."];
+const LEGS_A = [".SBB.BB..BB.BBS.", ".BB..BB..BB..BB.", "BB..BB....BB..BB", "B...B......B...B"];
+const LEGS_B = [".SBB.BB..BB.BBS.", "..BB.BB..BB.BB..", "..B..BB..BB..B..", ".BB...B..B...BB."];
+const LEGS_T = [".SBBBBB..BBBBBS.", "..BB.BB..BB.BB..", "...B.B....B.B...", "................"];
+function takoGrid(mood, tick) {
+  let legs = LEGS_A;
+  if (mood === "working") legs = tick % 2 ? LEGS_B : LEGS_A;
+  if (mood === "happy") legs = tick % 2 ? LEGS_A : LEGS_T;
+  const g = HEAD.concat(legs).map(r => r.split(""));
+  const put = (r, c, ch) => { if (r >= 0 && r < 14 && c >= 0 && c < 16) g[r][c] = ch; };
+  put(8, 3, "C"); put(8, 12, "C");
+  const blink = mood === "idle" && tick % 9 === 0;
+  if (mood === "happy") {
+    for (const c of [4, 11]) { put(6, c, "E"); put(7, c - 1, "E"); put(7, c + 1, "E"); }
+    put(8, 7, "M"); put(8, 8, "M"); put(9, 7, "C"); put(9, 8, "C");
+  } else if (mood === "sad") {
+    for (const c of [4, 11]) { put(5, c - 1, "E"); put(5, c + 1, "E"); put(6, c, "E"); put(7, c - 1, "E"); put(7, c + 1, "E"); }
+    put(9, 7, "M"); put(9, 8, "M"); put(8, 6, "M"); put(8, 9, "M");
+    put(2, 13, "R"); put(3, 13, "R"); put(3, 14, "R");
+  } else if (mood === "waiting") {
+    for (const c of [4, 10]) { put(6, c, "S"); put(6, c + 1, "S"); put(7, c, "E"); put(7, c + 1, "E"); }
+  } else {
+    if (blink) { for (const c of [4, 10]) { put(7, c, "E"); put(7, c + 1, "E"); } }
+    else { for (const c of [4, 10]) { put(6, c, "W"); put(6, c + 1, "E"); put(7, c, "E"); put(7, c + 1, "E"); } }
+    put(8, 7, "M"); put(8, 8, "M");
+  }
+  return g;
+}
+const TAKO_COL = { B: "#5CE6B5", S: "#2EAD87", H: "#BDF9DF", E: "#0A0F1F", W: "#FFFFFF", C: "#FF8FAB", M: "#0A0F1F", R: "#7CC8FF" };
+const TAKO_SAD = { B: "#FF8C8C", S: "#CC545C", H: "#FFCCCC" };
+// (x, y) = 脚底中心；h = 身高（14 格）；squash > 0 压扁、< 0 拉长
+function drawTako(c, x, y, h, mood = "idle", tick = 0, o = {}) {
+  const px = h / 14, g = takoGrid(mood, tick);
+  const sq = o.squash || 0;
+  const sx = 1 + sq * 0.28, sy = 1 - sq * 0.28;
+  c.save();
+  c.globalAlpha *= (o.alpha ?? 1);
+  if (o.shadow !== false) {
+    const lift = o.lift || 0;
+    c.fillStyle = `rgba(0,0,0,${0.28 * clamp(1 - lift / (h * 3))})`;
+    c.beginPath();
+    c.ellipse(x, (o.ground ?? y) + px * 0.6, h * 0.5 * (1 - clamp(lift / (h * 4)) * 0.5), h * 0.09, 0, 0, Math.PI * 2);
+    c.fill();
+  }
+  c.translate(x, y);
+  if (o.rot) c.rotate(o.rot);
+  c.scale(sx * (o.flip ? -1 : 1), sy);
+  if (o.glow !== false) { c.shadowColor = mood === "sad" ? "rgba(255,110,110,0.55)" : "rgba(91,230,181,0.5)"; c.shadowBlur = h * 0.35; }
+  const pal = mood === "sad" ? Object.assign({}, TAKO_COL, TAKO_SAD) : TAKO_COL;
+  for (let r = 0; r < 14; r++) for (let col = 0; col < 16; col++) {
+    const ch = g[r][col];
+    if (ch === ".") continue;
+    c.fillStyle = pal[ch];
+    c.fillRect((col - 8) * px, (r - 14) * px, px + 0.6, px + 0.6);
+  }
+  c.restore();
+}
+// 抛物线跳跃：在 [b0, b1] 拍从 p0 跳到 p1，返回 {x, y, lift, squash}
+function hop(B, b0, b1, p0, p1, height) {
+  const k = clamp((B - b0) / (b1 - b0));
+  const x = lerp(p0[0], p1[0], k), base = lerp(p0[1], p1[1], k);
+  const y = base - Math.sin(k * Math.PI) * height;
+  // 起跳前蓄力、落地后压扁回弹
+  let squash = 0;
+  const pre = (b0 - B) / 0.25, post = (B - b1) / 0.5;
+  if (B < b0 && pre < 1) squash = 0.6 * (1 - pre);
+  else if (B > b1 && post < 1) squash = 0.9 * Math.exp(-post * 3) * Math.cos(post * 9);
+  else if (B >= b0 && B <= b1) squash = -0.35 * Math.sin(k * Math.PI);
+  return { x, y, lift: base - y, squash, ground: base };
+}
+
+// 5x7 像素字（ServerIsland 字样）
+const PFONT = {
+  S: [".####", "#....", "#....", ".###.", "....#", "....#", "####."], e: [".....", ".....", ".###.", "#...#", "#####", "#....", ".###."],
+  r: [".....", ".....", "#.##.", "##..#", "#....", "#....", "#...."], v: [".....", ".....", "#...#", "#...#", "#...#", ".#.#.", "..#.."],
+  I: ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "#####"], s: [".....", ".....", ".####", "#....", ".###.", "....#", "####."],
+  l: [".##..", "..#..", "..#..", "..#..", "..#..", "..#..", ".###."], a: [".....", ".....", ".###.", "....#", ".####", "#...#", ".####"],
+  n: [".....", ".....", "#.##.", "##..#", "#...#", "#...#", "#...#"], d: ["....#", "....#", ".##.#", "#..##", "#...#", "#...#", ".####"],
+};
+function wordCells(word) {
+  const cells = []; let x = 0;
+  for (const ch of word) {
+    const g = PFONT[ch];
+    const cols = [0, 1, 2, 3, 4].filter(c => g.some(r => r[c] === "#"));
+    const lo = Math.min(...cols), hi = Math.max(...cols);
+    g.forEach((row, r) => { for (let c = lo; c <= hi; c++) if (row[c] === "#") cells.push([x + c - lo, r]); });
+    x += hi - lo + 2;
+  }
+  return { cells, cols: x - 1 };
+}
+const WORD = wordCells("ServerIsland");
+// 像素字：组装进度 k（0 = 散落，1 = 成形）
+function drawWord(c, cx, cy, cell, k, alpha = 1, seed = 1) {
+  const w = WORD.cols * cell, x0 = cx - w / 2;
+  const grad = c.createLinearGradient(x0, 0, x0 + w, 0);
+  grad.addColorStop(0, COL.mint); grad.addColorStop(1, "#7CCBFF");
+  c.save();
+  c.globalAlpha *= alpha;
+  c.fillStyle = grad;
+  c.shadowColor = "rgba(91,230,181,0.45)"; c.shadowBlur = cell * 1.6;
+  WORD.cells.forEach(([col, row], i) => {
+    const d = rnd(i * 3 + seed), kk = clamp((k - d * 0.45) / 0.55);
+    const e = easeOutBack(kk, 1.4);
+    const tx = x0 + col * cell, ty = cy + (row - 3.5) * cell;
+    const sx = cx + (rnd(i * 7 + seed) - 0.5) * W * 1.1, sy = cy + (rnd(i * 11 + seed) - 0.5) * H * 0.9;
+    if (kk <= 0) return;
+    c.globalAlpha = alpha * clamp(kk * 3);
+    c.fillRect(lerp(sx, tx, e), lerp(sy, ty, e), cell + 0.5, cell + 0.5);
+  });
+  c.restore();
+}
+
+// ------------------------------------------------------------------ 背景：夜空 + 像素海浪（与 logo 同风格）
+function drawNight(c, B, alpha = 1) {
+  c.save();
+  c.globalAlpha = alpha;
+  const g = c.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, "#121836"); g.addColorStop(0.6, "#112B4A"); g.addColorStop(1, "#0D4A57");
+  c.fillStyle = g; c.fillRect(0, 0, W, H);
+  const rg = c.createRadialGradient(W / 2, H * 0.55, 0, W / 2, H * 0.55, H * 0.75);
+  rg.addColorStop(0, "rgba(91,230,181,0.22)"); rg.addColorStop(1, "rgba(91,230,181,0)");
+  c.fillStyle = rg; c.fillRect(0, 0, W, H);
+  for (let i = 0; i < 70; i++) {
+    const x = rnd(i) * W, y = rnd(i + 99) * H * 0.7, sz = 2 + Math.floor(rnd(i + 7) * 3) * 2;
+    const tw = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(B * 1.6 + i * 1.7));
+    c.globalAlpha = alpha * tw * 0.7 * clamp(B * 2 - rnd(i + 3) * 2);
+    c.fillStyle = "#fff"; c.fillRect(Math.round(x), Math.round(y), sz, sz);
+  }
+  c.globalAlpha = alpha;
+  // 像素海浪：两行方块缓慢流动
+  for (let row = 0; row < 3; row++) {
+    const y0 = H - 150 + row * 44, speed = (row + 1) * 18, off = (B * BEAT * speed) % 60;
+    for (let x = -60; x < W + 60; x += 60) {
+      const k = Math.floor((x + off * (row % 2 ? -1 : 1)) / 60);
+      const dy = (Math.abs(k) % 4 === 1 || Math.abs(k) % 4 === 2) ? 14 : 0;
+      c.fillStyle = row === 0 ? "rgba(127,216,255,0.30)" : row === 1 ? "rgba(91,230,181,0.18)" : "rgba(91,230,181,0.10)";
+      rr(c, x + (row % 2 ? -off : off), y0 + dy, 40, 16, 3); c.fill();
+    }
+  }
+  c.restore();
+}
+
+// ------------------------------------------------------------------ Mac 世界（单位：屏幕点，1512 × 982，与 14 寸 MacBook Pro 一致）
+const SW = 1512, SH = 982, MENU = 32, NOTCH_W = 185, MID = SW / 2;
+let wallpaper = null;
+function buildWallpaper() {
+  const sc = 2.4, oc = document.createElement("canvas");
+  oc.width = SW * sc; oc.height = SH * sc;
+  const c = oc.getContext("2d"); c.scale(sc, sc);
+  const g = c.createLinearGradient(0, 0, SW * 0.3, SH);
+  g.addColorStop(0, "#3C4C8F"); g.addColorStop(0.45, "#8D6FB1"); g.addColorStop(0.75, "#D99A9C"); g.addColorStop(1, "#F2C89A");
+  c.fillStyle = g; c.fillRect(0, 0, SW, SH);
+  const blobs = [[300, 300, 380, "rgba(90,130,255,0.45)"], [1200, 260, 420, "rgba(255,150,200,0.35)"], [900, 800, 460, "rgba(255,200,140,0.40)"], [200, 850, 300, "rgba(120,90,200,0.35)"]];
+  for (const [x, y, r, col] of blobs) {
+    const rg = c.createRadialGradient(x, y, 0, x, y, r);
+    rg.addColorStop(0, col); rg.addColorStop(1, "rgba(0,0,0,0)");
+    c.fillStyle = rg; c.fillRect(0, 0, SW, SH);
+  }
+  wallpaper = oc;
+}
+
+// 摄像机：世界坐标点 (cx, cy) 位于画面中心，缩放 z
+function withCamera(c, cam, fn) {
+  c.save();
+  c.translate(W / 2, H / 2); c.scale(cam.z, cam.z); c.translate(-cam.x, -cam.y);
+  fn();
+  c.restore();
+}
+const CAM_FULL = { x: MID, y: SH / 2 + 30, z: 0.98 };
+function camKeys(B, keys) {
+  // keys: [[beat, {x,y,z}], ...]，相邻关键帧之间 easeInOutCubic
+  if (B <= keys[0][0]) return keys[0][1];
+  for (let i = 1; i < keys.length; i++) {
+    if (B <= keys[i][0]) {
+      const [b0, a] = keys[i - 1], [b1, b] = keys[i];
+      const k = easeInOutCubic((B - b0) / (b1 - b0));
+      // 缩放在对数空间插值，推拉更自然
+      return { x: lerp(a.x, b.x, k), y: lerp(a.y, b.y, k), z: Math.exp(lerp(Math.log(a.z), Math.log(b.z), k)) };
+    }
+  }
+  return keys[keys.length - 1][1];
+}
+
+function drawLaptop(c) {
+  // 机身底座
+  c.save();
+  const baseG = c.createLinearGradient(0, SH + 20, 0, SH + 62);
+  baseG.addColorStop(0, "#C9CDD4"); baseG.addColorStop(1, "#8E939B");
+  c.fillStyle = baseG;
+  c.beginPath();
+  c.moveTo(-120, SH + 24); c.lineTo(SW + 120, SH + 24); c.lineTo(SW + 60, SH + 58); c.lineTo(-60, SH + 58); c.closePath(); c.fill();
+  c.fillStyle = "#9CA1A9"; rr(c, MID - 110, SH + 24, 220, 10, 5); c.fill();
+  // 屏幕外框
+  c.fillStyle = "#0B0B0D"; rr(c, -22, -22, SW + 44, SH + 46, 30); c.fill();
+  c.strokeStyle = "rgba(255,255,255,0.08)"; c.lineWidth = 2; rr(c, -22, -22, SW + 44, SH + 46, 30); c.stroke();
+  c.restore();
+}
+
+function drawDesktop(c, B, o = {}) {
+  c.save();
+  rr(c, 0, 0, SW, SH, 10); c.clip();
+  c.drawImage(wallpaper, 0, 0, SW, SH);
+  // 终端窗口
+  const tx = 110, ty = 430, tw = 600, th = 300;
+  c.save();
+  c.shadowColor = "rgba(0,0,0,0.35)"; c.shadowBlur = 40; c.shadowOffsetY = 18;
+  c.fillStyle = "rgba(24,26,34,0.92)"; rr(c, tx, ty, tw, th, 12); c.fill();
+  c.restore();
+  c.fillStyle = "rgba(255,255,255,0.06)"; rr(c, tx, ty, tw, 30, 12); c.fill();
+  ["#FF5F57", "#FEBC2E", "#28C840"].forEach((col, i) => { c.fillStyle = col; c.beginPath(); c.arc(tx + 18 + i * 20, ty + 15, 6, 0, 7); c.fill(); });
+  text(c, "demo@4090-box: ~/projects/Li3PS4/nep-train", tx + tw / 2, ty + 20, { size: 12, color: COL.sec, align: "center" });
+  const lines = [["$ ", "sbatch aimd.sh"], ["", "Submitted batch job 8812044"], ["$ ", "squeue --me"], ["", "JOBID   NAME        ST  TIME"],
+    ["", "8812044 aimd_Li3PS4 R   1:23:40"], ["", "8812300_[22-39] eos_scan PD 0:00"], ["$ ", "tail -f loss.out"], ["", "7800  0.1815  0.0451  0.0647  0.00074 …"]];
+  lines.forEach(([p, s], i) => {
+    const y = ty + 58 + i * 28;
+    if (p) text(c, p, tx + 18, y, { size: 15, font: MONO, color: COL.mint });
+    text(c, s, tx + 18 + (p ? 20 : 0), y, { size: 15, font: MONO, color: p ? "#fff" : COL.sec });
+  });
+  // 光标闪烁
+  if (Math.floor(B) % 2 === 0) { c.fillStyle = COL.mint; c.fillRect(tx + 18, ty + 58 + 8 * 28 - 14, 9, 17); }
+  // Dock
+  const dw = 640, dh = 66, dx = MID - dw / 2, dy = SH - 84;
+  c.fillStyle = "rgba(255,255,255,0.22)"; rr(c, dx, dy, dw, dh, 20); c.fill();
+  c.strokeStyle = "rgba(255,255,255,0.25)"; c.lineWidth = 1; rr(c, dx, dy, dw, dh, 20); c.stroke();
+  const icons = ["#4AA3FF", "#FF7A59", "#2BD17E", "#FFC53D", "#9B7BFF", "logo", "#3E3E46", "#FF5EA8", "#58D5FF"];
+  icons.forEach((col, i) => {
+    const ix = dx + 18 + i * 68, iy = dy + 9;
+    if (col === "logo") { if (LOGO.complete) c.drawImage(LOGO, ix - 6, iy - 6, 60, 60); }
+    else {
+      const ig = c.createLinearGradient(0, iy, 0, iy + 48); ig.addColorStop(0, col); ig.addColorStop(1, shade(col, -40));
+      c.fillStyle = ig; rr(c, ix, iy, 48, 48, 12); c.fill();
+    }
+  });
+  // 菜单栏
+  c.fillStyle = "rgba(255,255,255,0.20)"; c.fillRect(0, 0, SW, MENU);
+  text(c, "", 22, 22, { size: 17, color: "#fff" });
+  text(c, "Finder", 52, 22, { size: 14, weight: 700 });
+  ["文件", "编辑", "显示", "前往", "窗口", "帮助"].forEach((s, i) => text(c, s, 120 + i * 52, 22, { size: 14 }));
+  text(c, "10月16日 周五  18:42", SW - 20, 22, { size: 14, align: "right" });
+  // 菜单栏右侧：ServerIsland 图标（像素章鱼剪影）
+  drawTako(c, SW - 196, 25, 15, "idle", 1, { shadow: false, glow: false });
+  c.save(); c.fillStyle = "#fff"; c.globalAlpha *= 0.9;
+  [SW - 236, SW - 268].forEach(x => { rr(c, x - 9, 9, 18, 14, 3); c.fill(); });
+  c.restore();
+  c.restore();
+}
+function shade(hex, d) {
+  const n = parseInt(hex.slice(1), 16);
+  const f = v => clamp(v + d, 0, 255);
+  return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
+}
+
+// ------------------------------------------------------------------ 灵动岛（尺寸与 App 一致）
+const SPEC = {
+  hidden: { w: NOTCH_W, h: MENU, ear: 0, bot: 8 },
+  collapsed: { w: NOTCH_W + 2 * 62 + 12, h: MENU, ear: 6, bot: 10 },
+  toast: { w: 445, h: MENU + 60, ear: 10, bot: 22 },
+  panel: { w: 668, h: MENU + 8 + 336 + 14, ear: 14, bot: 26 },
+  detail: { w: 668, h: MENU + 8 + 300 + 14, ear: 14, bot: 26 },
+};
+// keys: [[beat, specName]]，在两个状态之间用弹簧过渡
+function islandSpec(B, keys) {
+  let prev = SPEC[keys[0][1]], cur = prev, t0 = -99;
+  for (const [b, name] of keys) { if (B >= b) { prev = cur; cur = SPEC[name]; t0 = b; } }
+  // 重新计算：找最后一个 <= B 的关键帧，以及它之前的状态
+  let i = 0; for (let j = 0; j < keys.length; j++) if (B >= keys[j][0]) i = j;
+  const from = SPEC[keys[Math.max(0, i - 1)][1]], to = SPEC[keys[i][1]];
+  const k = i === 0 ? 1 : spring((B - keys[i][0]) * 1.1, 8.5, 0.6);
+  return { w: lerp(from.w, to.w, k), h: lerp(from.h, to.h, k), ear: lerp(from.ear, to.ear, k), bot: lerp(from.bot, to.bot, k), name: keys[i][1], since: B - keys[i][0] };
+}
+function islandPath(c, s) {
+  const x0 = MID - s.w / 2, t = s.ear, b = Math.min(s.bot, (s.w - 2 * t) / 2, s.h - t), x1 = MID + s.w / 2, y1 = s.h;
+  c.beginPath();
+  c.moveTo(x0, 0);
+  c.quadraticCurveTo(x0 + t, 0, x0 + t, t);
+  c.lineTo(x0 + t, y1 - b); c.quadraticCurveTo(x0 + t, y1, x0 + t + b, y1);
+  c.lineTo(x1 - t - b, y1); c.quadraticCurveTo(x1 - t, y1, x1 - t, y1 - b);
+  c.lineTo(x1 - t, t); c.quadraticCurveTo(x1 - t, 0, x1, 0);
+  c.closePath();
+}
+function drawIsland(c, s, content) {
+  c.save();
+  if (s.h > MENU + 4) { c.shadowColor = "rgba(0,0,0,0.55)"; c.shadowBlur = 40; c.shadowOffsetY = 14; }
+  islandPath(c, s); c.fillStyle = "#000"; c.fill();
+  c.restore();
+  c.save(); islandPath(c, s); c.clip();
+  if (content) content(MID - s.w / 2 + s.ear, s.w - 2 * s.ear, s);
+  c.restore();
+}
+
+// 进度条 / 小部件
+function bar(c, x, y, w, k, fill, h = 4) {
+  c.fillStyle = COL.track; rr(c, x, y, w, h, h / 2); c.fill();
+  if (k > 0) {
+    if (typeof fill === "string") c.fillStyle = fill;
+    else { const g = c.createLinearGradient(x, 0, x + w, 0); g.addColorStop(0, COL.mint); g.addColorStop(1, COL.cyan); c.fillStyle = g; }
+    rr(c, x, y, Math.max(h, w * clamp(k)), h, h / 2); c.fill();
+  }
+}
+function ring(c, x, y, r, k, lw = 2.4) {
+  c.lineWidth = lw; c.strokeStyle = COL.track; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.stroke();
+  const g = c.createLinearGradient(x - r, y, x + r, y); g.addColorStop(0, COL.mint); g.addColorStop(1, COL.cyan);
+  c.strokeStyle = g; c.lineCap = "round"; c.beginPath(); c.arc(x, y, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * clamp(k)); c.stroke(); c.lineCap = "butt";
+}
+function badge(c, s, x, y, col) {
+  c.font = `700 8px ${FONT}`; c.letterSpacing = "0.6px";
+  const w = c.measureText(s).width + 10;
+  c.fillStyle = col + "26"; rr(c, x, y - 9, w, 13, 6.5); c.fill();
+  text(c, s, x + 5, y + 1, { size: 8, weight: 700, color: col, spacing: 0.6 });
+  return w;
+}
+function iconCircle(c, x, y, col, glyph) {
+  c.fillStyle = col + "26"; c.beginPath(); c.arc(x, y, 11, 0, 7); c.fill();
+  c.strokeStyle = col; c.fillStyle = col; c.lineWidth = 1.8;
+  if (glyph === "bolt") { c.beginPath(); c.moveTo(x + 1.5, y - 6); c.lineTo(x - 3.5, y + 1); c.lineTo(x, y + 1); c.lineTo(x - 1.5, y + 6); c.lineTo(x + 3.5, y - 1); c.lineTo(x, y - 1); c.closePath(); c.fill(); }
+  else if (glyph === "atom") { for (let a = 0; a < 3; a++) { c.beginPath(); c.ellipse(x, y, 6.5, 2.6, a * Math.PI / 3, 0, 7); c.stroke(); } c.beginPath(); c.arc(x, y, 1.6, 0, 7); c.fill(); }
+  else if (glyph === "hour") { c.beginPath(); c.moveTo(x - 4, y - 5); c.lineTo(x + 4, y - 5); c.lineTo(x - 4, y + 5); c.lineTo(x + 4, y + 5); c.closePath(); c.stroke(); }
+  else if (glyph === "stack") { const a0 = c.globalAlpha; for (let i = 0; i < 3; i++) { c.beginPath(); c.moveTo(x - 6, y - 2 + i * 3); c.lineTo(x, y - 5 + i * 3); c.lineTo(x + 6, y - 2 + i * 3); c.lineTo(x, y + 1 + i * 3); c.closePath(); c.globalAlpha = a0 * (i === 0 ? 1 : 0.7); c.fill(); } c.globalAlpha = a0; }
+}
+
+// 一张服务器卡片；jobs 每行 {icon, col, name, id, right, rightCol, detail, k, kind, seg, pending, warn}
+function drawCard(c, x, y, w, card, B) {
+  const pad = 12;
+  let h = pad * 2 + 20 + (card.metrics ? 26 : 0) + 10 + card.jobs.length * 34 + (card.jobs.length - 1) * 6;
+  const g = c.createLinearGradient(0, y, 0, y + h); g.addColorStop(0, "rgba(255,255,255,0.075)"); g.addColorStop(1, "rgba(255,255,255,0.035)");
+  c.fillStyle = g; rr(c, x, y, w, h, 16); c.fill();
+  c.strokeStyle = "rgba(255,255,255,0.10)"; c.lineWidth = 0.6; rr(c, x, y, w, h, 16); c.stroke();
+  let cy = y + pad;
+  c.fillStyle = COL.mint; c.shadowColor = COL.mint; c.shadowBlur = 5; c.beginPath(); c.arc(x + pad + 3, cy + 10, 3.3, 0, 7); c.fill(); c.shadowBlur = 0;
+  const nw = text(c, card.name, x + pad + 13, cy + 15, { size: 13, weight: 600 });
+  badge(c, card.badge, x + pad + 20 + nw, cy + 14, card.badge === "SLURM" ? COL.violet : COL.cyan);
+  text(c, card.meta || "刚刚 · 96ms", x + w - pad, cy + 15, { size: 10, color: COL.ter, align: "right" });
+  cy += 20;
+  if (card.metrics) {
+    cy += 10;
+    let mx = x + pad;
+    for (const [lab, k, val] of card.metrics) {
+      text(c, lab, mx, cy + 11, { size: 9.5, weight: 600, color: COL.ter }); mx += c.measureText(lab).width + 6;
+      bar(c, mx, cy + 6, 44, k, k > 0.85 ? COL.coral : k > 0.6 ? COL.amber : COL.mint); mx += 50;
+      mx += text(c, val, mx, cy + 11, { size: 10.5, weight: 500, color: COL.sec }) + 16;
+    }
+    cy += 16;
+  }
+  cy += 10;
+  for (const j of card.jobs) {
+    if (j.hl) { c.fillStyle = `rgba(255,255,255,${0.07 * j.hl})`; rr(c, x + 6, cy - 2, w - 12, 38, 9); c.fill(); }
+    iconCircle(c, x + pad + 11, cy + 17, j.col, j.icon);
+    const lx = x + pad + 32;
+    const nw2 = text(c, j.name, lx, cy + 12, { size: 12, weight: 500 });
+    if (j.id) text(c, j.id, lx + nw2 + 6, cy + 12, { size: 9.5, font: MONO, color: j.idCol || COL.ter, weight: j.idCol ? 600 : 400 });
+    text(c, j.right, x + w - pad, cy + 12, { size: 10.5, weight: 500, color: j.rightCol || COL.sec, align: "right" });
+    if (j.pending) {
+      if (j.warn) { c.fillStyle = COL.coral; c.beginPath(); c.moveTo(lx + 4, cy + 20); c.lineTo(lx + 8.5, cy + 28); c.lineTo(lx - 0.5, cy + 28); c.closePath(); c.fill(); }
+      text(c, j.pending, lx + (j.warn ? 13 : 0), cy + 28, { size: 10, weight: j.warn ? 600 : 400, color: j.warn ? COL.coral : "rgba(255,191,77,0.85)" });
+    } else if (j.seg) {
+      const bw = w - pad * 2 - 32 - 220, bx = lx, by = cy + 22;
+      c.fillStyle = COL.track; rr(c, bx, by, bw, 4, 2); c.fill();
+      c.save(); rr(c, bx, by, bw, 4, 2); c.clip();
+      const [d, f, r] = j.seg; c.fillStyle = COL.mint; c.fillRect(bx, by, bw * d, 4); c.fillStyle = COL.coral; c.fillRect(bx + bw * d + 1, by, bw * f, 4);
+      c.fillStyle = "rgba(92,194,255,0.55)"; c.fillRect(bx + bw * (d + f) + 2, by, bw * r, 4); c.restore();
+      text(c, j.detail, x + w - pad, cy + 28, { size: 10, color: j.detailCol || COL.ter, align: "right" });
+    } else {
+      const bw = w - pad * 2 - 32 - 220;
+      bar(c, lx, cy + 22, bw, j.k, j.real ? null : "rgba(255,255,255,0.45)");
+      text(c, j.detail, x + w - pad, cy + 28, { size: 10, color: COL.ter, align: "right" });
+    }
+    cy += 40;
+  }
+  return h;
+}
+function islandHeader(c, x, w, B, o = {}) {
+  drawTako(c, x + 22, 26, 15, o.mood || "working", Math.floor(B * 2), { shadow: false });
+  text(c, "ServerIsland", x + 38, 21, { size: 12.5, weight: 600 });
+  text(c, "⚡ " + (o.run ?? 8), x + 132, 21, { size: 11, weight: 600, color: COL.mint });
+  text(c, "⏳ " + (o.pend ?? 20), x + 162, 21, { size: 11, weight: 600, color: COL.amber });
+  const rx = x + w - 14;
+  [["⚙", 0], ["↻", 30], ["📌", 60]].forEach(([g, d]) => {
+    c.fillStyle = "rgba(255,255,255,0.08)"; c.beginPath(); c.arc(rx - d - 10, 16, 12, 0, 7); c.fill();
+    text(c, g, rx - d - 10, 20.5, { size: 11, color: COL.sec, align: "center" });
+  });
+  c.fillStyle = "rgba(255,255,255,0.08)"; rr(c, rx - 132, 4, 46, 24, 12); c.fill();
+  text(c, "⏱ 1m", rx - 109, 21, { size: 10.5, weight: 600, color: COL.sec, align: "center" });
+}
+
+// 收起状态的两翼
+function drawWings(c, x, w, B, o = {}) {
+  const cy = MENU / 2;
+  drawTako(c, MID - NOTCH_W / 2 - 40, cy + 9, 17, o.mood || "working", Math.floor(B * 2), { shadow: false });
+  text(c, String(o.run ?? 3), MID - NOTCH_W / 2 - 20, cy + 5, { size: 13, weight: 600 });
+  const k = o.k ?? 0.63;
+  ring(c, MID + NOTCH_W / 2 + 22, cy, 6.5, k);
+  text(c, Math.round(k * 100) + "%", MID + NOTCH_W / 2 + 33, cy + 4.5, { size: 11, weight: 600, color: COL.mint });
+}
+
+// 弹出提示
+function drawToast(c, x, w, B, t) {
+  const a = clamp(t.since * 4);
+  c.save(); c.globalAlpha *= a;
+  text(c, t.host, x + 18, 21, { size: 10.5, weight: 600, color: COL.sec });
+  text(c, "18:4" + t.min, x + w - 18, 21, { size: 10.5, color: COL.ter, align: "right" });
+  const tb = Math.floor(B * 2);
+  drawTako(c, x + 38, MENU + 46, 30, t.ok ? "happy" : "sad", tb, { shadow: false, lift: 0 });
+  c.fillStyle = t.ok ? COL.mint : COL.coral; c.beginPath(); c.arc(x + 52, MENU + 44, 7, 0, 7); c.fill();
+  c.strokeStyle = "#000"; c.lineWidth = 1.5; c.stroke();
+  text(c, t.ok ? "✓" : "✕", x + 52, MENU + 47.5, { size: 9, weight: 900, color: "#000", align: "center" });
+  text(c, t.title, x + 70, MENU + 27, { size: 14, weight: 600 });
+  text(c, t.sub, x + 70, MENU + 45, { size: 11, color: COL.sec });
+  // 倒计时细线
+  c.fillStyle = (t.ok ? COL.mint : COL.coral) + "88";
+  const cw = (w - 80) * (1 - clamp(t.since / 3.6));
+  rr(c, x + 40 + (w - 80 - cw) / 2, MENU + 54, cw, 2, 1); c.fill();
+  c.restore();
+}
+
+// ------------------------------------------------------------------ 字幕（屏幕空间）
+const CAPTIONS = [
+  { from: 12, to: 19.6, tag: "01", title: "住在刘海里的小章鱼", sub: "有任务就手舞足蹈 · 排队时打瞌睡 · 出错会晕" },
+  { from: 22, to: 31.6, tag: "02", title: "悬停展开，一眼看完所有服务器", sub: "SSH 连接复用 · 服务器上什么都不用装" },
+  { from: 33, to: 43.6, tag: "03", title: "Slurm 作业，看得更明白", sub: "数组作业合并显示 · 排队原因说人话 · 分区空闲一目了然" },
+  { from: 45, to: 55.6, tag: "04", title: "认得你的计算", sub: "NEP / GPUMD 自动识别进度、速度和剩余时间" },
+  { from: 57, to: 67.6, tag: "05", title: "完成「叮咚」，失败「咚咚」", sub: "刘海弹窗 + 提示音，不用盯着终端" },
+];
+function drawCaption(c, B) {
+  for (const cap of CAPTIONS) {
+    if (B < cap.from - 0.1 || B > cap.to + 0.1) continue;
+    const kin = prog(B, cap.from, cap.from + 1.2, easeOutQuint), kout = prog(B, cap.to - 0.6, cap.to, easeInCubic);
+    const a = kin * (1 - kout);
+    const x = 110, y = 880;
+    c.save();
+    // 底部渐暗衬底
+    const bg = c.createLinearGradient(0, H - 330, 0, H);
+    bg.addColorStop(0, "rgba(5,8,20,0)"); bg.addColorStop(1, `rgba(5,8,20,${0.78 * a})`);
+    c.fillStyle = bg; c.fillRect(0, H - 330, W, 330);
+    const lg = c.createLinearGradient(0, 0, 900, 0);
+    lg.addColorStop(0, `rgba(5,8,20,${0.45 * a})`); lg.addColorStop(1, "rgba(5,8,20,0)");
+    c.fillStyle = lg; c.fillRect(0, H - 330, 900, 330);
+    // 编号
+    c.globalAlpha = a;
+    const tx = x - 40 * (1 - kin);
+    c.fillStyle = "rgba(91,230,181,0.16)"; rr(c, tx, y - 96, 64, 30, 15); c.fill();
+    text(c, cap.tag, tx + 32, y - 75, { size: 16, weight: 700, color: COL.mint, align: "center", font: MONO });
+    // 标题逐字浮现
+    c.save();
+    c.shadowColor = "rgba(0,0,0,0.5)"; c.shadowBlur = 18;
+    let cx = tx;
+    [...cap.title].forEach((ch, i) => {
+      const ki = prog(B, cap.from + 0.1 + i * 0.06, cap.from + 0.7 + i * 0.06, easeOutBack);
+      c.globalAlpha = a * clamp(ki * 1.5);
+      c.font = `700 68px ${FONT}`;
+      const cw = c.measureText(ch).width;
+      text(c, ch, cx, y + 24 * (1 - ki), { size: 68, weight: 700 });
+      cx += cw;
+    });
+    c.restore();
+    c.globalAlpha = a * prog(B, cap.from + 0.6, cap.from + 1.4);
+    text(c, cap.sub, tx + 2, y + 58, { size: 30, color: "rgba(255,255,255,0.78)" });
+    c.restore();
+  }
+}
+
+// 光标
+function drawCursor(c, x, y, s = 1, press = 0) {
+  c.save(); c.translate(x, y); c.scale(s * (1 - press * 0.12), s * (1 - press * 0.12));
+  c.beginPath(); c.moveTo(0, 0); c.lineTo(0, 22); c.lineTo(5.5, 16.5); c.lineTo(9.5, 25); c.lineTo(13, 23.5); c.lineTo(9, 15.5); c.lineTo(16, 15.5); c.closePath();
+  c.fillStyle = "#000"; c.strokeStyle = "#fff"; c.lineWidth = 1.6; c.lineJoin = "round";
+  c.shadowColor = "rgba(0,0,0,0.4)"; c.shadowBlur = 6; c.shadowOffsetY = 2;
+  c.stroke(); c.fill(); c.restore();
+}
+
+// 粒子：在 b0 处爆开
+function burst(c, B, b0, x, y, o = {}) {
+  const k = (B - b0) / (o.dur || 1.6);
+  if (k < 0 || k > 1) return;
+  const n = o.n || 26, cols = o.cols || [COL.mint, COL.cyan, "#fff", COL.amber];
+  c.save();
+  for (let i = 0; i < n; i++) {
+    const ang = rnd(i + (o.seed || 0)) * Math.PI * 2, sp = (o.speed || 260) * (0.4 + rnd(i * 5 + 1) * 0.8);
+    const e = easeOutCubic(k);
+    const px = x + Math.cos(ang) * sp * e, py = y + Math.sin(ang) * sp * e + (o.grav ?? 120) * k * k;
+    const sz = (o.size || 8) * (1 - k * 0.6);
+    c.globalAlpha = (1 - k) * (o.alpha ?? 1);
+    c.fillStyle = cols[i % cols.length];
+    c.fillRect(px - sz / 2, py - sz / 2, sz, sz);
+  }
+  c.restore();
+}
+function flash(c, B, b0, dur = 0.6, col = "255,255,255", max = 0.85) {
+  const k = (B - b0) / dur;
+  if (k < 0 || k > 1) return;
+  c.fillStyle = `rgba(${col},${max * Math.pow(1 - k, 2.2)})`; c.fillRect(0, 0, W, H);
+}
+
+// =====================================================================================
+// 场景
+// =====================================================================================
+
+// 0. 片头：夜空，小章鱼落地，像素字组装
+function sceneIntro(c, B) {
+  drawNight(c, B);
+  const ground = 650;
+  // 小章鱼从天而降
+  let p, mood = "idle", tick = Math.floor(B * 2);
+  if (B < 3) {
+    const k = clamp((B - 2) / 1);
+    p = { x: W / 2, y: lerp(-120, ground, easeInCubic(k)), lift: (1 - easeInCubic(k)) * 600, squash: -0.4 * k, ground };
+  } else if (B < 7.5) {
+    const post = (B - 3) / 0.6;
+    p = { x: W / 2, y: ground, lift: 0, squash: post < 1 ? 1.0 * Math.exp(-post * 2.6) * Math.cos(post * 10) : 0, ground };
+    if (B > 4 && B < 6.6) mood = "happy";
+    // 第 5、6 拍随节拍小跳
+    for (const hb of [5, 6]) if (B >= hb - 0.0 && B < hb + 0.5) { const h = hop(B, hb, hb + 0.45, [W / 2, ground], [W / 2, ground], 34); p = h; }
+  } else {
+    const k = clamp((B - 7.5) / 0.5);
+    p = { x: W / 2, y: lerp(ground, -200, easeInCubic(k)), lift: k * 600, squash: -0.5 * k, ground };
+  }
+  if (B >= 2) drawTako(c, p.x, p.y, 230, mood, tick, { squash: p.squash, lift: p.lift, ground });
+  // 落地冲击波
+  if (B >= 3 && B < 4.2) {
+    const k = (B - 3) / 1.2;
+    c.save(); c.strokeStyle = `rgba(91,230,181,${0.6 * (1 - k)})`; c.lineWidth = 6 * (1 - k);
+    c.beginPath(); c.ellipse(W / 2, ground + 10, 160 + 380 * easeOutCubic(k), 26 + 60 * easeOutCubic(k), 0, 0, 7); c.stroke(); c.restore();
+  }
+  burst(c, B, 3, W / 2, ground - 10, { n: 22, speed: 340, size: 10, grav: 260, seed: 3 });
+  // 像素字 + 标语
+  const kw = prog(B, 4, 6.2);
+  if (kw > 0) drawWord(c, W / 2, 820, 15, kw, 1 - prog(B, 7.4, 8));
+  const ks = prog(B, 6, 6.8, easeOutCubic);
+  if (ks > 0) {
+    c.save(); c.globalAlpha = ks * (1 - prog(B, 7.4, 8));
+    text(c, "把服务器装进刘海里", W / 2, 935 + 16 * (1 - ks), { size: 40, weight: 500, color: "rgba(255,255,255,0.86)", align: "center", spacing: 8 });
+    c.restore();
+  }
+}
+
+// Mac 场景通用：画桌面 + 岛 + 世界坐标里的额外内容
+function macWorld(c, B, cam, islandKeys, content, extra) {
+  withCamera(c, cam, () => {
+    drawLaptop(c);
+    drawDesktop(c, B);
+    if (extra && extra.below) extra.below();
+    const s = islandSpec(B, islandKeys);
+    drawIsland(c, s, (x, w) => content && content(x, w, s));
+    if (extra && extra.above) extra.above(s);
+  });
+}
+
+// 1. 刘海：小章鱼钻进刘海，岛展开出两翼；下方气泡展示心情
+function sceneNotch(c, B) {
+  const cam = camKeys(B, [[8, { x: MID, y: SH / 2 + 30, z: 0.92 }], [9.5, { x: MID, y: SH / 2, z: 1.0 }], [11.5, { x: MID, y: 165, z: 2.85 }], [20, { x: MID, y: 172, z: 2.95 }]]);
+  const keys = [[0, "hidden"], [10.8, "collapsed"]];
+  const moods = [["working", "有任务在跑"], ["waiting", "排队中"], ["happy", "完成啦"], ["sad", "出错了"]];
+  const mi = clamp(Math.floor((B - 13) / 1.6), 0, 3);
+  macWorld(c, B, cam, keys, (x, w, s) => {
+    if (s.name === "collapsed") { c.save(); c.globalAlpha = clamp(s.since * 3); drawWings(c, x, w, B, { mood: B > 13 ? moods[mi][0] : "working" }); c.restore(); }
+  }, {
+    above: (s) => {
+      // 小章鱼：跳上菜单栏，再钻进刘海
+      if (B < 11) {
+        let p;
+        if (B < 9) p = hop(B, 8.2, 9, [MID + 260, 600], [MID + 210, MENU - 2], 260);
+        else if (B < 10) p = { x: MID + 210, y: MENU - 2, squash: hop(B, 9, 9, [0, 0], [0, 0], 0).squash, lift: 0 };
+        else p = hop(B, 10, 10.5, [MID + 210, MENU - 2], [MID, 18], 50);
+        const shrink = B > 10 ? lerp(1, 0.25, prog(B, 10.2, 10.55)) : 1;
+        if (B < 10.55) drawTako(c, p.x, p.y, 34 * shrink, B > 9.1 ? "happy" : "idle", Math.floor(B * 2), { squash: p.squash, lift: p.lift, ground: MENU - 2 });
+      }
+      burst(c, B, 11, MID, MENU / 2, { n: 18, speed: 70, size: 3.2, grav: 30, seed: 11 });
+      // 心情气泡
+      if (B > 12.6) {
+        const k = prog(B, 12.6, 13.4, easeOutBack), out = prog(B, 19.2, 19.8);
+        const bx = MID - NOTCH_W / 2 - 40, by = MENU + 18;
+        c.save(); c.globalAlpha = k * (1 - out);
+        c.translate(bx, by); c.scale(k, k);
+        c.fillStyle = "rgba(10,12,22,0.92)"; rr(c, -62, 8, 124, 92, 16); c.fill();
+        c.beginPath(); c.moveTo(-7, 9); c.lineTo(0, 0); c.lineTo(7, 9); c.fill();
+        c.strokeStyle = "rgba(255,255,255,0.12)"; c.lineWidth = 0.8; rr(c, -62, 8, 124, 92, 16); c.stroke();
+        const local = (B - 13) - mi * 1.6;
+        const pop = local < 0.4 ? easeOutBack(clamp(local / 0.4)) : 1;
+        drawTako(c, 0, 74, 44 * (0.8 + 0.2 * pop), moods[mi][0], Math.floor(B * 2), { shadow: false });
+        text(c, moods[mi][1], 0, 93, { size: 12, weight: 600, color: moods[mi][0] === "sad" ? COL.coral : COL.mint, align: "center" });
+        c.restore();
+      }
+    }
+  });
+  flash(c, B, 8, 0.5);
+}
+
+// 面板内容（卡片）
+function panelCards(B) {
+  const t = (B - 20) * BEAT;
+  const nepK = clamp(0.36 + t * 0.006), mdK = clamp(0.6 + t * 0.004);
+  return [
+    {
+      name: "4090 工作站", badge: "DIRECT", meta: "刚刚 · 96ms",
+      metrics: [["CPU", 0.42, "42%"], ["内存", 0.18, "5.6/31G"], ["GPU", 0.96, "96% · 2.6/24G"]],
+      jobs: [
+        { icon: "atom", col: COL.mint, name: "nep", id: "pid 41022", right: `${Math.round(nepK * 100)}% · 约剩 7m`, rightCol: COL.mint, detail: `NEP 训练 · ${Math.round(nepK * 20000).toLocaleString()}/20,000 代`, k: nepK, real: true },
+        { icon: "atom", col: COL.mint, name: "gpumd", id: "pid 41377", right: `${Math.round(mdK * 100)}% · 约剩 8m`, rightCol: COL.mint, detail: `GPUMD 模拟 · ${(mdK * 2).toFixed(2)}M/2.00M 步`, k: mdK, real: true },
+      ],
+    },
+    {
+      name: "HPC 集群", badge: "SLURM", meta: "12秒前 · 140ms",
+      jobs: [
+        { icon: "stack", col: COL.mint, name: "eos_scan", id: "数组 #8812300", idCol: COL.violet, right: `完成 ${16 + Math.floor(clamp(t / 4) * 4)}/40`, rightCol: COL.mint, seg: [0.35 + clamp(t / 4) * 0.1, 0.05, 0.15], detail: "运行 6 · 排队 18 · 失败 2", detailCol: "rgba(255,110,110,0.85)" },
+        { icon: "hour", col: COL.amber, name: "phonon_Si_444", id: "#8812355", right: "上限 12:00:00", pending: "优先级排队中 · cpu" },
+        { icon: "hour", col: COL.amber, name: "band_LiCoO2", id: "#8812356", right: "上限 6:00:00", pending: "依赖永远无法满足 · cpu", warn: true },
+      ],
+    },
+  ];
+}
+
+// 2. 悬停展开
+function sceneExpand(c, B) {
+  const cam = camKeys(B, [[20, { x: MID, y: 172, z: 2.95 }], [21.2, { x: MID, y: 230, z: 1.75 }], [31, { x: MID, y: 250, z: 1.7 }], [32, { x: MID, y: 250, z: 1.72 }]]);
+  const keys = [[0, "collapsed"], [20.85, "panel"]];
+  macWorld(c, B, cam, keys, (x, w, s) => {
+    if (s.name === "collapsed") { drawWings(c, x, w, B); return; }
+    const a = clamp((s.since - 0.04) * 4);
+    c.save(); c.globalAlpha = a;
+    islandHeader(c, x + 14, w - 28, B);
+    const cards = panelCards(B);
+    let y = MENU + 8;
+    cards.forEach((cd, i) => {
+      const ki = easeOutCubic(clamp((s.since - 0.08 - i * 0.18) * 2.6));
+      c.save(); c.globalAlpha = a * ki; c.translate(0, 18 * (1 - ki));
+      if (B > 27 && i === 0) { cd.jobs[0].hl = prog(B, 27, 27.5) * (1 - prog(B, 30.5, 31)); }
+      y += drawCard(c, x + 14, y, w - 28, cd, B) + 8;
+      c.restore();
+    });
+    c.restore();
+  }, {
+    above: () => {
+      // 光标：移到刘海 → 点击 → 移到第一个任务
+      let cx = lerp(MID + 300, MID + 30, prog(B, 20, 20.7, easeInOutCubic)), cy = lerp(260, 12, prog(B, 20, 20.7, easeInOutCubic));
+      if (B > 26) { cx = lerp(MID + 30, MID - 120, prog(B, 26, 27, easeInOutCubic)); cy = lerp(12, 130, prog(B, 26, 27, easeInOutCubic)); }
+      const press = Math.max(0, 1 - Math.abs(B - 20.8) * 6);
+      drawCursor(c, cx, cy, 0.9, press);
+    }
+  });
+}
+
+// 3. Slurm：数组、排队原因、分区页
+function scenePartitions(c, x, w, B, a) {
+  c.save(); c.globalAlpha = a;
+  text(c, "‹", x + 26, 28, { size: 20, color: COL.sec, align: "center" });
+  text(c, "分区空闲资源", x + 48, 22, { size: 13.5, weight: 600 });
+  text(c, "HPC 集群 · 按空闲 GPU 排序", x + 48, 37, { size: 10.5, color: COL.ter });
+  const rows = [["16V100", "V100", 100, 1264, 800, 10112], ["4V100", "V100", 43, 140, 360, 1120], ["8V100V0", "V100", 36, 112, 216, 672], ["DSPRHBM", "", 0, 0, 1584, 1872], ["8A100M80", "A100", 0, 8, 0, 128]];
+  let y = MENU + 22;
+  rows.forEach(([n, model, gi, gt, ci, ct], i) => {
+    const k = easeOutCubic(clamp((B - 38.3 - i * 0.18) * 1.6));
+    c.save(); c.globalAlpha = a * k; c.translate(30 * (1 - k), 0);
+    c.fillStyle = COL.card; rr(c, x + 14, y, w - 28, 54, 10); c.fill();
+    const nw = text(c, n, x + 26, y + 20, { size: 12.5, weight: 600 });
+    if (i === 1) badge(c, "默认", x + 32 + nw, y + 19, COL.violet);
+    if (model) text(c, model, x + 32 + nw + (i === 1 ? 40 : 0), y + 20, { size: 9.5, font: MONO, color: COL.ter });
+    const fill = k;
+    if (gt > 0) {
+      text(c, "GPU", x + 26, y + 42, { size: 9.5, weight: 600, color: COL.ter });
+      bar(c, x + 58, y + 37, 160, gi / gt * fill, COL.cyan, 5);
+      text(c, `空闲 ${Math.round(gi * fill)}/${gt}`, x + 300, y + 42, { size: 10.5, weight: 500, color: COL.sec, align: "right" });
+    }
+    text(c, "CPU", x + 330, y + 42, { size: 9.5, weight: 600, color: COL.ter });
+    bar(c, x + 362, y + 37, 160, ci / ct * fill, COL.mint, 5);
+    text(c, `空闲 ${Math.round(ci * fill)}/${ct}`, x + w - 26, y + 42, { size: 10.5, weight: 500, color: COL.sec, align: "right" });
+    c.restore();
+    y += 60;
+  });
+  c.restore();
+}
+function sceneSlurm(c, B) {
+  const cam = camKeys(B, [[32, { x: MID, y: 250, z: 1.72 }], [33.5, { x: MID, y: 300, z: 2.05 }], [37.5, { x: MID, y: 320, z: 2.1 }], [38.6, { x: MID, y: 230, z: 1.75 }], [44, { x: MID + 30, y: 215, z: 1.98 }]]);
+  const keys = [[0, "panel"]];
+  macWorld(c, B, cam, keys, (x, w, s) => {
+    const showPart = B >= 38;
+    const kp = prog(B, 38, 38.5, easeInOutCubic);
+    if (!showPart || kp < 1) {
+      c.save(); c.globalAlpha *= 1 - kp; c.translate(-60 * kp, 0);
+      islandHeader(c, x + 14, w - 28, B);
+      const cards = panelCards(B);
+      // 数组进度在这一段明显推进
+      const t = clamp((B - 32) / 6);
+      cards[1].jobs[0].seg = [0.35 + t * 0.2, 0.05 + (B > 35 ? 0.025 : 0), 0.15];
+      cards[1].jobs[0].right = `完成 ${16 + Math.round(t * 9)}/40`;
+      cards[1].jobs[0].hl = prog(B, 33, 33.5) * (1 - prog(B, 35.6, 36));
+      cards[1].jobs[2].hl = prog(B, 36, 36.3) * (1 - prog(B, 37.6, 38));
+      let y = MENU + 8;
+      cards.forEach(cd => { y += drawCard(c, x + 14, y, w - 28, cd, B) + 8; });
+      c.restore();
+    }
+    if (showPart) { c.save(); c.translate(60 * (1 - kp), 0); scenePartitions(c, x, w, B, kp); c.restore(); }
+  }, {
+    above: () => {
+      // 小章鱼跳上分区页，在第 40、42 拍落地
+      if (B > 39.4 && B < 44) {
+        const a1 = [MID + 300, 52], a2 = [MID + 150, 112], a3 = [MID - 40, 172];
+        let p;
+        if (B < 40) p = hop(B, 39.4, 40, [MID + 420, -40], a1, 60);
+        else if (B < 41.5) p = Object.assign(hop(B, 40, 40, a1, a1, 0), { x: a1[0], y: a1[1] });
+        else if (B < 42) p = hop(B, 41.5, 42, a1, a2, 50);
+        else if (B < 43.5) p = Object.assign(hop(B, 42, 42, a2, a2, 0), { x: a2[0], y: a2[1] });
+        else p = hop(B, 43.5, 44, a2, a3, 50);
+        drawTako(c, p.x, p.y, 30, B > 42 ? "happy" : "working", Math.floor(B * 2), { squash: p.squash, lift: p.lift, ground: p.ground ?? p.y });
+      }
+      // 排队原因提示气泡
+      if (B > 36 && B < 38.2) {
+        const k = easeOutBack(prog(B, 36, 36.4)), o = 1 - prog(B, 37.8, 38.2);
+        c.save(); c.globalAlpha = k * o;
+        const bx = MID + 70, by = 352;
+        c.translate(bx, by); c.scale(k, k);
+        c.fillStyle = "rgba(20,10,14,0.95)"; rr(c, 0, 0, 300, 58, 12); c.fill();
+        c.strokeStyle = "rgba(255,110,110,0.5)"; c.lineWidth = 1; rr(c, 0, 0, 300, 58, 12); c.stroke();
+        text(c, "DependencyNeverSatisfied", 14, 22, { size: 11, font: MONO, color: COL.ter });
+        text(c, "依赖的作业失败了，这个作业不会再开始", 14, 43, { size: 12.5, weight: 600, color: COL.coral });
+        c.restore();
+      }
+    }
+  });
+  flash(c, B, 32, 0.35, "255,255,255", 0.35);
+}
+
+// 4. NEP：小章鱼检查文件 → 识别 → 进度和 loss 曲线
+const FILES = [["nep.in", "#A88CFF"], ["train.xyz", "#5CC2FF"], ["loss.out", "#5BE6B5"], ["nep.txt", "#FFBF4D"]];
+function sceneNep(c, B) {
+  const cam = camKeys(B, [[44, { x: 520, y: 600, z: 1.55 }], [49.4, { x: 520, y: 600, z: 1.6 }], [50.6, { x: MID, y: 220, z: 1.78 }], [56, { x: MID, y: 225, z: 1.8 }]]);
+  const keys = [[0, "hidden"], [50.2, "detail"]];
+  // 文件夹窗口（世界坐标）
+  const fx = 180, fy = 380, fw = 680, fh = 420;
+  macWorld(c, B, cam, keys, (x, w, s) => {
+    if (s.name !== "detail") return;
+    const a = clamp((s.since - 0.1) * 2.5);
+    c.save(); c.globalAlpha = a;
+    text(c, "‹", x + 26, 28, { size: 20, color: COL.sec, align: "center" });
+    text(c, "nep", x + 48, 22, { size: 13.5, weight: 600 });
+    text(c, "4090 工作站 · PID 41022", x + 48, 37, { size: 10.5, color: COL.ter });
+    c.fillStyle = "rgba(91,230,181,0.16)"; rr(c, x + w - 84, 8, 66, 22, 11); c.fill();
+    text(c, "运行中", x + w - 51, 23, { size: 10.5, weight: 700, color: COL.mint, align: "center" });
+    // 进度：代数在这一段从 7,800 涨到 19,400
+    const kk = prog(B, 50.4, 55.6, easeInOutCubic);
+    const gen = Math.round(lerp(7800, 19400, kk));
+    const y0 = MENU + 18;
+    c.fillStyle = COL.card; rr(c, x + 14, y0, w - 28, 108, 12); c.fill();
+    const fields = [["软件", "NEP 训练"], ["速度", "26.4 代/秒"], ["进度", `${gen.toLocaleString()} / 20,000 代（${Math.round(gen / 200)}%）`], ["预计剩余", `${Math.floor((20000 - gen) / 26.4 / 60)}:${String(Math.round((20000 - gen) / 26.4 % 60)).padStart(2, "0")}`],
+      ["Loss", `Total ${(0.32 * Math.pow(gen / 1000, -0.21)).toFixed(4)} · Force ${(0.13 * Math.pow(gen / 1000, -0.22)).toFixed(4)}`], ["目录", "~/projects/Li3PS4/nep-train"]];
+    fields.forEach(([k, v], i) => {
+      const col = i % 2, row = Math.floor(i / 2);
+      text(c, k, x + 28 + col * 310, y0 + 26 + row * 30, { size: 10, weight: 500, color: COL.ter });
+      text(c, v, x + 92 + col * 310, y0 + 26 + row * 30, { size: 10.5, font: MONO, color: i === 2 ? COL.mint : COL.sec });
+    });
+    bar(c, x + 28, y0 + 96, w - 56, gen / 20000, null, 5);
+    // loss 曲线
+    const gy = y0 + 122, gh = 160, gx = x + 14, gw = w - 28;
+    c.fillStyle = "rgba(255,255,255,0.04)"; rr(c, gx, gy, gw, gh, 12); c.fill();
+    text(c, "loss.out", gx + 14, gy + 22, { size: 10.5, weight: 600, color: COL.sec });
+    [["Total", COL.mint, 0.32, -0.21], ["Force", COL.cyan, 0.13, -0.22], ["Energy", COL.amber, 0.004, -0.35], ["Virial", COL.violet, 0.03, -0.18]].forEach(([n, col, a0, ex], li) => {
+      text(c, "● " + n, gx + 90 + li * 74, gy + 22, { size: 10, color: col });
+      c.strokeStyle = col; c.lineWidth = 2; c.beginPath();
+      const steps = 120, maxG = Math.max(1000, gen);
+      for (let i = 0; i <= steps; i++) {
+        const gg = 100 + (maxG - 100) * i / steps;
+        let v = a0 * Math.pow(gg / 1000, ex) * (1 + 0.06 * Math.sin(gg / 300 + li));
+        const ly = Math.log10(v), yMin = -3.6, yMax = 0;
+        const px = gx + 16 + (gg / 20000) * (gw - 32), py = gy + gh - 14 - (ly - yMin) / (yMax - yMin) * (gh - 44);
+        if (i === 0) c.moveTo(px, py); else c.lineTo(px, py);
+      }
+      c.stroke();
+    });
+    c.restore();
+  }, {
+    below: () => {
+      // 文件夹窗口
+      const ka = prog(B, 43.6, 44.2, easeOutCubic) * (1 - prog(B, 50, 50.8));
+      if (ka <= 0) return;
+      c.save(); c.globalAlpha = ka;
+      c.shadowColor = "rgba(0,0,0,0.35)"; c.shadowBlur = 40; c.shadowOffsetY = 16;
+      c.fillStyle = "rgba(246,247,250,0.96)"; rr(c, fx, fy, fw, fh, 14); c.fill();
+      c.shadowBlur = 0; c.shadowOffsetY = 0;
+      c.fillStyle = "rgba(0,0,0,0.05)"; rr(c, fx, fy, fw, 44, 14); c.fill();
+      ["#FF5F57", "#FEBC2E", "#28C840"].forEach((col, i) => { c.fillStyle = col; c.beginPath(); c.arc(fx + 22 + i * 20, fy + 22, 6, 0, 7); c.fill(); });
+      text(c, "train", fx + 110, fy + 28, { size: 15, weight: 600, color: "#222" });
+      text(c, "4090-box:~/projects/Li3PS4/nep-train", fx + fw - 20, fy + 28, { size: 12, color: "#888", align: "right", font: MONO });
+      FILES.forEach(([n, col], i) => {
+        const k = easeOutBack(prog(B, 44 + i - 0.15, 44 + i + 0.25));
+        const ix = fx + 90 + i * 150, iy = fy + 130;
+        c.save(); c.translate(ix + 40, iy + 50); c.scale(k, k);
+        c.fillStyle = "#fff"; c.strokeStyle = "rgba(0,0,0,0.12)"; c.lineWidth = 1.5;
+        c.beginPath(); c.moveTo(-32, -46); c.lineTo(14, -46); c.lineTo(32, -28); c.lineTo(32, 46); c.lineTo(-32, 46); c.closePath(); c.fill(); c.stroke();
+        c.fillStyle = col; rr(c, -24, 14, 48, 18, 4); c.fill();
+        text(c, n.split(".")[1].toUpperCase(), 0, 27.5, { size: 11, weight: 800, color: "#fff", align: "center" });
+        c.restore();
+        text(c, n, ix + 40, iy + 130, { size: 15, color: "#333", align: "center", font: MONO });
+        // 识别：nep.in 和 loss.out 高亮
+        if (B > 48 && (i === 0 || i === 2)) {
+          const kh = prog(B, 48, 48.4, easeOutBack);
+          c.strokeStyle = COL.mint; c.lineWidth = 3.5; c.globalAlpha = ka * kh;
+          rr(c, ix - 8, iy - 8, 96, 160, 14); c.stroke(); c.globalAlpha = ka;
+        }
+      });
+      // 识别结果
+      if (B > 48.2) {
+        const kr = easeOutBack(prog(B, 48.2, 48.8));
+        c.save(); c.translate(fx + fw / 2, fy + fh - 58); c.scale(kr, kr);
+        c.fillStyle = "#0B0F1E"; rr(c, -230, -26, 460, 52, 26); c.fill();
+        text(c, "nep.in  +  loss.out   →   NEP 训练", 0, 7, { size: 18, weight: 700, color: COL.mint, align: "center", font: FONT });
+        c.restore();
+      }
+      c.restore();
+    },
+    above: () => {
+      // 小章鱼在文件之间跳
+      if (B < 50.3) {
+        const pos = i => [fx + 130 + i * 150, fy + 128];
+        let p;
+        if (B < 44) p = hop(B, 43.4, 44, [fx + 40, fy + 300], pos(0), 120);
+        else if (B < 47) { const i = Math.floor(B - 44); p = hop(B, 44 + i + 0.5, 45 + i, pos(i), pos(i + 1), 70); if (B < 44 + i + 0.5) p = hop(B, 44 + i, 44 + i, pos(i), pos(i), 0); }
+        else if (B < 49.6) p = { x: pos(3)[0], y: pos(3)[1], squash: hop(B, 47, 47, pos(3), pos(3), 0).squash, lift: 0 };
+        else p = hop(B, 49.6, 50.3, pos(3), [MID, 20], 160);
+        const mood = B > 48.2 && B < 49.6 ? "happy" : "working";
+        drawTako(c, p.x, p.y, 54, mood, Math.floor(B * 2), { squash: p.squash, lift: p.lift, ground: fy + 128 });
+      }
+    }
+  });
+}
+
+// 5. 提醒：完成叮咚 / 失败咚咚
+function sceneAlerts(c, B) {
+  const cam = camKeys(B, [[56, { x: MID, y: 225, z: 1.8 }], [57.4, { x: MID, y: 175, z: 2.75 }], [68, { x: MID, y: 178, z: 2.85 }]]);
+  const keys = [[0, "detail"], [56.2, "collapsed"], [57.8, "toast"], [61.2, "collapsed"], [61.8, "toast"], [65.2, "collapsed"]];
+  const toastOf = B => B < 61.2
+    ? { ok: true, host: "4090 工作站", min: 6, title: "NEP 训练完成", sub: "20,000 代 · Total 0.1382 · nep-train" }
+    : { ok: false, host: "4090 工作站", min: 8, title: "gpumd 提前结束", sub: "停在 1.24M/2.00M 步 · kappa-300K" };
+  macWorld(c, B, cam, keys, (x, w, s) => {
+    if (s.name === "collapsed") {
+      c.save(); c.globalAlpha = clamp(s.since * 3);
+      drawWings(c, x, w, B, { mood: B > 62 && B < 65.5 ? "sad" : (B > 58 && B < 61.5 ? "happy" : "working"), k: B > 61 ? 0.62 : 0.97 });
+      c.restore();
+    } else if (s.name === "toast") drawToast(c, x, w, B, Object.assign(toastOf(B), { since: s.since }));
+  }, {
+    above: (s) => {
+      // 菜单栏上的小章鱼跟着情绪蹦
+      const hx = MID + 300;
+      let p = { x: hx, y: MENU - 2, squash: 0, lift: 0 }, mood = "idle";
+      if (B > 57.5 && B < 61) { p = hop(B, 58 + (Math.floor(B - 58) >= 0 ? Math.floor(B - 58) : 0), 58 + Math.max(0, Math.floor(B - 58)) + 0.5, [hx, MENU - 2], [hx, MENU - 2], 26); mood = "happy"; }
+      if (B >= 62 && B < 65) mood = "sad";
+      drawTako(c, p.x, p.y, 36, mood, Math.floor(B * 2), { squash: p.squash, lift: p.lift, ground: MENU - 2 });
+      burst(c, B, 58, MID, MENU + 40, { n: 30, speed: 160, size: 4, grav: 90, seed: 58 });
+      // 静音演示：铃铛划掉
+      if (B > 64.7) {
+        const k = easeOutBack(prog(B, 65, 65.4)), o = 1 - prog(B, 67.4, 68);
+        c.save(); c.globalAlpha = k * o; c.translate(MID - 260, MENU + 36); c.scale(k, k);
+        c.fillStyle = "rgba(10,12,22,0.92)"; rr(c, -84, -18, 168, 36, 18); c.fill();
+        text(c, "🔕  已静音 HPC 集群", 0, 5.5, { size: 12.5, weight: 600, color: COL.amber, align: "center" });
+        c.restore();
+      }
+    }
+  });
+}
+
+// 6. 蒙太奇：九张功能卡，小章鱼逐张跳过
+const CHIPS = [["⏸", "暂停单台服务器", "知道没任务就别查"], ["⏱", "自定义轮询", "15 秒到 1 小时，或仅手动"], ["📌", "固定面板", "鼠标移开也不收起"],
+  ["🔑", "动态口令登录", "输入只交给 ssh，不保存"], ["🗂", "最近 24 小时", "sacct 没开也能记"], ["✋", "按住 + 二次确认", "取消作业不怕误触"],
+  ["👁", "监听任意 PID", "结束时一定提醒"], ["💾", "磁盘快满提醒", "home 满了先告诉你"], ["🌏", "中文 / English", "一键切换"]];
+function sceneMontage(c, B) {
+  drawNight(c, B + 40, 1);
+  // 轻微脉动的网格光
+  const pulse = 0.5 + 0.5 * Math.cos((B - Math.floor(B)) * Math.PI * 2);
+  c.fillStyle = `rgba(91,230,181,${0.04 + 0.04 * (1 - pulse)})`; c.fillRect(0, 0, W, H);
+  const kt = prog(B, 68, 68.8, easeOutBack), kout = prog(B, 79.3, 80);
+  c.save(); c.globalAlpha = kt * (1 - kout);
+  text(c, "还有这些小细节", W / 2, 150, { size: 60, weight: 700, align: "center" });
+  c.restore();
+  const cw = 480, ch = 170, gap = 34, gx = W / 2 - (cw * 3 + gap * 2) / 2, gy = 230;
+  const pos = i => [gx + (i % 3) * (cw + gap), gy + Math.floor(i / 3) * (ch + gap)];
+  CHIPS.forEach(([ic, t1, t2], i) => {
+    const b = 69 + i;
+    const k = easeOutBack(prog(B, b - 0.05, b + 0.35), 2.2);
+    if (k <= 0) return;
+    const [x, y] = pos(i);
+    const shrink = easeInCubic(prog(B, 79 + i * 0.03, 79.6 + i * 0.03));
+    c.save();
+    c.translate(x + cw / 2, y + ch / 2);
+    const land = Math.exp(-Math.max(0, B - b) * 6) * Math.sin(Math.max(0, B - b) * 18) * 0.04;
+    c.scale(k * (1 - shrink) * (1 + land), k * (1 - shrink) * (1 - land));
+    c.globalAlpha *= 1 - shrink;
+    c.fillStyle = "rgba(255,255,255,0.07)"; rr(c, -cw / 2, -ch / 2, cw, ch, 26); c.fill();
+    c.strokeStyle = B >= b && B < b + 1 ? `rgba(91,230,181,${0.9 * (1 - (B - b))})` : "rgba(255,255,255,0.10)";
+    c.lineWidth = 2; rr(c, -cw / 2, -ch / 2, cw, ch, 26); c.stroke();
+    text(c, ic, -cw / 2 + 60, 18, { size: 54, align: "center" });
+    text(c, t1, -cw / 2 + 112, -6, { size: 34, weight: 700 });
+    text(c, t2, -cw / 2 + 112, 38, { size: 22, color: "rgba(255,255,255,0.62)" });
+    c.restore();
+  });
+  // 小章鱼在卡片上跳
+  if (B < 79.2) {
+    const top = i => { const [x, y] = pos(i); return [x + cw - 70, y + 4]; };
+    let p;
+    if (B < 69) p = hop(B, 68.4, 69, [W / 2, H + 100], top(0), 260);
+    else { const i = clamp(Math.floor(B - 69), 0, 8); p = i < 8 ? hop(B, 69 + i + 0.45, 70 + i, top(i), top(i + 1), 120) : { x: top(8)[0], y: top(8)[1], squash: 0, lift: 0 }; if (B < 69 + i + 0.45) p = Object.assign(hop(B, 69 + i, 69 + i, top(i), top(i), 0), { x: top(i)[0], y: top(i)[1] }); }
+    drawTako(c, p.x, p.y, 72, "working", Math.floor(B * 2), { squash: p.squash, lift: p.lift, ground: p.ground ?? p.y });
+  }
+  for (let i = 0; i < 9; i++) { const [x, y] = pos(i); burst(c, B, 69 + i, x + cw - 70, y + 4, { n: 12, speed: 110, size: 6, grav: 140, seed: i * 13, dur: 0.9 }); }
+  flash(c, B, 68, 0.45, "91,230,181", 0.35);
+}
+
+// 7. 片尾
+function sceneOutro(c, B) {
+  const cam = camKeys(B, [[80, { x: MID, y: SH / 2 + 30, z: 0.95 }], [88, { x: MID, y: SH / 2 + 10, z: 1.0 }], [90, { x: MID, y: SH / 2 + 30, z: 0.9 }], [100, { x: MID, y: SH / 2 + 30, z: 0.86 }]]);
+  const keys = [[0, "hidden"], [87.95, "collapsed"]];
+  const dim = prog(B, 89.2, 90.4, easeInOutCubic);
+  macWorld(c, B, cam, keys, (x, w, s) => {
+    if (s.name === "collapsed") { c.save(); c.globalAlpha = clamp(s.since * 3); drawWings(c, x, w, B, { mood: "happy", run: 0, k: 1 }); c.restore(); }
+  }, {
+    above: () => {
+      if (B < 88.15) {
+        const pts = [[MID - 520, SH - 120], [MID + 160, SH - 110], [420, 430], [MID + 420, MENU - 2], [MID, 18]];
+        let p;
+        if (B < 81) p = hop(B, 80, 81, [-120, SH - 160], pts[0], 380);
+        else if (B < 83) p = hop(B, 82, 83, pts[0], pts[1], 300);
+        else if (B < 85) p = hop(B, 84, 85, pts[1], pts[2], 360);
+        else if (B < 87) p = hop(B, 86, 87, pts[2], pts[3], 380);
+        else p = hop(B, 87.5, 88, pts[3], pts[4], 90);
+        if (B >= 81 && B < 82) p = Object.assign(hop(B, 81, 81, pts[0], pts[0], 0), { x: pts[0][0], y: pts[0][1] });
+        if (B >= 83 && B < 84) p = Object.assign(hop(B, 83, 83, pts[1], pts[1], 0), { x: pts[1][0], y: pts[1][1] });
+        if (B >= 85 && B < 86) p = Object.assign(hop(B, 85, 85, pts[2], pts[2], 0), { x: pts[2][0], y: pts[2][1] });
+        if (B >= 87 && B < 87.5) p = Object.assign(hop(B, 87, 87, pts[3], pts[3], 0), { x: pts[3][0], y: pts[3][1] });
+        const size = B > 87.6 ? lerp(70, 18, prog(B, 87.6, 88.1)) : 70;
+        drawTako(c, p.x, p.y, size, B < 86 ? "happy" : "working", Math.floor(B * 2), { squash: p.squash, lift: p.lift, ground: p.ground ?? p.y, rot: B > 86 && B < 87 ? (B - 86) * Math.PI * 2 : 0 });
+      }
+      burst(c, B, 88.1, MID, MENU / 2, { n: 26, speed: 120, size: 4, grav: 40, seed: 88 });
+    }
+  });
+  // 变暗 + 标志
+  if (dim > 0) {
+    c.fillStyle = `rgba(6,9,22,${0.82 * dim})`; c.fillRect(0, 0, W, H);
+    const k = easeOutBack(prog(B, 90, 90.9), 1.4);
+    const end = prog(B, 98.4, 100);
+    c.save(); c.globalAlpha = (1 - end);
+    if (LOGO.complete && k > 0) {
+      const sz = 300 * k;
+      c.save(); c.shadowColor = "rgba(91,230,181,0.5)"; c.shadowBlur = 80;
+      c.drawImage(LOGO, W / 2 - sz / 2, 300 - sz / 2 + 10 * Math.sin(B * Math.PI / 2), sz, sz); c.restore();
+    }
+    drawWord(c, W / 2, 545, 12, prog(B, 90.4, 92.2), 1, 5);
+    const kt = prog(B, 92, 93, easeOutCubic);
+    c.globalAlpha = (1 - end) * kt;
+    text(c, "把服务器装进刘海里", W / 2, 655 + 14 * (1 - kt), { size: 44, weight: 600, align: "center", spacing: 6 });
+    const kv = prog(B, 93, 94, easeOutCubic);
+    c.globalAlpha = (1 - end) * kv;
+    c.fillStyle = "rgba(91,230,181,0.16)"; rr(c, W / 2 - 150, 700, 300, 48, 24); c.fill();
+    text(c, "v0.1.0 · 第一个版本", W / 2, 732, { size: 22, weight: 700, color: COL.mint, align: "center" });
+    const kf = prog(B, 94, 95, easeOutCubic);
+    c.globalAlpha = (1 - end) * kf;
+    text(c, "Slurm / 直连服务器 · NEP / GPUMD · 无需在服务器安装任何东西", W / 2, 810, { size: 24, color: "rgba(255,255,255,0.7)", align: "center" });
+    text(c, "macOS 14+ · Apple Silicon / Intel · DMG 下载即用", W / 2, 852, { size: 22, color: "rgba(255,255,255,0.5)", align: "center" });
+    c.restore();
+    burst(c, B, 96, W / 2, 300, { n: 60, speed: 520, size: 9, grav: 200, seed: 96, dur: 2.2 });
+    flash(c, B, 96, 0.5, "91,230,181", 0.25);
+  }
+  flash(c, B, 80, 0.4, "255,255,255", 0.5);
+  if (B > 98.4) { c.fillStyle = `rgba(0,0,0,${prog(B, 98.4, 100)})`; c.fillRect(0, 0, W, H); }
+}
+
+// =====================================================================================
+const SCENES = { intro: sceneIntro, notch: sceneNotch, expand: sceneExpand, slurm: sceneSlurm, nep: sceneNep, alerts: sceneAlerts, montage: sceneMontage, outro: sceneOutro };
+// 交叉淡化的场景切换（硬切点除外：有 impact 的位置直接切 + 闪白）
+const XFADE = { expand: 0, slurm: 0, nep: 0.5, alerts: 0.4 };
+const off = document.createElement("canvas"); off.width = W; off.height = H;
+const offCtx = off.getContext("2d");
+
+function renderFrame(t) {
+  const B = t / BEAT;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  const idx = TL.scenes.findIndex(s => B >= s.from && B < s.to);
+  const sc = TL.scenes[idx < 0 ? TL.scenes.length - 1 : idx];
+  const xf = XFADE[sc.id] || 0;
+  if (xf > 0 && B < sc.from + xf && idx > 0) {
+    // 交叉淡化：新场景先画到离屏画布，再整体按透明度叠上来（场景内部怎么设透明度都不会影响过渡）
+    const prev = TL.scenes[idx - 1];
+    SCENES[prev.id](ctx, B);
+    offCtx.setTransform(1, 0, 0, 1, 0, 0); offCtx.globalAlpha = 1;
+    offCtx.clearRect(0, 0, W, H);
+    SCENES[sc.id](offCtx, B);
+    ctx.save(); ctx.globalAlpha = easeInOutCubic((B - sc.from) / xf);
+    ctx.drawImage(off, 0, 0); ctx.restore();
+  } else {
+    SCENES[sc.id](ctx, B);
+  }
+  drawCaption(ctx, B);
+  // 胶片暗角
+  const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.55, W / 2, H / 2, H * 1.05);
+  vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,0.35)");
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+}
+
+window.ready = (async () => {
+  await document.fonts.ready;
+  if (!LOGO.complete) await new Promise(r => { LOGO.onload = r; LOGO.onerror = r; });
+  buildWallpaper();
+  renderFrame(0);
+})();
+window.renderFrame = renderFrame;
+
+// 预览模式：?play 用浏览器实时播放（带音乐）
+if (location.search.includes("play")) {
+  document.body.classList.add("preview");
+  const fit = () => { const s = Math.min(innerWidth / W, innerHeight / H); document.getElementById("stage").style.transform = `scale(${s})`; };
+  fit(); addEventListener("resize", fit);
+  const audio = new Audio("out/music.wav");
+  const hint = document.createElement("div"); hint.id = "hint"; hint.textContent = "点击播放 / 暂停 · 方向键 ←→ 跳 2 秒"; document.body.appendChild(hint);
+  let playing = false;
+  addEventListener("click", () => { playing = !playing; playing ? audio.play() : audio.pause(); });
+  addEventListener("keydown", e => { if (e.key === "ArrowRight") audio.currentTime += 2; if (e.key === "ArrowLeft") audio.currentTime -= 2; });
+  window.ready.then(() => { const loop = () => { renderFrame(audio.currentTime); requestAnimationFrame(loop); }; loop(); });
+}
+</script>
+</body>
+</html>
