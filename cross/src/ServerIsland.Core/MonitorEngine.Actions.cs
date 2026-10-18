@@ -363,7 +363,7 @@ public sealed partial class MonitorEngine
             var cache = CurveCaches.GetValueOrDefault(key) ?? new CurveCache();
             var r = await Run(host, AppCurves.Script(src, cache.LineCount, cache.Head), 30);
             if (r.Status == 0 && AppCurves.Merge(r.Stdout, cache) is { } merged) { CurveCaches[key] = merged; cache = merged; }
-            if (AppCurves.Curve(src, cache.Rows, cache.Extra) is { } c) outList.Add(c);
+            outList.AddRange(AppCurves.Curves(src, cache.Rows, cache.Extra));
         }
         return outList;
     }

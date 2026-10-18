@@ -87,6 +87,48 @@ public static class SelfTestPBS
 
         """;
 
+    /// 一个很小的 NEB 算例（和 Mac 版一样）：2 个中间像点、两个端点都有 OUTCAR、2 个离子步、EDIFFG = -0.05。
+    /// 最新一步相对初态：0、0.4、0.3、-0.1 → 能垒 0.4、逆向 0.5；第 1 步能垒 0.5；像点 2 的力 0.07 高于目标。
+    public static void MakeNebFixture(string dir)
+    {
+        void W(string rel, string text) { var f = Path.Combine(dir, rel); Directory.CreateDirectory(Path.GetDirectoryName(f)!); File.WriteAllText(f, text); }
+        static string Outcar(double e, double f) => string.Format(CultureInfo.InvariantCulture,
+            "  energy  without entropy=     {0:F8}  energy(sigma->0) =     {1:F8}\n  FORCES: max atom, RMS     {2:F6}    0.001000\n", e - 0.01, e, f);
+        static string Osz(params double[] es) => string.Concat(es.Select((e, i) => string.Format(CultureInfo.InvariantCulture,
+            "DAV:   1    {0:E12}    0.1E-02\n{1,4} F= {0:E8} E0= {0:E8}  d E =-.1E-02\n", e, i + 1)));
+        W("INCAR", "SYSTEM = neb\nIBRION = 3\nNSW = 50\nEDIFFG = -0.05\nIMAGES = 2 ! two images\n");
+        W("00/OUTCAR", Outcar(-10.0, 0.01));
+        W("01/OSZICAR", Osz(-9.5, -9.6)); W("01/OUTCAR", Outcar(-9.6, 0.04));
+        W("02/OSZICAR", Osz(-9.8, -9.7)); W("02/OUTCAR", Outcar(-9.7, 0.07));
+        W("03/OUTCAR", Outcar(-10.1, 0.02));
+    }
+
+    static void NebChecks(Action<bool, string> check)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "si-neb-" + Environment.ProcessId);
+        try
+        {
+            MakeNebFixture(dir);
+            string ToBash(string p) => OperatingSystem.IsWindows() ? "/" + p[0].ToString().ToLowerInvariant() + p[2..].Replace('\\', '/') : p;
+            var bdir = ToBash(dir);
+            var det = AppDetectors.Parse(SelfTest.Bash(AppDetectors.DirectoryScript("7", bdir, [], true)).Split('\n')).GetValueOrDefault("7");
+            check(det?.Vasp == VaspMode.Neb && det.Current == 2 && Math.Abs((det.NebBarrier ?? 0) - 0.4) < 1e-6 && det.NebForce == 0.07,
+                  "NEB：识别 IMAGES 和 01/OSZICAR，离子步、能垒（最高像点 − 00）、中间像点的最大 VTST 力");
+            check(det?.Summary.Contains("0.400 eV") == true, "NEB：任务行显示能垒和最大力");
+            var src = new AppCurves.Source(bdir, AppCurves.CurveKind.Neb);
+            var merged = AppCurves.Merge(SelfTest.Bash(AppCurves.Script(src, 0, "")), new CurveCache());
+            var cs = merged == null ? [] : AppCurves.Curves(src, merged.Rows, merged.Extra);
+            var prof = cs.FirstOrDefault();
+            check(cs.Count == 2 && prof!.SeriesList[0].Points.Select(p => Math.Round(p.Y, 3)).SequenceEqual([0, 0.4, 0.3, -0.1]),
+                  "NEB：能垒图用最新一步的中间像点 + 端点 OUTCAR 的能量，相对初态");
+            check(prof != null && prof.Bars.Select(b => b.Y).SequenceEqual([0.04, 0.07]) && prof.Threshold == 0.05 && cs.Count == 2
+                  && cs[1].Note?.Contains("0.400") == true && cs[1].Note?.Contains("0.500") == true,
+                  "NEB：柱子是每个中间像点的力，虚线是 |EDIFFG|，能垒图旁边写正向 / 逆向能垒");
+            check(cs.Count == 2 && cs[1].SeriesList[0].Points.Select(p => Math.Round(p.Y, 3)).SequenceEqual([0.5, 0.4]), "NEB：能垒随离子步的变化");
+        }
+        finally { try { Directory.Delete(dir, true); } catch { } }
+    }
+
     public static void Run(Action<bool, string> check, bool hasBash)
     {
         if (hasBash)
@@ -172,10 +214,41 @@ public static class SelfTestPBS
                 File.AppendAllText(outcar, dash + "\n");
                 var c2 = c1 == null ? null : AppCurves.Merge(SelfTest.Bash(AppCurves.Script(src, c1.LineCount, c1.Head)), c1);
                 check(c2?.Rows.Count == 3 && Math.Abs(c2.Rows[^1][1] - 0.2) < 1e-6, "VASP：增量读取时不丢写到一半的力块");
+                check(curve1?.SeriesList.Count == 2 && curve1.SeriesList[1].Faint && Math.Abs(curve1.SeriesList[1].Points[^1].Y - 0.05) < 1e-9, "VASP：再画一条只降不升的“最低”线");
+                // OUTCAR 里 VASP 实际用的 EDIFFG 优先于 INCAR（这里是默认值 0.001：按能量收敛，没有目标线，写一句说明）
+                File.AppendAllText(outcar, "   EDIFFG = 0.1E-02   stopping-criterion for IOM\n");
+                var c3 = AppCurves.Merge(SelfTest.Bash(AppCurves.Script(src, 0, "")), new CurveCache());
+                var curve3 = c3 == null ? null : AppCurves.Curve(src, c3.Rows, c3.Extra);
+                check(curve3 != null && curve3.Threshold == null && curve3.Note?.Contains("0.0010") == true, "VASP：按能量收敛时不画目标线，写明 ΔE 判据（EDIFFG 从 OUTCAR 读）");
+                // 固定原子（POSCAR 的 Selective dynamics）不算：第一个原子三个方向都固定，只看第二个
+                var sdDir = Path.Combine(dir, "sd");
+                Directory.CreateDirectory(sdDir);
+                File.WriteAllText(Path.Combine(sdDir, "OUTCAR"), "SYSTEM\n" + Block((0.3, 0.4, 0), (-0.1, 0, 0)) + Block((0.03, 0, 0.04), (0, 0, 0.01)));
+                File.WriteAllText(Path.Combine(sdDir, "POSCAR"), "mol\n1.0\n10 0 0\n0 10 0\n0 0 10\nH\n2\nSelective dynamics\nDirect\n0.1 0.1 0.1 F F F\n0.2 0.2 0.2 T T T\n");
+                string ToBash(string p) => OperatingSystem.IsWindows() ? "/" + p[0].ToString().ToLowerInvariant() + p[2..].Replace('\\', '/') : p;
+                var sdSrc = new AppCurves.Source(ToBash(Path.Combine(sdDir, "OUTCAR")), AppCurves.CurveKind.VaspForce);
+                var sd = AppCurves.Merge(SelfTest.Bash(AppCurves.Script(sdSrc, 0, "")), new CurveCache());
+                check(sd != null && sd.Rows.Select(r => r[1]).SequenceEqual([0.1, 0.01]), "VASP：Selective dynamics 固定的方向不算进最大力");
+                // VTST 的 FORCES: max atom 优先；块之后才写出来的 VTST 行，增量读取时只算一次
+                var vtDir = Path.Combine(dir, "vtst");
+                Directory.CreateDirectory(vtDir);
+                var vtOut = Path.Combine(vtDir, "OUTCAR");
+                File.WriteAllText(vtOut, "SYSTEM\n" + Block((0.3, 0.4, 0)) + string.Format("  FORCES: max atom, RMS     {0}    0.004290\n", "0.0213") + Block((0.1, 0, 0)));
+                var vtSrc = new AppCurves.Source(ToBash(vtOut), AppCurves.CurveKind.VaspForce);
+                var v1 = AppCurves.Merge(SelfTest.Bash(AppCurves.Script(vtSrc, 0, "")), new CurveCache());
+                File.AppendAllText(vtOut, string.Format("  FORCES: max atom, RMS     {0}    0.004290\n", "0.0105"));
+                var v2 = v1 == null ? null : AppCurves.Merge(SelfTest.Bash(AppCurves.Script(vtSrc, v1.LineCount, v1.Head)), v1);
+                var vCurve = v2 == null ? null : AppCurves.Curve(vtSrc, v2.Rows, v2.Extra);
+                check(v2 != null && v2.Rows.Where(r => r[0] == 1).Select(r => r[1]).SequenceEqual([0.0213, 0.0105])
+                      && vCurve != null && vCurve.SeriesList[0].Points.Select(p => p.Y).SequenceEqual([0.0213, 0.0105]),
+                      "VASP：有 VTST 时用它的 max atom（和 grep RMS 一致），增量读取不重复");
             }
             finally { try { Directory.Delete(dir, true); } catch { } }
         }
         check(AppCurves.SourcesFor(new AppProgress { Kind = AppKind.Vasp, Dir = "/d", Vasp = VaspMode.Relax }).Count == 2, "VASP：结构优化有能量和最大力两张图");
+
+        // —— NEB ——
+        if (hasBash) NebChecks(check);
 
         // —— 检查更新 ——
         check(UpdateChecker.Compare("0.10.0", "0.9.1") == 1 && UpdateChecker.Compare("0.2", "0.2.0") == 0

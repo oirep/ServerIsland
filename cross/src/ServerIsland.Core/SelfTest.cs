@@ -377,6 +377,7 @@ public static class SelfTest
                 ("detail-pbs.sh", RemoteScript.DetailScript(pbs, pbsJob)),
                 ("cancel-pbs.sh", RemoteScript.CancelScript(pbs, pbsJob, null, false)!),
                 ("sacct-pbs.sh", RemoteScript.SacctScript(pbs, ["1001", "1003_2"])),
+                ("curve-neb.sh", AppCurves.Script(new AppCurves.Source("/home/u/neb run", AppCurves.CurveKind.Neb), 0, "")),
             ];
         }
         finally { ProgressRule.Active = saved; }

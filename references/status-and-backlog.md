@@ -38,13 +38,16 @@
 22. 2026-10-18 检查更新（两个版本）：设置 → 通用 有"检查更新"按钮和"自动检查更新"开关（默认开，启动 20 秒后和每 24 小时一次）。读 GitHub `releases/latest`，按数字比较版本号；有新版本时刘海提醒一次（同一版本只提醒一次），菜单栏 / 托盘菜单多一项"下载新版本"，下载按钮直接指向当前平台的安装包（.dmg / win-x64.zip / linux-x64.tar.gz）。只提示，不自动替换程序；真正的应用内更新见想法池（Sparkle / Velopack，最好先有 Developer ID 签名）。开发用 `--check-update [假装的版本]`。自检 Swift 113 项、C# 119 项（加上逐字比较 141 项）。
 - 数据目录说明：发布版的设置和日志目录从 0.1.0 起没变过（Mac `~/Library/Application Support/ServerIsland`、`~/Library/Logs/ServerIsland`；Windows `%APPDATA%\ServerIsland`；Linux `~/.config/ServerIsland`），升级不会丢设置。带 `-Avalonia` 的目录只有"在 Mac 上试用的跨平台版"会用，是为了不覆盖 Swift 版的设置。
 
+23. 2026-10-18 VASP 力和 NEB（两个版本）：最大力优先用 VTST 的 `FORCES: max atom, RMS` 行，没有时按 POSCAR 的 Selective dynamics 去掉固定方向再算；EDIFFG 先从 OUTCAR 读，≥ 0 时显示"按能量收敛"；加了淡色"最低"线（CG 的试探步会让力上下跳）；C# 版图例重叠修好，并加了 `--curve`。NEB 识别（INCAR 的 IMAGES + 01/OSZICAR）：能垒图（能量曲线 + 每个像点的力柱 + EDIFFG 虚线）和能垒随离子步的变化，在真实算例上和 nebef.pl 一致（算例放在本地 `test/`，不进仓库；`SI_NEB_CASE=<目录>` 让自检打印真实结果）。自检 Swift 122 项、C# 151 项（23 个脚本逐字一致）。
+
 ## 尚未验证（需要用户确认或等真实任务）
 
 - 刘海的真实交互：悬停、长按取消、原生菜单（间隔菜单）、全部任务页的搜索框（能否获得键盘焦点）、ⓘ 悬停提示、切换语言。这些都没法自动截图。
 - 动态口令登录：askpass 弹窗、多步验证、保活。用户的动态口令集群还没有加进来。
 - 密码、密钥 + 密码的真实登录（本机 sshd 不能做密码验证）；"记住密码"弹窗勾选框、钥匙串写入后的自动重新登录；Windows 凭据管理器（只在 Mac 上编译过）；Linux 的 secret-tool；有用户的"密钥 + 密码"集群和跳板机用户的环境里实测。
 - PBS：没有真实集群，只用 PBS Pro / Torque 的样例文本测过转换脚本（Mac 的 BSD awk；Linux CI 上是 mawk）。真实集群上的数组、`qstat -x`、Output_Path、qdel 都需要用户确认。
-- 最大力曲线：只用构造的 OUTCAR 片段测过，需要在真实的 VASP 结构优化上看一次（大 OUTCAR 第一次读取的耗时）。
+- 最大力曲线：已在一个真实的 CG 优化上核对过；VTST 和 Selective dynamics 只用构造的文件测过。
+- NEB：只在一个本地算例上测过（读文件），还没在服务器上的运行中 NEB 任务上看过刘海和详情页。
 - 真实的 VASP、LAMMPS 任务（只用假文件和 mawk 管道测试过），以及设置页"测试"按钮在真实服务器上的表现。
 - 真实的 GPUMD 模拟任务，以及通过 Slurm 提交的真实 NEP 作业（只用假文件测试过 environ 映射）。
 - 大型集群上真实的数组作业，以及数组首个失败提醒、汇总提醒。

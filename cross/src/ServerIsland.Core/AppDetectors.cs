@@ -7,7 +7,7 @@ namespace ServerIsland.Core;
 public enum AppKind { Nep, Gnep, Gpumd, Vasp, Lammps, Custom }
 
 /// VASP 的计算类型。
-public enum VaspMode { Md, Relax, Scf }
+public enum VaspMode { Md, Relax, Scf, Neb }
 
 /// 计算软件的进度（NEP / GPUMD 参考 GPUMDkit Web Console 的判断逻辑；另有 VASP、LAMMPS 和用户自定义规则）。
 /// 原则：任何一处和预期不一致（文件缺失、格式对不上、数字矛盾）就当作没识别到，不显示进度。
@@ -31,6 +31,10 @@ public sealed class AppProgress
     /// 正常结束标记（VASP 的 OUTCAR 计时段、LAMMPS 的 Total wall time、自定义规则的结束文字）。null：没有结束标记。
     public bool? EndMarker;
     public VaspMode? Vasp;
+    /// NEB：正向能垒（最高点 − 初态，eV；没有初态 OUTCAR 时为 null）、中间像点里最大的 VTST 力、中间像点数。
+    public double? NebBarrier;
+    public double? NebForce;
+    public int? NebImages;
     public string CustomName = "";
     public string CustomUnit = "";
 
@@ -53,6 +57,7 @@ public sealed class AppProgress
         {
             VaspMode.Md => "VASP MD",
             VaspMode.Relax => L("VASP 结构优化", "VASP relaxation"),
+            VaspMode.Neb => "VASP NEB",
             _ => L("VASP 单点", "VASP SCF"),
         },
         AppKind.Lammps => "LAMMPS MD",
@@ -67,7 +72,7 @@ public sealed class AppProgress
         AppKind.Vasp => (Vasp ?? VaspMode.Scf) switch
         {
             VaspMode.Md => L("步", "steps"),
-            VaspMode.Relax => L("离子步", "ionic steps"),
+            VaspMode.Relax or VaspMode.Neb => L("离子步", "ionic steps"),
             _ => L("电子步", "electronic steps"),
         },
         _ => CustomUnit,
@@ -109,6 +114,10 @@ public sealed class AppProgress
                     break;
                 case AppKind.Gpumd or AppKind.Lammps:
                     if (Rate is { } r) parts.Add(Compact(r) + L(" 步/秒", " steps/s"));
+                    break;
+                case AppKind.Vasp when Vasp == VaspMode.Neb:
+                    if (NebBarrier is { } b) parts.Add(L("能垒 ", "barrier ") + Text.Fmt(b, "0.000") + " eV");
+                    if (NebForce is { } f) parts.Add(L("最大力 ", "max force ") + Sci(f));
                     break;
             }
             return string.Join(" · ", parts);
@@ -253,7 +262,8 @@ public static class AppDetectors
         awk '{ sub(/[!#].*/, ""); n = split($0, parts, ";")
                for (i = 1; i <= n; i++) { s = toupper(parts[i])
                  if (s ~ /^[ ⇥]*NSW[ ⇥]*=/) { sub(/^[^=]*=[ ⇥]*/, "", s); split(s, v, " "); print "nsw=" v[1] }
-                 if (s ~ /^[ ⇥]*IBRION[ ⇥]*=/) { sub(/^[^=]*=[ ⇥]*/, "", s); split(s, v, " "); print "ibrion=" v[1] } } }'
+                 if (s ~ /^[ ⇥]*IBRION[ ⇥]*=/) { sub(/^[^=]*=[ ⇥]*/, "", s); split(s, v, " "); print "ibrion=" v[1] }
+                 if (s ~ /^[ ⇥]*IMAGES[ ⇥]*=/) { sub(/^[^=]*=[ ⇥]*/, "", s); split(s, v, " "); print "images=" v[1] } } }'
         """.Replace('⇥', '\t');
 
     const string VaspOszicarAwk = """
@@ -280,6 +290,17 @@ public static class AppDetectors
             else
               echo "thermo_rows=$(grep -cv '^[[:space:]]*#' "$d/thermo.out")"; echo "mtime=$(stat -c %Y "$d/thermo.out" 2>/dev/null)"
             fi
+          elif [ -f "$d/INCAR" ] && [ -f "$d/01/OSZICAR" ] && grep -qiE '^[[:space:]]*IMAGES[[:space:]]*=[[:space:]]*[1-9]' "$d/INCAR"; then
+            printf '{{Marker}}DIR %s|%s\n' "$id" "$d"; echo kind=vasp; echo neb=1
+            {{VaspIncarAwk}} "$d/INCAR"
+            tail -n 3000 "$d/01/OSZICAR" | {{VaspOszicarAwk}}
+            for s in "$d"/[0-9][0-9]; do
+              [ -f "$s/OUTCAR" ] && tail -n 25000 "$s/OUTCAR" | awk -v i="${s##*/}" '/energy  without entropy/ { e = $NF } /FORCES: max atom, RMS/ { f = $5 } END { print "nebimg=" i "|" e "|" f }'
+            done
+            if [ -f "$d/01/OUTCAR" ]; then
+              if tail -n 400 "$d/01/OUTCAR" | grep -q 'General timing and accounting'; then echo done=1; else echo done=0; fi
+            fi
+            echo "mtime=$(stat -c %Y "$d/01/OSZICAR" 2>/dev/null)"
           elif [ -f "$d/INCAR" ] && [ -f "$d/OSZICAR" ]; then
             printf '{{Marker}}DIR %s|%s\n' "$id" "$d"; echo kind=vasp
             {{VaspIncarAwk}} "$d/INCAR"
@@ -314,6 +335,7 @@ public static class AppDetectors
         var dir = "";
         var kv = new Dictionary<string, string>();
         var tails = new List<string>();
+        var nebImgs = new List<string>();
 
         void Flush()
         {
@@ -362,6 +384,12 @@ public static class AppDetectors
                     case AppKind.Vasp:
                         if (ParseVasp(kv) is not { } v) return;
                         p.Vasp = v.Mode; p.Current = v.Current; p.Total = v.Total; p.HasTarget = v.Total != null;
+                        if (v.Mode == VaspMode.Neb)
+                        {
+                            var images = Text.Int(kv.GetValueOrDefault("images"));
+                            (p.NebBarrier, p.NebForce) = ParseNeb(nebImgs, images);
+                            p.NebImages = images;
+                        }
                         break;
                     case AppKind.Lammps:
                         if (ParseLammps(kv) is not { } l) return;
@@ -391,6 +419,7 @@ public static class AppDetectors
             {
                 kv = new Dictionary<string, string>();
                 tails = [];
+                nebImgs = [];
             }
         }
 
@@ -404,6 +433,7 @@ public static class AppDetectors
                 if (bar >= 0) { id = rest[..bar]; dir = rest[(bar + 1)..]; } else id = null;
             }
             else if (line.StartsWith("tail=", StringComparison.Ordinal)) tails.Add(line[5..]);
+            else if (line.StartsWith("nebimg=", StringComparison.Ordinal)) nebImgs.Add(line[7..]);
             else if (line.IndexOf('=') is var eq and >= 0) kv[line[..eq]] = line[(eq + 1)..];
         }
         Flush();
@@ -413,6 +443,9 @@ public static class AppDetectors
     /// VASP：NSW ≤ 0 → 单点（电子步）；IBRION=0 → MD（离子步 / NSW）；IBRION=1/2/3 → 结构优化（只显示离子步）。
     public static (VaspMode Mode, double Current, double? Total)? ParseVasp(IReadOnlyDictionary<string, string> kv)
     {
+        // NEB：只显示离子步（01 像点的 OSZICAR），不按 NSW 算百分比（一般早于 NSW 收敛）
+        if (kv.GetValueOrDefault("neb") == "1")
+            return Text.Int(kv.GetValueOrDefault("ionic")) is { } ni ? (VaspMode.Neb, ni, null) : null;
         int nsw = 0;
         int? ibrion = null;
         if (kv.TryGetValue("nsw", out var s1)) { if (Text.Int(s1) is not { } v) return null; nsw = v; }
@@ -431,6 +464,28 @@ public static class AppDetectors
             default:
                 return null;
         }
+    }
+
+    /// NEB 各像点（`编号|能量|VTST 力`，来自每个像点 OUTCAR 的末尾）：
+    /// 能垒 = 除初态外最高的能量 − 初态（00）能量，和 VTST 的 nebef.pl 一样用 energy(sigma→0)；
+    /// 最大力 = 中间像点（1…IMAGES）里最大的 VTST `FORCES: max atom`。缺数据时对应的值为 null。
+    public static (double? Barrier, double? Force) ParseNeb(IEnumerable<string> lines, int? images)
+    {
+        var energy = new Dictionary<int, double>();
+        var force = new Dictionary<int, double>();
+        foreach (var l in lines)
+        {
+            var f = l.Split('|');
+            if (f.Length != 3 || Text.Int(f[0]) is not { } i) continue;
+            if (Text.Dbl(f[1]) is { } e) energy[i] = e;
+            if (Text.Dbl(f[2]) is { } v) force[i] = v;
+        }
+        int last = images is { } n ? n + 1 : (energy.Count > 0 ? energy.Keys.Max() : 0);
+        double? barrier = null;
+        if (energy.TryGetValue(0, out var e0) && energy.Where(kv => kv.Key > 0).Select(kv => kv.Value).ToList() is { Count: > 0 } others)
+            barrier = others.Max() - e0;
+        var middle = force.Where(kv => kv.Key >= 1 && kv.Key < last).Select(kv => kv.Value).ToList();
+        return (barrier, middle.Count > 0 ? middle.Max() : null);
     }
 
     /// LAMMPS：当前步 = 最后一行的 Step − 这段 run 第一行的 Step，目标 = run 的步数。任何一处不对就返回 nil。

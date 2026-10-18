@@ -162,7 +162,7 @@ public static class DemoData
             var rows = src.Kind switch
             {
                 AppCurves.CurveKind.Loss => Enumerable.Range(1, 80).Select(i => new[] { i * 100.0, 2.0 / Math.Sqrt(i) + 0.15, 0.04, 0.06, 0.05 / i + 0.0007, 0.6 / Math.Sqrt(i) + 0.07, 0.2 / Math.Sqrt(i) + 0.011 }).ToList(),
-                AppCurves.CurveKind.VaspEnergy => Enumerable.Range(1, 17).Select(i => new[] { (double)i, -431.25 - 3.0 / i }).ToList(),
+                AppCurves.CurveKind.VaspEnergy => Enumerable.Range(1, 17).Select(i => new[] { (double)i, -432.1 - 3.2 * (1 - Math.Exp(-i / 5.0)) }).ToList(),
                 _ => Enumerable.Range(1, 17).Select(i => new[] { 0, 1.8 * Math.Exp(-i / 4.0) + 0.012 + 0.004 * Math.Sin(i) }).ToList(),
             };
             if (AppCurves.Curve(src, rows, new() { ["ediffg"] = "-0.02" }) is { } c) out_.Add(c);

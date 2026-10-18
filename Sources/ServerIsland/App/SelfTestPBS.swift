@@ -165,8 +165,42 @@ enum SelfTestPBS {
         }
         let c2 = c1.flatMap { AppCurves.merge(bash(AppCurves.script(src, offset: $0.lineCount, head: $0.head)), into: $0) }
         check(c2?.rows.count == 3 && abs((c2?.rows.last?[1] ?? 0) - 0.2) < 1e-6, "VASP：增量读取时不丢写到一半的力块")
+        check(curve1?.series.count == 2 && curve1?.series[1].faint == true && abs(Double(curve1?.series[1].points.last?.y ?? 0) - 0.05) < 1e-9,
+              "VASP：再画一条只降不升的“最低”线")
+        // OUTCAR 里 VASP 实际用的 EDIFFG 优先于 INCAR（这里是默认值 0.001：按能量收敛，没有目标线，写一句说明）
+        if let h = try? FileHandle(forWritingTo: outcar) {
+            h.seekToEndOfFile(); h.write(Data("   EDIFFG = 0.1E-02   stopping-criterion for IOM\n".utf8)); try? h.close()
+        }
+        let c3 = AppCurves.merge(bash(AppCurves.script(src, offset: 0, head: "")), into: CurveCache())
+        let curve3 = c3.flatMap { AppCurves.curve(src, rows: $0.rows, extra: $0.extra) }
+        check(curve3?.threshold == nil && curve3?.note?.contains("0.0010") == true, "VASP：按能量收敛时不画目标线，写明 ΔE 判据（EDIFFG 从 OUTCAR 读）")
+        // 固定原子（POSCAR 的 Selective dynamics）不算：第一个原子三个方向都固定，只看第二个
+        let sdDir = dir.appendingPathComponent("sd")
+        try? FileManager.default.createDirectory(at: sdDir, withIntermediateDirectories: true)
+        try? ("SYSTEM\n" + block([(0.3, 0.4, 0), (-0.1, 0, 0)]) + block([(0.03, 0, 0.04), (0, 0, 0.01)]))
+            .write(to: sdDir.appendingPathComponent("OUTCAR"), atomically: true, encoding: .utf8)
+        try? "mol\n1.0\n10 0 0\n0 10 0\n0 0 10\nH\n2\nSelective dynamics\nDirect\n0.1 0.1 0.1 F F F\n0.2 0.2 0.2 T T T\n".write(to: sdDir.appendingPathComponent("POSCAR"), atomically: true, encoding: .utf8)
+        let sdSrc = AppCurves.Source.vaspForce(path: sdDir.appendingPathComponent("OUTCAR").path)
+        let sd = AppCurves.merge(bash(AppCurves.script(sdSrc, offset: 0, head: "")), into: CurveCache())
+        check(sd?.rows.map { $0[1] } == [0.1, 0.01], "VASP：Selective dynamics 固定的方向不算进最大力")
+        // VTST 的 FORCES: max atom 优先；块之后才写出来的 VTST 行，增量读取时只算一次
+        let vtDir = dir.appendingPathComponent("vtst")
+        try? FileManager.default.createDirectory(at: vtDir, withIntermediateDirectories: true)
+        let vtOut = vtDir.appendingPathComponent("OUTCAR")
+        try? ("SYSTEM\n" + block([(0.3, 0.4, 0)]) + String(format: "  FORCES: max atom, RMS     %@    0.004290\n", "0.0213") + block([(0.1, 0, 0)]))
+            .write(to: vtOut, atomically: true, encoding: .utf8)
+        let vtSrc = AppCurves.Source.vaspForce(path: vtOut.path)
+        let v1 = AppCurves.merge(bash(AppCurves.script(vtSrc, offset: 0, head: "")), into: CurveCache())
+        if let h = try? FileHandle(forWritingTo: vtOut) { h.seekToEndOfFile(); h.write(Data(String(format: "  FORCES: max atom, RMS     %@    0.004290\n", "0.0105").utf8)); try? h.close() }
+        let v2 = v1.flatMap { AppCurves.merge(bash(AppCurves.script(vtSrc, offset: $0.lineCount, head: $0.head)), into: $0) }
+        let vCurve = v2.flatMap { AppCurves.curve(vtSrc, rows: $0.rows, extra: $0.extra) }
+        check(v2?.rows.filter { $0[0] == 1 }.map { $0[1] } == [0.0213, 0.0105] && vCurve?.series.first?.points.map { Double($0.y) } == [0.0213, 0.0105],
+              "VASP：有 VTST 时用它的 max atom（和 grep RMS 一致），增量读取不重复")
         check(AppCurves.sources(for: { var a = AppProgress(kind: .vasp, dir: "/d"); a.vaspMode = .relax; return a }()).count == 2,
               "VASP：结构优化有能量和最大力两张图")
+
+        // —— NEB ——
+        nebChecks(check)
 
         // —— 检查更新 ——
         check(UpdateChecker.compare("0.10.0", "0.9.1") == 1 && UpdateChecker.compare("0.2", "0.2.0") == 0
@@ -189,6 +223,62 @@ enum SelfTestPBS {
         check(kept == "10-16 09:00:00  old format, recent\n2026-10-17 10:00:00  new\n  continuation of new\n",
               "日志：删除早于保留天数的行（续行跟随上一行，旧格式按今年算）")
         check(DebugLog.pruneText("2026-01-01 00:00:00  x\n", cutoff: now, now: now).isEmpty, "日志：全部过期时清空")
+    }
+
+    /// 一个很小的 NEB 算例：2 个中间像点、两个端点都有 OUTCAR、2 个离子步、EDIFFG = -0.05。
+    /// 最新一步相对初态：0、0.4、0.3、-0.1 → 能垒 0.4、逆向 0.5；第 1 步能垒 0.5；像点 2 的力 0.07 高于目标。
+    static func makeNebFixture(at dir: URL) {
+        let fm = FileManager.default
+        func w(_ rel: String, _ text: String) {
+            let u = dir.appendingPathComponent(rel)
+            try? fm.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? text.write(to: u, atomically: true, encoding: .utf8)
+        }
+        func outcar(_ e: Double, _ f: Double) -> String {
+            String(format: "  energy  without entropy=     %.8f  energy(sigma->0) =     %.8f\n  FORCES: max atom, RMS     %.6f    0.001000\n", e - 0.01, e, f)
+        }
+        func osz(_ es: [Double]) -> String {
+            es.enumerated().map { String(format: "DAV:   1    %.12E    0.1E-02\n%4d F= %.8E E0= %.8E  d E =-.1E-02\n", $0.element, $0.offset + 1, $0.element, $0.element) }.joined()
+        }
+        w("INCAR", "SYSTEM = neb\nIBRION = 3\nNSW = 50\nEDIFFG = -0.05\nIMAGES = 2 ! two images\n")
+        w("00/OUTCAR", outcar(-10.0, 0.01))
+        w("01/OSZICAR", osz([-9.5, -9.6])); w("01/OUTCAR", outcar(-9.6, 0.04))
+        w("02/OSZICAR", osz([-9.8, -9.7])); w("02/OUTCAR", outcar(-9.7, 0.07))
+        w("03/OUTCAR", outcar(-10.1, 0.02))
+    }
+
+    static func nebChecks(_ check: (Bool, String) -> Void) {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("si-neb-\(getpid())")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        makeNebFixture(at: dir)
+        let det = AppDetectors.parse(bash(AppDetectors.directoryScript(id: "7", dir: dir.path, rules: [], builtin: true)).components(separatedBy: "\n"))["7"]
+        check(det?.vaspMode == .neb && det?.current == 2 && abs((det?.nebBarrier ?? 0) - 0.4) < 1e-6 && det?.nebForce == 0.07,
+              "NEB：识别 IMAGES 和 01/OSZICAR，离子步、能垒（最高像点 − 00）、中间像点的最大 VTST 力")
+        check(det?.summary.contains("0.400 eV") == true, "NEB：任务行显示能垒和最大力")
+        let src = AppCurves.Source.neb(dir: dir.path)
+        let merged = AppCurves.merge(bash(AppCurves.script(src, offset: 0, head: "")), into: CurveCache())
+        let cs = merged.map { AppCurves.curves(src, rows: $0.rows, extra: $0.extra) } ?? []
+        let prof = cs.first
+        check(cs.count == 2 && prof?.series.first?.points.map { Double($0.y) }.map { ($0 * 1000).rounded() / 1000 } == [0, 0.4, 0.3, -0.1],
+              "NEB：能垒图用最新一步的中间像点 + 端点 OUTCAR 的能量，相对初态")
+        check(prof?.bars.map { Double($0.y) } == [0.04, 0.07] && prof?.threshold == 0.05 && cs.count == 2
+              && cs[1].note?.contains("0.400") == true && cs[1].note?.contains("0.500") == true,
+              "NEB：柱子是每个中间像点的力，虚线是 |EDIFFG|，能垒图旁边写正向 / 逆向能垒")
+        check(cs.count == 2 && cs[1].series.first?.points.map { (Double($0.y) * 1000).rounded() / 1000 } == [0.5, 0.4], "NEB：能垒随离子步的变化")
+        // 真实算例（不在仓库里）：SI_NEB_CASE=<目录> 时打印结果，和 VTST 的 nebef.pl 对照
+        if let real = ProcessInfo.processInfo.environment["SI_NEB_CASE"] {
+            let d = AppDetectors.parse(bash(AppDetectors.directoryScript(id: "r", dir: real, rules: [], builtin: true)).components(separatedBy: "\n"))["r"]
+            print("  [NEB 真实算例] \(d?.title ?? "未识别") · \(d?.summary ?? "")")
+            let rs = AppCurves.Source.neb(dir: real)
+            if let m = AppCurves.merge(bash(AppCurves.script(rs, offset: 0, head: "")), into: CurveCache()) {
+                for c in AppCurves.curves(rs, rows: m.rows, extra: m.extra) {
+                    let pts: [String] = (c.series.first?.points ?? []).map { String(format: "%.0f:%.4f", Double($0.x), Double($0.y)) }
+                    let bars: [String] = c.bars.map { String(format: "%.6f", Double($0.y)) }
+                    let forceText = bars.isEmpty ? "" : " · 力 " + bars.joined(separator: " ")
+                    print("  [NEB 真实算例] \(c.title)：" + pts.joined(separator: " ") + forceText + " · " + (c.note ?? ""))
+                }
+            }
+        }
     }
 
     static func bash(_ script: String) -> String {

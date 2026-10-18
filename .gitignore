@@ -11,3 +11,6 @@ references/private/
 # 跨平台版（cross/）
 cross/**/bin/
 cross/**/obj/
+
+# 本地测试用的计算算例（不上传）
+/test/

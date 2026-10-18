@@ -217,6 +217,28 @@ enum PreviewRenderer {
             page("detail-vasp", JobDetailPage(host: nepHost, job: relaxJob, sampledAt: Date(), stillListed: true, engine: engine,
                                               onBack: {}, openSettings: {}, preloaded: JobDetail(),
                                               preloadedCurves: relaxCurves))
+            // 共轭梯度（IBRION=2）的真实走势：最大力上下跳，按能量收敛（EDIFFG 默认 0.001）。数值来自一个真实的分子优化。
+            let cgF: [Double] = [2.90587, 5.55486, 1.01194, 2.59552, 0.612749, 0.941168, 0.464911, 0.686184, 0.828412, 0.327084, 0.471256, 0.275648, 0.295926, 0.166203, 0.459653, 0.253956, 0.328663, 0.225154, 0.4237, 0.527276, 0.213997, 0.160526, 0.190614, 0.125337, 0.25902, 0.124044, 0.136184, 0.133553, 0.367229, 0.294823, 0.165715, 0.144307, 0.105007, 0.0775564, 0.147446]
+            let cgE: [Double] = [-89.7657, -89.0658, -89.9134, -89.8975, -89.953, -89.9662, -89.9771, -90, -90.0004, -90.0144, -90.0161, -90.0237, -90.0303, -90.0359, -90.0381, -90.0421, -90.0444, -90.0496, -90.0535, -90.0557, -90.0572, -90.0594, -90.0597, -90.0616, -90.0624, -90.0638, -90.064, -90.0658, -90.0679, -90.0688, -90.0701, -90.0709, -90.0719, -90.0725, -90.0728]
+            let cgCurves: [AppCurve] = [AppCurves.curve(.vaspEnergy(path: ""), rows: cgE.enumerated().map { [Double($0.offset + 1), $0.element] }),
+                                        AppCurves.curve(.vaspForce(path: ""), rows: cgF.map { [0, $0] }, extra: ["ediffg": "0.1E-02"])].compactMap { $0 }
+            // NEB：能垒图（曲线 + 每个像点的力柱 + EDIFFG 虚线）和能垒随离子步的变化。数值来自一个真实的 3 像点 NEB。
+            var nebRows: [[Double]] = [[0, 0, -387.56731101], [0, -1, 0.009691], [4, 0, -387.58911885], [4, -1, 0.008842],
+                                       [1, -1, 0.006768], [2, -1, 0.004724], [3, -1, 0.006717]]
+            let nebFinal: [Double] = [-387.25458648, -386.85825059, -387.26974483]
+            for st in 1...30 {
+                let k = exp(-Double(st) / 4.5)
+                for (j, e) in nebFinal.enumerated() { nebRows.append([Double(j + 1), Double(st), e + (j == 1 ? 1.13 : 0.4) * k]) }
+            }
+            let nebCurves = AppCurves.curves(.neb(dir: ""), rows: nebRows, extra: ["ediffg": "-0.01", "images": "3"])
+            var nebApp = AppProgress(kind: .vasp, dir: DemoData.home + "/AuCu/neb"); nebApp.vaspMode = .neb; nebApp.current = 30
+            nebApp.nebBarrier = 0.709; nebApp.nebForce = 0.006768
+            var nebJob = RemoteJob(id: "31077", name: "vasp_std", state: .running, source: .process)
+            nebJob.app = nebApp; nebJob.message = nebApp.title + " · " + nebApp.summary
+            page("detail-neb", JobDetailPage(host: nepHost, job: nebJob, sampledAt: Date(), stillListed: true, engine: engine,
+                                             onBack: {}, openSettings: {}, preloaded: JobDetail(), preloadedCurves: nebCurves))
+            page("detail-vasp-cg", JobDetailPage(host: nepHost, job: relaxJob, sampledAt: Date(), stillListed: true, engine: engine,
+                                                 onBack: {}, openSettings: {}, preloaded: JobDetail(), preloadedCurves: cgCurves))
         }
 
         store.settings.hosts[1].muted = true

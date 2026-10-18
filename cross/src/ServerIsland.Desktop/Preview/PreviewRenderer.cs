@@ -133,6 +133,23 @@ public static class PreviewRenderer
         {
             jd.Curves = DemoData.Curves(new AppProgress { Kind = AppKind.Vasp, Dir = DemoData.Home + "/LiCoO2/relax-hse", Vasp = VaspMode.Relax });
             Save(IslandScene(IslandMode.Expanded, st), "page-job-detail-vasp");
+            // 共轭梯度（IBRION=2）的真实走势：最大力上下跳，按能量收敛（EDIFFG 默认 0.001）。数值来自一个真实的分子优化。
+            double[] cgF = [2.90587, 5.55486, 1.01194, 2.59552, 0.612749, 0.941168, 0.464911, 0.686184, 0.828412, 0.327084, 0.471256, 0.275648, 0.295926, 0.166203, 0.459653, 0.253956, 0.328663, 0.225154, 0.4237, 0.527276, 0.213997, 0.160526, 0.190614, 0.125337, 0.25902, 0.124044, 0.136184, 0.133553, 0.367229, 0.294823, 0.165715, 0.144307, 0.105007, 0.0775564, 0.147446];
+            double[] cgE = [-89.7657, -89.0658, -89.9134, -89.8975, -89.953, -89.9662, -89.9771, -90, -90.0004, -90.0144, -90.0161, -90.0237, -90.0303, -90.0359, -90.0381, -90.0421, -90.0444, -90.0496, -90.0535, -90.0557, -90.0572, -90.0594, -90.0597, -90.0616, -90.0624, -90.0638, -90.064, -90.0658, -90.0679, -90.0688, -90.0701, -90.0709, -90.0719, -90.0725, -90.0728];
+            jd.Curves = new List<AppCurve?>
+            {
+                AppCurves.Curve(new AppCurves.Source("", AppCurves.CurveKind.VaspEnergy), cgE.Select((v, i) => new[] { i + 1.0, v }).ToList()),
+                AppCurves.Curve(new AppCurves.Source("", AppCurves.CurveKind.VaspForce), cgF.Select(v => new[] { 0.0, v }).ToList(), new() { ["ediffg"] = "0.1E-02" }),
+            }.Where(c => c != null).Select(c => c!).ToList();
+            Save(IslandScene(IslandMode.Expanded, st), "page-job-detail-vasp-cg");
+            // NEB：能垒图（曲线 + 每个像点的力柱 + EDIFFG 虚线）和能垒随离子步的变化。数值来自一个真实的 3 像点 NEB。
+            var nebRows = new List<double[]> { new[] { 0, 0, -387.56731101 }, new[] { 0, -1, 0.009691 }, new[] { 4, 0, -387.58911885 }, new[] { 4, -1, 0.008842 },
+                                                new[] { 1, -1, 0.006768 }, new[] { 2, -1, 0.004724 }, new[] { 3, -1, 0.006717 } };
+            double[] nebFinal = [-387.25458648, -386.85825059, -387.26974483];
+            for (int k = 1; k <= 30; k++)
+                for (int j = 0; j < 3; j++) nebRows.Add([j + 1, k, nebFinal[j] + (j == 1 ? 1.13 : 0.4) * Math.Exp(-k / 4.5)]);
+            jd.Curves = AppCurves.Curves(new AppCurves.Source("", AppCurves.CurveKind.Neb), nebRows, new() { ["ediffg"] = "-0.01", ["images"] = "3" });
+            Save(IslandScene(IslandMode.Expanded, st), "page-job-detail-neb");
         }
 
         // 数组作业概览

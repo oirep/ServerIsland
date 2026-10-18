@@ -19,7 +19,7 @@ static class Program
             return AskPassApp.Run(args);
         }
 
-        bool cli = args.Any(a => a is "--selftest" or "--render-preview" or "--diagnose" or "--dump-scripts" or "--check-update" or "--version" or "--help" or "--ui-smoke");
+        bool cli = args.Any(a => a is "--selftest" or "--render-preview" or "--diagnose" or "--dump-scripts" or "--check-update" or "--curve" or "--version" or "--help" or "--ui-smoke");
         AppDomain.CurrentDomain.UnhandledException += (_, e) => DebugLog.Log("未处理的异常：" + e.ExceptionObject);
         TaskScheduler.UnobservedTaskException += (_, e) => { DebugLog.Log("后台任务异常：" + e.Exception); e.SetObserved(); };
         if (cli) AttachConsoleIfAny();
@@ -52,6 +52,13 @@ static class Program
             var rel = UpdateChecker.CheckAsync().GetAwaiter().GetResult();
             Console.WriteLine(rel != null ? $"有新版本 {rel.Version}\n  下载：{rel.DownloadUrl}\n  页面：{rel.PageUrl}\n  说明：{rel.Notes}"
                 : UpdateChecker.State == UpdateChecker.StateKind.UpToDate ? $"已是最新（GitHub 最新 {UpdateChecker.Message}）" : "失败：" + UpdateChecker.Message);
+            return 0;
+        }
+
+        // 开发用：读取（两次，第二次应是增量）详情页曲线。  --curve <别名> <目录> [nep|gnep|vasp]
+        if (Index(args, "--curve") is { } ci && ci + 2 < args.Length)
+        {
+            Diagnose.Curve(args[ci + 1], args[ci + 2], ci + 3 < args.Length ? args[ci + 3] : "nep").GetAwaiter().GetResult();
             return 0;
         }
 
@@ -136,6 +143,39 @@ static class SingleInstance
 /// `--diagnose <别名> [slurm|pbs|direct|slurm+]`：对真实服务器跑一次完整采集并打印（只读）。
 static class Diagnose
 {
+    /// 和 Mac 版 `--curve` 一样：用设置里的 SSH 实现（或 SERVERISLAND_SSH=managed|openssh）读两次曲线。
+    public static async Task Curve(string alias, string dir, string mode)
+    {
+        var real = new ConfigStore(persist: true);
+        var backend = Environment.GetEnvironmentVariable("SERVERISLAND_SSH") switch
+        {
+            "managed" => SshBackend.Managed, "openssh" => SshBackend.OpenSsh, _ => real.Settings.SshBackend,
+        };
+        var ssh = SshCommon.Create(backend);
+        var host = real.Settings.Hosts.FirstOrDefault(h => h.Alias == alias || h.DisplayName == alias)?.Clone() ?? new HostConfig(alias);
+        var app = new AppProgress { Kind = mode == "gnep" ? AppKind.Gnep : mode == "vasp" ? AppKind.Vasp : AppKind.Nep, Dir = dir };
+        if (mode == "vasp") app.Vasp = VaspMode.Relax;
+        Console.WriteLine($"SSH：{ssh.Name}");
+        foreach (var src in AppCurves.SourcesFor(app))
+        {
+            Console.WriteLine("== " + src.Path);
+            var cache = new CurveCache();
+            for (int round = 1; round <= 2; round++)
+            {
+                var r = await ssh.RunAsync(host, host.Commands.Shell, AppCurves.Script(src, cache.LineCount, cache.Head), TimeSpan.FromSeconds(30));
+                var rows = r.Stdout.Split('\n').Count(l => l.StartsWith("row="));
+                if (AppCurves.Merge(r.Stdout, cache) is not { } merged) { Console.WriteLine($"读不到（exit {r.Status}）：{r.Stderr.Trim()}\n{r.Stdout}"); break; }
+                cache = merged;
+                Console.WriteLine($"第 {round} 次：文件 {cache.LineCount} 行，本次传回 {rows} 行，累计 {cache.Rows.Count} 行，{r.Duration:0.00}s");
+            }
+            foreach (var c in AppCurves.Curves(src, cache.Rows, cache.Extra))
+                foreach (var se in c.SeriesList)
+                    Console.WriteLine($"  {se.Name} {se.Points.Count} 点：" + string.Join(" ", se.Points.Select(p => Text.Fmt(p.Y, "0.####"))));
+            if (AppCurves.Curve(src, cache.Rows, cache.Extra) is { } c2) { if (c2.Threshold is { } t) Console.WriteLine($"  目标 {t}"); if (c2.Note != null) Console.WriteLine("  说明 " + c2.Note); }
+        }
+        await ssh.CloseAsync(host);
+    }
+
     public static async Task Run(string alias, HostKind kind, bool alsoProcesses)
     {
         var store = new ConfigStore(persist: false);

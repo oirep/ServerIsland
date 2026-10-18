@@ -124,6 +124,7 @@ if let i = arguments.firstIndex(of: "--curve"), i + 2 < arguments.count {
         if let c = AppCurves.curve(src, rows: cache.rows, extra: cache.extra) {
             for s in c.series { print(" ", s.name, s.points.count, "点，最后", s.points.last.map { "\($0.x) → \($0.y)" } ?? "-") }
             if let t = c.threshold { print("  目标", t) }
+            if let n = c.note { print("  说明", n) }
         }
         }
         sem.signal()

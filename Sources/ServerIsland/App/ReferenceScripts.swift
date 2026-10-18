@@ -50,6 +50,7 @@ enum ReferenceScripts {
             ("detail-pbs.sh", RemoteScript.detailScript(host: pbs, job: pbsJob)),
             ("cancel-pbs.sh", RemoteScript.cancelScript(host: pbs, job: pbsJob, expectedElapsed: nil, force: false)!),
             ("sacct-pbs.sh", RemoteScript.sacctScript(for: pbs, jobIDs: ["1001", "1003_2"])),
+            ("curve-neb.sh", AppCurves.script(.neb(dir: "/home/u/neb run"), offset: 0, head: "")),
         ]
     }
 }

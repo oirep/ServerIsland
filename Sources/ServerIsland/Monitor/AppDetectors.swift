@@ -7,7 +7,7 @@ import Foundation
 struct AppProgress: Equatable {
     enum Kind: String { case nep, gnep, gpumd, vasp, lammps, custom }
     /// VASP 的计算类型。
-    enum VaspMode: String { case md, relax, scf }
+    enum VaspMode: String { case md, relax, scf, neb }
 
     struct Value: Equatable {
         var label: String
@@ -34,6 +34,10 @@ struct AppProgress: Equatable {
     /// nil：这种软件 / 规则没有结束标记。
     var endMarker: Bool?
     var vaspMode: VaspMode?
+    /// NEB：正向能垒（最高点 − 初态，eV；没有初态 OUTCAR 时为 nil）、中间像点里最大的 VTST 力、中间像点数。
+    var nebBarrier: Double?
+    var nebForce: Double?
+    var nebImages: Int?
     /// 自定义规则的名称和单位。
     var customName = ""
     var customUnit = ""
@@ -48,6 +52,7 @@ struct AppProgress: Equatable {
             case .md: return "VASP MD"
             case .relax: return L("VASP 结构优化", "VASP relaxation")
             case .scf: return L("VASP 单点", "VASP SCF")
+            case .neb: return "VASP NEB"
             }
         case .lammps: return "LAMMPS MD"
         case .custom: return customName
@@ -62,7 +67,7 @@ struct AppProgress: Equatable {
         case .vasp:
             switch vaspMode ?? .scf {
             case .md: return L("步", "steps")
-            case .relax: return L("离子步", "ionic steps")
+            case .relax, .neb: return L("离子步", "ionic steps")
             case .scf: return L("电子步", "electronic steps")
             }
         case .custom: return customUnit
@@ -101,6 +106,9 @@ struct AppProgress: Equatable {
             if let l = losses.first { parts.append("\(l.label) \(Self.sci(l.value))") }
         case .gpumd, .lammps:
             if let r = rate { parts.append(Self.compact(r) + L(" 步/秒", " steps/s")) }
+        case .vasp where vaspMode == .neb:
+            if let b = nebBarrier { parts.append(L("能垒 ", "barrier ") + String(format: "%.3f eV", b)) }
+            if let f = nebForce { parts.append(L("最大力 ", "max force ") + Self.sci(f)) }
         case .vasp, .custom:
             break
         }
@@ -246,7 +254,8 @@ enum AppDetectors {
     awk '{ sub(/[!#].*/, ""); n = split($0, parts, ";")
            for (i = 1; i <= n; i++) { s = toupper(parts[i])
              if (s ~ /^[ 	]*NSW[ 	]*=/) { sub(/^[^=]*=[ 	]*/, "", s); split(s, v, " "); print "nsw=" v[1] }
-             if (s ~ /^[ 	]*IBRION[ 	]*=/) { sub(/^[^=]*=[ 	]*/, "", s); split(s, v, " "); print "ibrion=" v[1] } } }'
+             if (s ~ /^[ 	]*IBRION[ 	]*=/) { sub(/^[^=]*=[ 	]*/, "", s); split(s, v, " "); print "ibrion=" v[1] }
+             if (s ~ /^[ 	]*IMAGES[ 	]*=/) { sub(/^[^=]*=[ 	]*/, "", s); split(s, v, " "); print "images=" v[1] } } }'
     """#
     private static let vaspOszicarAwk = #"""
     awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[FT]=/ { ion = $1 }
@@ -273,6 +282,17 @@ enum AppDetectors {
             else
               echo "thermo_rows=$(grep -cv '^[[:space:]]*#' "$d/thermo.out")"; echo "mtime=$(stat -c %Y "$d/thermo.out" 2>/dev/null)"
             fi
+          elif [ -f "$d/INCAR" ] && [ -f "$d/01/OSZICAR" ] && grep -qiE '^[[:space:]]*IMAGES[[:space:]]*=[[:space:]]*[1-9]' "$d/INCAR"; then
+            printf '\(marker)DIR %s|%s\\n' "$id" "$d"; echo kind=vasp; echo neb=1
+            \(vaspIncarAwk) "$d/INCAR"
+            tail -n 3000 "$d/01/OSZICAR" | \(vaspOszicarAwk)
+            for s in "$d"/[0-9][0-9]; do
+              [ -f "$s/OUTCAR" ] && tail -n 25000 "$s/OUTCAR" | awk -v i="${s##*/}" '/energy  without entropy/ { e = $NF } /FORCES: max atom, RMS/ { f = $5 } END { print "nebimg=" i "|" e "|" f }'
+            done
+            if [ -f "$d/01/OUTCAR" ]; then
+              if tail -n 400 "$d/01/OUTCAR" | grep -q 'General timing and accounting'; then echo done=1; else echo done=0; fi
+            fi
+            echo "mtime=$(stat -c %Y "$d/01/OSZICAR" 2>/dev/null)"
           elif [ -f "$d/INCAR" ] && [ -f "$d/OSZICAR" ]; then
             printf '\(marker)DIR %s|%s\\n' "$id" "$d"; echo kind=vasp
             \(vaspIncarAwk) "$d/INCAR"
@@ -303,9 +323,10 @@ enum AppDetectors {
         var dir = ""
         var kv: [String: String] = [:]
         var tails: [String] = []
+        var nebImgs: [String] = []
 
         func flush() {
-            defer { kv = [:]; tails = [] }
+            defer { kv = [:]; tails = []; nebImgs = [] }
             guard let id, let kind = kv["kind"].flatMap(AppProgress.Kind.init(rawValue:)) else { return }
             var p = AppProgress(kind: kind, dir: dir)
             p.updatedAt = kv["mtime"].flatMap(Double.init).map { Date(timeIntervalSince1970: $0) }
@@ -351,6 +372,10 @@ enum AppDetectors {
             case .vasp:
                 guard let v = parseVasp(kv) else { return }
                 p.vaspMode = v.mode; p.current = v.current; p.total = v.total; p.hasTarget = v.total != nil
+                if v.mode == .neb {
+                    let n = parseNeb(nebImgs, images: kv["images"].flatMap(Int.init))
+                    p.nebBarrier = n.barrier; p.nebForce = n.force; p.nebImages = kv["images"].flatMap(Int.init)
+                }
             case .lammps:
                 guard let l = parseLammps(kv) else { return }
                 p.current = l.current; p.total = l.total
@@ -382,6 +407,8 @@ enum AppDetectors {
                 } else { id = nil }
             } else if line.hasPrefix("tail=") {
                 tails.append(String(line.dropFirst(5)))
+            } else if line.hasPrefix("nebimg=") {
+                nebImgs.append(String(line.dropFirst(7)))
             } else if let eq = line.firstIndex(of: "=") {
                 kv[String(line[..<eq])] = String(line[line.index(after: eq)...])
             }
@@ -392,6 +419,11 @@ enum AppDetectors {
     /// VASP：NSW ≤ 0 → 单点（电子步）；IBRION=0 → MD（离子步 / NSW）；IBRION=1/2/3 → 结构优化（只显示离子步）。
     /// 其它 IBRION（声子等）或写法看不懂时返回 nil。
     static func parseVasp(_ kv: [String: String]) -> (mode: AppProgress.VaspMode, current: Double, total: Double?)? {
+        // NEB：只显示离子步（01 像点的 OSZICAR），不按 NSW 算百分比（一般早于 NSW 收敛）
+        if kv["neb"] == "1" {
+            guard let i = kv["ionic"].flatMap(Int.init) else { return nil }
+            return (.neb, Double(i), nil)
+        }
         var nsw = 0, ibrion: Int?
         if let s = kv["nsw"] { guard let v = Int(s) else { return nil }; nsw = v }
         if let s = kv["ibrion"] { guard let v = Int(s) else { return nil }; ibrion = v }
@@ -410,6 +442,28 @@ enum AppDetectors {
         default:
             return nil
         }
+    }
+
+    /// NEB 各像点（`编号|能量|VTST 力`，来自每个像点 OUTCAR 的末尾）：
+    /// 能垒 = 除初态外最高的能量 − 初态（00）能量，和 VTST 的 nebef.pl 一样用 energy(sigma→0)；
+    /// 最大力 = 中间像点（1…IMAGES）里最大的 VTST `FORCES: max atom`。缺数据时对应的值为 nil。
+    static func parseNeb(_ lines: [String], images: Int?) -> (barrier: Double?, force: Double?) {
+        var energy: [Int: Double] = [:], force: [Int: Double] = [:]
+        for l in lines {
+            let f = l.components(separatedBy: "|")
+            guard f.count == 3, let i = Int(f[0]) else { continue }
+            if let e = Double(f[1]) { energy[i] = e }
+            if let v = Double(f[2]) { force[i] = v }
+        }
+        let last = images.map { $0 + 1 } ?? (energy.keys.max() ?? 0)
+        let isMiddle: (Int) -> Bool = { $0 >= 1 && $0 < last }
+        var barrier: Double?
+        if let e0 = energy[0] {
+            let others = energy.filter { $0.key > 0 }.map(\.value)
+            if let top = others.max() { barrier = top - e0 }
+        }
+        let fm = force.filter { isMiddle($0.key) }.map(\.value).max()
+        return (barrier, fm)
     }
 
     /// LAMMPS：当前步 = 最后一行的 Step − 这段 run 第一行的 Step，目标 = run 的步数。任何一处不对就返回 nil。
