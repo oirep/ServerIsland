@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en" data-lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ServerIsland Feature Tour</title>
+  <meta name="description" content="Everything ServerIsland can do: Slurm queues and job arrays, direct servers and GPUs, NEP / GPUMD / VASP / LAMMPS progress, custom rules, alerts, job details and safe cancelling.">
+  <script>
+    (function () {
+      var l = null;
+      try { l = localStorage.getItem("si-lang"); } catch (e) {}
+      if (l !== "zh" && l !== "en") {
+        var langs = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || ""];
+        l = /^zh/i.test(langs[0]) ? "zh" : "en";
+      }
+      document.documentElement.setAttribute("data-lang", l);
+      document.documentElement.setAttribute("lang", l === "zh" ? "zh-CN" : "en");
+    })();
+  </script>
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body data-title-zh="功能详解 — ServerIsland" data-title-en="Feature Tour — ServerIsland">
+
+<header class="nav">
+  <a class="brand" href="index.html">
+    <canvas class="tako" data-mood="idle" data-size="26" width="26" height="26" aria-hidden="true"></canvas>
+    <span>ServerIsland</span>
+  </a>
+  <nav class="nav-links">
+    <a href="index.html#features"><span lang="zh">功能</span><span lang="en">Features</span></a>
+    <a href="index.html#apps"><span lang="zh">计算软件</span><span lang="en">Software</span></a>
+    <a class="current" href="manual.html"><span lang="zh">使用手册</span><span lang="en">Guide</span></a>
+    <a href="index.html#opensource"><span lang="zh">开源</span><span lang="en">Open source</span></a>
+  </nav>
+  <div class="nav-right">
+    <a class="gh-link js-github" href="index.html#download" aria-label="GitHub"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><span>GitHub</span></a>
+    <button class="lang-toggle" type="button" aria-label="Switch language"><span lang="zh">EN</span><span lang="en">中文</span></button>
+    <a class="btn btn-small" href="manual.html#install"><span lang="zh">下载</span><span lang="en">Download</span></a>
+  </div>
+</header>
+
+<div class="doc-hero">
+  <canvas class="tako" data-mood="happy" data-size="64" width="64" height="64" aria-hidden="true"></canvas>
+  <div>
+    <h1><span lang="zh">功能详解</span><span lang="en">Feature Tour</span></h1>
+    <p><span lang="zh">ServerIsland 能为你做的每一件事，以及它是怎么做到的。</span><span lang="en">Everything ServerIsland does for you — and how it does it.</span></p>
+  </div>
+</div>
+<nav class="doc-tabs">
+  <a href="manual.html"><span lang="zh">上手指南</span><span lang="en">Getting started</span></a>
+  <a class="active" href="features.html"><span lang="zh">功能详解</span><span lang="en">Feature tour</span></a>
+</nav>
+
+<div class="docs">
+  <aside class="toc">
+    <b><span lang="zh">目录</span><span lang="en">Contents</span></b>
+    <a href="#overview"><span lang="zh">一览</span><span lang="en">Overview</span></a>
+    <a href="#slurm"><span lang="zh">Slurm / PBS 集群</span><span lang="en">Slurm &amp; PBS clusters</span></a>
+    <a href="#direct"><span lang="zh">直连服务器与 GPU</span><span lang="en">Direct servers &amp; GPUs</span></a>
+    <a href="#software"><span lang="zh">计算软件识别</span><span lang="en">Simulation software</span></a>
+    <a class="sub" href="#rules"><span lang="zh">自定义规则</span><span lang="en">Custom rules</span></a>
+    <a href="#alerts"><span lang="zh">提醒</span><span lang="en">Alerts</span></a>
+    <a href="#details"><span lang="zh">详情、日志、取消</span><span lang="en">Details &amp; cancel</span></a>
+    <a href="#control"><span lang="zh">每台服务器的设置</span><span lang="en">Per-server control</span></a>
+    <a href="#tako"><span lang="zh">Tako</span><span lang="en">Tako</span></a>
+    <a href="#platforms"><span lang="zh">三个平台</span><span lang="en">Platforms</span></a>
+    <a href="#principles"><span lang="zh">设计原则</span><span lang="en">Principles</span></a>
+  </aside>
+
+  <main class="doc">
+
+    <section id="overview">
+      <h2><span lang="zh">一览</span><span lang="en">At a glance</span></h2>
+      <div class="feat-grid">
+        <div class="feat"><b><span lang="zh">每台服务器一张卡片</span><span lang="en">One card per server</span></b><p><span lang="zh">运行 / 排队数量、CPU、内存、GPU、磁盘，空闲的机器自动合并成一行。</span><span lang="en">Running / pending counts, CPU, memory, GPUs and disks; idle servers fold into one line.</span></p></div>
+        <div class="feat"><b><span lang="zh">真实的计算进度</span><span lang="en">Real progress</span></b><p><span lang="zh">NEP、GPUMD、VASP、LAMMPS 自动识别，显示进度、速度、预计剩余时间和曲线。</span><span lang="en">NEP, GPUMD, VASP and LAMMPS are recognised automatically, with progress, speed, ETA and curves.</span></p></div>
+        <div class="feat"><b><span lang="zh">听得见的提醒</span><span lang="en">Alerts you can hear</span></b><p><span lang="zh">完成和失败不同的提示音；没有作业记录的集群也能判断是正常结束还是提前退出。</span><span lang="en">Different sounds for success and failure; it can tell a clean finish from an early exit even without job accounting.</span></p></div>
+        <div class="feat"><b><span lang="zh">安全，轻量</span><span lang="en">Safe and light</span></b><p><span lang="zh">服务器上什么都不装，每次刷新一个 SSH 通道；取消任务要三道确认；密码默认不保存。</span><span lang="en">Nothing installed on servers, one SSH channel per refresh, a three-step cancel, passwords not stored by default.</span></p></div>
+      </div>
+      <figure class="shot"><img data-shot="expanded" alt="Expanded panel with a Slurm cluster and a GPU workstation" loading="lazy"></figure>
+    </section>
+
+    <section id="slurm">
+      <h2><span lang="zh">Slurm / PBS 集群</span><span lang="en">Slurm &amp; PBS clusters</span></h2>
+      <ul>
+        <li><span lang="zh"><b>你的作业</b>：用 <code>squeue -u $USER</code> 读取，显示名称、作业号、已运行时间 / 时间上限、节点和分区。</span>
+            <span lang="en"><b>Your jobs</b>, read with <code>squeue -u $USER</code>: name, ID, elapsed / time limit, nodes and partition.</span></li>
+        <li><span lang="zh"><b>数组作业合并成一行</b>：几十上百个元素显示成一条分段进度条——绿色完成、红色失败、蓝色运行中、灰色排队，点开能看每个正在运行的元素。</span>
+            <span lang="en"><b>Job arrays in one row</b>: dozens or hundreds of elements become a single segmented bar — green done, red failed, blue running, grey pending — and you can open each running element.</span></li>
+        <li><span lang="zh"><b>排队原因说人话</b>：<code>Priority</code>、<code>AssocGrpBillingRunMinutes</code>、<code>DependencyNeverSatisfied</code> 这类原因翻译成一句话；永远不会开始、需要你动手的那种会标红。</span>
+            <span lang="en"><b>Pending reasons in plain words</b>: <code>Priority</code>, <code>AssocGrpBillingRunMinutes</code>, <code>DependencyNeverSatisfied</code> and friends become one sentence; the ones that will never start without your help are flagged in red.</span></li>
+        <li><span lang="zh"><b>分区空闲资源</b>：点卡片上的 ▦，按需查询各分区还有多少空闲的 CPU、GPU 和节点，帮你决定往哪儿投。</span>
+            <span lang="en"><b>Free resources per partition</b>: click ▦ on the card to see free CPUs, GPUs and nodes per partition, on demand — handy for deciding where to submit.</span></li>
+        <li><span lang="zh"><b>最近 24 小时</b>：有 <code>sacct</code> 时用服务器上的完整记录（数组元素合并成一条），没有时用 ServerIsland 自己观察到的记录。</span>
+            <span lang="en"><b>Last 24 hours</b>: the full record from <code>sacct</code> when available (array elements merged), otherwise what ServerIsland saw itself.</span></li>
+        <li><span lang="zh"><b>PBS 也一样</b>：PBS Pro、OpenPBS 和 Torque 用 <code>qselect</code> + <code>qstat -f</code> 读取，数组作业、排队原因（来自 comment）、结束状态（<code>qstat -x</code>）、按住取消（<code>qdel</code>）都有；分区空闲资源只有 Slurm 才有。</span>
+            <span lang="en"><b>PBS too</b>: PBS Pro, OpenPBS and Torque are read with <code>qselect</code> + <code>qstat -f</code> — arrays, pending reasons (from the comment), final states (<code>qstat -x</code>) and hold-to-cancel (<code>qdel</code>) all work; free partition resources are Slurm only.</span></li>
+        <li><span lang="zh"><b>只看某些目录</b>：每台服务器可以只显示工作目录在指定文件夹里的作业和进程，比如只看 <code>~/projects/LLZO</code>。</span>
+            <span lang="en"><b>Only some folders</b>: limit a server to jobs and processes whose working directory is inside given folders, e.g. just <code>~/projects/LLZO</code>.</span></li>
+        <li><span lang="zh"><b>单机 Slurm 工作站</b>：可以同时显示作业和直接运行的程序，属于作业的进程不会重复列出。</span>
+            <span lang="en"><b>Single-machine Slurm</b>: show jobs and directly started programs together; processes that belong to a job aren't listed twice.</span></li>
+      </ul>
+      <figure class="shot"><img data-shot="partitions" alt="Free resources per Slurm partition" loading="lazy"></figure>
+    </section>
+
+    <section id="direct">
+      <h2><span lang="zh">直连服务器与 GPU</span><span lang="en">Direct servers &amp; GPUs</span></h2>
+      <ul>
+        <li><span lang="zh"><b>进程</b>：列出你的计算进程（Python、torchrun、计算软件……），系统服务、桌面、编辑器后台这些自动排除；"包含 / 排除"规则可以自己改。占用 GPU 的进程总会显示。</span>
+            <span lang="en"><b>Processes</b>: your compute processes (Python, torchrun, simulation codes…), with system services, desktop and editor helpers filtered out — the include / exclude rules are editable. Anything using a GPU always shows.</span></li>
+        <li><span lang="zh"><b>GPU</b>：一两张卡时显示利用率、显存、温度；更多卡时每张一个小方块，显存快满时顶上一条琥珀色的线。</span>
+            <span lang="en"><b>GPUs</b>: utilisation, memory and temperature for one or two cards; with more, one small cell per GPU, with an amber line when its memory is nearly full.</span></li>
+        <li><span lang="zh"><b>监听进程</b>：点卡片上的 👁，从高负载进程里挑一个"监听"，或者在设置里输入 PID。监听的进程不受过滤规则影响，结束时一定提醒；PID 被别的进程复用时也能认出来。</span>
+            <span lang="en"><b>Watch a process</b>: pick one with 👁 on the card or enter a PID in Settings. Watched processes ignore the filters and always alert when they end — and PID reuse is detected.</span></li>
+        <li><span lang="zh"><b>磁盘</b>：用量超过阈值（默认 90%）时提醒一次，回落之后再超过才会再提醒。</span>
+            <span lang="en"><b>Disks</b>: one alert when usage passes the threshold (90% by default), and again only after it drops and rises again.</span></li>
+      </ul>
+    </section>
+
+    <section id="software">
+      <h2><span lang="zh">计算软件识别</span><span lang="en">Simulation software</span></h2>
+      <p><span lang="zh">在任务的工作目录里找特征文件，只读文件末尾或很小的文件，和任务列表在同一次刷新里完成。<b>任何一处和预期不一致，就不显示进度。</b></span>
+         <span lang="en">ServerIsland looks for telltale files in each job's working directory, reads only small files or file tails, and does it in the same refresh as the job list. <b>If anything doesn't match what it expects, it shows no progress at all.</b></span></p>
+      <table>
+        <tr><th><span lang="zh">软件</span><span lang="en">Software</span></th><th><span lang="zh">识别依据</span><span lang="en">Detected from</span></th><th><span lang="zh">显示</span><span lang="en">Shows</span></th></tr>
+        <tr><td>NEP / GNEP</td><td><code>loss.out</code> + <code>nep.in</code> / <code>gnep.in</code></td><td><span lang="zh">代数 / epoch、各项 loss、速度、预计剩余；详情页有 loss 曲线（对数坐标，增量读取）</span><span lang="en">generation / epoch, losses, speed, ETA; a log-scale loss curve, read incrementally</span></td></tr>
+        <tr><td>GPUMD</td><td><code>run.in</code> + <code>neighbor.out</code> / <code>thermo.out</code></td><td><span lang="zh">步数（目标是 run.in 里所有 run 之和）、速度、近邻数</span><span lang="en">steps (target = sum of all runs in run.in), speed, neighbour counts</span></td></tr>
+        <tr><td>VASP</td><td><code>INCAR</code> + <code>OSZICAR</code> + <code>OUTCAR</code></td><td><span lang="zh">MD：离子步 / NSW 的百分比；结构优化：离子步，以及并排的能量曲线和最大力曲线（读 OUTCAR，虚线是 EDIFFG 目标）；单点：电子步。OUTCAR 里出现计时信息算正常结束</span><span lang="en">MD: ionic steps as a share of NSW; relaxation: ionic steps plus side-by-side energy and max-force curves (from OUTCAR, with the EDIFFG target as a dashed line); SCF: electronic steps. The timing block in OUTCAR marks a clean finish</span></td></tr>
+        <tr><td>LAMMPS</td><td><code>log.lammps</code></td><td><span lang="zh">最后一段 <code>run</code> 的步数和速度；出现 <code>Total wall time</code> 算正常结束。minimize 等少见写法不显示</span><span lang="en">steps and speed of the last <code>run</code>; <code>Total wall time</code> marks a clean finish. minimize and other unusual setups are skipped</span></td></tr>
+      </table>
+      <p><span lang="zh">进度长时间没有变化（超过 10 分钟或 5 个刷新周期）时，任务行上会提示"⚠ 没有新输出"，方便发现卡住的任务。任务结束时会再读一次输出文件的最终状态，避免"最后一次采样还没到目标"被误判为失败。</span>
+         <span lang="en">If the output hasn't changed for a while (10 minutes or five refreshes), the row warns "⚠ no output" so stuck runs stand out. When a job ends, the output is read once more so a run that finished between two refreshes isn't reported as failed.</span></p>
+      <figure class="shot"><img data-shot="detail-nep" alt="NEP training detail with loss curve" loading="lazy"></figure>
+
+      <h3 id="rules"><span lang="zh">自定义规则</span><span lang="en">Custom rules</span></h3>
+      <p><span lang="zh">你自己的程序也能显示进度：在 设置 → 进度识别 里添加规则，填一个文件名（可以用 <code>*</code> 通配，取最新的一个）和一个关键字或正则。比如关键字 <code>epoch</code> 能匹配 "Epoch 37/100"、"epoch: 37"；写成 37/100 时会顺便取到目标值。目标值也可以写死，或者从另一个文件里读（比如配置文件里的 <code>max_epochs</code>）。再填一个"结束标记"，进程结束时就能判断是正常完成还是提前退出。</span>
+         <span lang="en">Make your own code show progress: add a rule under Settings → Progress Detection with a file name (wildcards allowed — the newest match is used) and a keyword or regex. The keyword <code>epoch</code> matches "Epoch 37/100" or "epoch: 37", and the "/100" form also gives the target. The target can also be fixed or read from another file (say <code>max_epochs</code> in a config). Add an end marker and ServerIsland can tell a clean finish from an early exit.</span></p>
+      <p><span lang="zh">规则编辑页有"测试"按钮：选一台服务器和一个任务目录，只读地跑一次，告诉你取到了什么，没取到时显示文件最后几行。</span>
+         <span lang="en">The rule editor has a Test button: pick a server and a job directory, and it runs once, read-only, showing what it found — or the last lines of the file when it found nothing.</span></p>
+      <figure class="shot narrow"><img data-shot="settings-rule-editor" alt="Custom rule editor" loading="lazy"></figure>
+      <p><span lang="zh">脚本也可以主动上报：往 <code>~/.serverisland/progress/名称.json</code> 写一行 JSON（<code>progress</code> 或 <code>current</code> / <code>total</code>、<code>message</code>、<code>jobid</code>、<code>status</code>），带 <code>jobid</code> 的会合并到对应作业上。</span>
+         <span lang="en">Scripts can also report directly by writing one line of JSON to <code>~/.serverisland/progress/name.json</code> (<code>progress</code> or <code>current</code> / <code>total</code>, <code>message</code>, <code>jobid</code>, <code>status</code>); entries with a <code>jobid</code> are merged into that job.</span></p>
+    </section>
+
+    <section id="alerts">
+      <h2><span lang="zh">提醒</span><span lang="en">Alerts</span></h2>
+      <div class="feat-grid">
+        <div class="feat"><b><span lang="zh">完成 / 失败 / 开始运行</span><span lang="en">Finished / failed / started</span></b><p><span lang="zh">弹窗显示 5 秒，带服务器名、用时、退出状态。同一次刷新里事件太多时合并成一条。</span><span lang="en">A five-second pop-up with the server, duration and exit state. Bursts in one refresh are merged into one.</span></p></div>
+        <div class="feat"><b><span lang="zh">不靠猜</span><span lang="en">No guessing</span></b><p><span lang="zh">先问 <code>sacct</code>；没有作业记录就看计算软件的输出；都没有就只说"已离开队列"。</span><span lang="en"><code>sacct</code> first; without accounting, the software's own output; otherwise just "left the queue".</span></p></div>
+        <div class="feat"><b><span lang="zh">数组作业</span><span lang="en">Job arrays</span></b><p><span lang="zh">全部结束时汇总一次（成功几个、失败几个）；可选第一个元素失败时立即提醒。</span><span lang="en">One summary when the whole array ends (how many succeeded / failed); optionally an early alert on the first failure.</span></p></div>
+        <div class="feat"><b><span lang="zh">安静的时候</span><span lang="en">Quiet when you want</span></b><p><span lang="zh">每台服务器可以静音；短于 30 秒的进程不打扰；提示音可以调音量或关掉。</span><span lang="en">Mute per server; processes shorter than 30 s never alert; sounds have a volume and an off switch.</span></p></div>
+      </div>
+      <figure class="shot"><img data-shot="toast-failed" alt="Failed alert" loading="lazy"></figure>
+    </section>
+
+    <section id="details">
+      <h2><span lang="zh">详情、日志、取消</span><span lang="en">Details, logs &amp; cancelling</span></h2>
+      <ul>
+        <li><span lang="zh"><b>详情</b>：Slurm 作业来自 <code>scontrol</code>（结束太久的用 <code>sacct</code>），进程来自 <code>/proc</code>：状态、时间、节点、资源、工作目录、完整命令。</span>
+            <span lang="en"><b>Details</b> from <code>scontrol</code> (or <code>sacct</code> for long-finished jobs) and <code>/proc</code>: state, times, nodes, resources, working directory, full command.</span></li>
+        <li><span lang="zh"><b>日志末尾</b>：自动找到作业的 StdOut / StdErr，或进程输出重定向到的文件，每 4 秒刷新最后 40 行；报错行标红，警告标黄。输出直接打到终端（tmux / screen）时会告诉你为什么读不到。</span>
+            <span lang="en"><b>Log tail</b>: finds the job's StdOut / StdErr or the file a process writes to and refreshes the last 40 lines every 4 s, with errors in red and warnings in amber. If output goes to a terminal (tmux / screen), it tells you why there's nothing to read.</span></li>
+        <li><span lang="zh"><b>一键复制</b>：作业号、路径、完整命令，以及一条可以在终端里实时看日志的 <code>ssh … tail -f</code> 命令；还可以直接在终端里 ssh 到工作目录。</span>
+            <span lang="en"><b>One-click copies</b> of IDs, paths, full commands and a ready <code>ssh … tail -f</code> command — or open a terminal straight into the working directory.</span></li>
+        <li><span lang="zh"><b>取消</b>：默认关闭，按服务器开启；按住 1.5 秒 → 再确认一次（写明要执行的命令）→ 服务器上核对任务名称、所有者和启动时间，对不上就不执行。进程先发 TERM，没退出可以再强制结束。</span>
+            <span lang="en"><b>Cancel</b>: off by default, enabled per server; hold 1.5 s → confirm (the exact command is shown) → the server re-checks name, owner and start time and refuses on any mismatch. Processes get TERM first, with a force-kill if they don't exit.</span></li>
+      </ul>
+      <figure class="shot"><img data-shot="detail-vasp" alt="VASP relaxation detail with energy curve" loading="lazy"></figure>
+    </section>
+
+    <section id="control">
+      <h2><span lang="zh">每台服务器的设置</span><span lang="en">Per-server control</span></h2>
+      <table>
+        <tr><th><span lang="zh">设置</span><span lang="en">Setting</span></th><th><span lang="zh">用途</span><span lang="en">What for</span></th></tr>
+        <tr><td><span lang="zh">连接方式</span><span lang="en">Connection</span></td><td><span lang="zh">用 <code>~/.ssh/config</code> 里的别名，或直接填地址、用户名、端口、私钥文件；不会改动 <code>~/.ssh/config</code></span><span lang="en">An alias from <code>~/.ssh/config</code>, or type the address, user, port and key file; <code>~/.ssh/config</code> is never modified</span></td></tr>
+        <tr><td><span lang="zh">认证方式</span><span lang="en">Authentication</span></td><td><span lang="zh">密钥、密码、密钥 + 密码、动态口令；需要登录的机器点"登录…"后连接在后台保持（8 小时到一直保持）</span><span lang="en">Key, password, key + password or one-time code; servers that need a login stay connected in the background after "Log In…" (8 hours to forever)</span></td></tr>
+        <tr><td><span lang="zh">记住密码</span><span lang="en">Remember password</span></td><td><span lang="zh">默认关。打开后密码只存进系统钥匙串 / Windows 凭据管理器 / Linux 钥匙圈，断线后自动重新登录；动态口令从不保存</span><span lang="en">Off by default. When on, the password lives only in the macOS Keychain / Windows Credential Manager / Linux keyring and is used to reconnect automatically; one-time codes are never stored</span></td></tr>
+        <tr><td><span lang="zh">跳板机</span><span lang="en">Jump host</span></td><td><span lang="zh">选另一台已添加的服务器做跳板，可以多级；每一跳分别询问密码、分别报错，跳板机已登录时直接复用它的连接</span><span lang="en">Go through another server you've added, even several in a row; each hop asks and reports errors separately, and a logged-in jump host's connection is reused</span></td></tr>
+        <tr><td><span lang="zh">轮询间隔 / 暂停</span><span lang="en">Interval / pause</span></td><td><span lang="zh">10 秒到 1 小时，或跟随全局；知道没任务时可以暂停，仍可手动刷新</span><span lang="en">10 s to 1 h or the global value; pause when you know nothing's running — manual refresh still works</span></td></tr>
+        <tr><td><span lang="zh">连接后先执行</span><span lang="en">Run first</span></td><td><span lang="zh">每次查询前先执行，比如 <code>module load slurm</code>、<code>source env.sh</code></span><span lang="en">Runs before every query — <code>module load slurm</code>, <code>source env.sh</code>…</span></td></tr>
+        <tr><td><span lang="zh">补全 PATH</span><span lang="en">Import PATH</span></td><td><span lang="zh">把 <code>~/.bashrc</code> 等文件里的 PATH 目录补上，装在家目录下的 Slurm / 软件也能找到</span><span lang="en">Adds PATH entries from <code>~/.bashrc</code> and friends, so tools installed in your home directory are found</span></td></tr>
+        <tr><td><span lang="zh">显示内容</span><span lang="en">What to show</span></td><td><span lang="zh">CPU、内存、GPU、磁盘、进度文件可以分别关掉</span><span lang="en">Turn CPU, memory, GPU, disk and progress files on or off</span></td></tr>
+        <tr><td><span lang="zh">远程命令</span><span lang="en">Remote commands</span></td><td><span lang="zh">squeue、sacct、ps、nvidia-smi、df 的写法都能改，每条都能恢复默认</span><span lang="en">Every squeue / sacct / ps / nvidia-smi / df command is editable, with a reset</span></td></tr>
+        <tr><td><span lang="zh">诊断</span><span lang="en">Diagnostics</span></td><td><span lang="zh">自动检测类型、检查命令在不在、测试连接并查看服务器的原始输出</span><span lang="en">Detect the type, check which commands exist, test the connection and see the raw output</span></td></tr>
+      </table>
+    </section>
+
+    <section id="tako">
+      <h2>Tako</h2>
+      <p><span lang="zh">刘海里的像素小章鱼，心情跟着服务器走：</span><span lang="en">The pixel octopus in the notch mirrors your servers:</span></p>
+      <div class="moods">
+        <figure><canvas class="tako" data-mood="idle" data-size="48" width="48" height="48"></canvas><figcaption><span lang="zh">空闲，偶尔眨眼</span><span lang="en">idle, blinks</span></figcaption></figure>
+        <figure><canvas class="tako" data-mood="working" data-size="48" width="48" height="48"></canvas><figcaption><span lang="zh">有任务在跑</span><span lang="en">jobs running</span></figcaption></figure>
+        <figure><canvas class="tako" data-mood="waiting" data-size="48" width="48" height="48"></canvas><figcaption><span lang="zh">只有排队</span><span lang="en">only pending</span></figcaption></figure>
+        <figure><canvas class="tako" data-mood="happy" data-size="48" width="48" height="48"></canvas><figcaption><span lang="zh">刚完成</span><span lang="en">just finished</span></figcaption></figure>
+        <figure><canvas class="tako" data-mood="sad" data-size="48" width="48" height="48"></canvas><figcaption><span lang="zh">出错了</span><span lang="en">something failed</span></figcaption></figure>
+      </div>
+    </section>
+
+    <section id="platforms">
+      <h2><span lang="zh">三个平台</span><span lang="en">Three platforms</span></h2>
+      <table>
+        <tr><th></th><th>macOS</th><th>Windows</th><th>Linux</th></tr>
+        <tr><td><span lang="zh">显示</span><span lang="en">Display</span></td><td><span lang="zh">贴着刘海的灵动岛</span><span lang="en">Island around the notch</span></td><td colspan="2"><span lang="zh">屏幕顶部的灵动岛，或桌面小章鱼（可拖动）；托盘图标</span><span lang="en">Island at the top of the screen or a draggable desktop pet; tray icon</span></td></tr>
+        <tr><td>SSH</td><td><span lang="zh">系统 ssh，复用连接</span><span lang="en">System ssh, shared connection</span></td><td><span lang="zh">内置 SSH（读取 .ssh\config 和 known_hosts），也可以改用系统 ssh</span><span lang="en">Built-in SSH (reads .ssh\config and known_hosts), or the system ssh</span></td><td><span lang="zh">系统 ssh，复用连接</span><span lang="en">System ssh, shared connection</span></td></tr>
+        <tr><td><span lang="zh">提醒</span><span lang="en">Alerts</span></td><td><span lang="zh">弹窗、提示音、系统通知</span><span lang="en">Pop-up, sounds, notifications</span></td><td><span lang="zh">弹窗、提示音</span><span lang="en">Pop-up, sounds</span></td><td><span lang="zh">弹窗、提示音、系统通知</span><span lang="en">Pop-up, sounds, notifications</span></td></tr>
+        <tr><td><span lang="zh">配置</span><span lang="en">Settings file</span></td><td colspan="3"><span lang="zh">同一种格式，可以互相拷贝</span><span lang="en">Same format everywhere — copy it across</span></td></tr>
+      </table>
+      <figure class="shot narrow"><img data-shot="cross-pet" alt="Desktop pet mode on Windows / Linux" loading="lazy"></figure>
+    </section>
+
+    <section id="principles">
+      <h2><span lang="zh">设计原则</span><span lang="en">Principles</span></h2>
+      <div class="feat-grid">
+        <div class="feat"><b><span lang="zh">服务器上什么都不装</span><span lang="en">Nothing on the server</span></b><p><span lang="zh">每次刷新把一小段只读的 bash 脚本通过 SSH 发过去，读完结果就结束。</span><span lang="en">Each refresh sends a short, read-only bash script over SSH and reads the answer. That's all.</span></p></div>
+        <div class="feat"><b><span lang="zh">轻</span><span lang="en">Light</span></b><p><span lang="zh">每台服务器每次刷新一个 SSH 通道、一次 squeue；只读小文件和文件末尾；出错时自动退避，不触发封禁。</span><span lang="en">One SSH channel and one squeue per server per refresh; only small files and tails; automatic back-off so it never trips fail2ban.</span></p></div>
+        <div class="feat"><b><span lang="zh">不误报</span><span lang="en">No false alarms</span></b><p><span lang="zh">拿不准就不说：识别对不上不显示进度，结果不明就说"不确定"。</span><span lang="en">When unsure, it says so: no progress for unrecognised output, "unknown" when the result is unknown.</span></p></div>
+        <div class="feat"><b><span lang="zh">只在你的电脑上</span><span lang="en">Stays on your computer</span></b><p><span lang="zh">没有账号、没有云端、不收集任何数据；密码默认不保存，要记住时也只放在系统钥匙串里。开源（GPL-3.0）。</span><span lang="en">No account, no cloud, no telemetry; passwords aren't stored unless you ask, and then only in your system keychain. Open source (GPL-3.0).</span></p></div>
+      </div>
+      <div class="doc-next">
+        <a href="manual.html"><span lang="zh">← 上手指南</span><span lang="en">← Getting started</span></a>
+        <a href="manual.html#install"><span lang="zh">下载 ServerIsland →</span><span lang="en">Download ServerIsland →</span></a>
+      </div>
+    </section>
+  </main>
+</div>
+
+<footer class="footer">
+  <canvas class="tako" data-mood="idle" data-size="20" width="20" height="20"></canvas>
+  <span>© 2026 Zihan Yan</span>
+  <a class="muted js-github" href="index.html">GitHub</a>
+  <span class="site-stats">
+    <span id="busuanzi_container_site_pv"><span lang="zh">访问量</span><span lang="en">Views</span> <span id="busuanzi_value_site_pv"></span></span>
+    <span id="busuanzi_container_site_uv"><span class="sep">·</span><span lang="zh">访客</span><span lang="en">Visitors</span> <span id="busuanzi_value_site_uv"></span></span>
+  </span>
+</footer>
+
+<script src="js/config.js"></script>
+<script src="js/tako.js"></script>
+<script src="js/main.js"></script>
+<script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+</body>
+</html>

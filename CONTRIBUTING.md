@@ -16,9 +16,22 @@ Only the Xcode Command Line Tools are required (macOS 14+, Swift 5.10):
 
 ```bash
 swift build && .build/debug/ServerIsland --selftest          # all self-tests must pass
+./scripts/build_app.sh --run                                 # build the app from source and launch it
 .build/debug/ServerIsland --render-preview ./preview en      # look at every UI state after UI changes
 open build/ServerIsland.app --args --demo                    # demo mode, no servers needed
 ```
+
+**Windows / Linux version** (`cross/`, C# + Avalonia, needs the .NET 10 SDK):
+
+```bash
+cd cross/src/ServerIsland.Desktop
+dotnet run -- --selftest                 # all self-tests must pass
+dotnet run -- --render-preview ./preview en
+dotnet run -- --ui-smoke ./smoke         # walks through the real windows and saves screenshots
+```
+
+The Mac app (Swift) and the Windows / Linux app (C#) share the remote scripts, config format and UI style. A change to the remote scripts or parsing must be made in both — see [`references/cross-platform.md`](references/cross-platform.md) and [`references/design-guide.md`](references/design-guide.md).
+Mac 版（Swift）和 Windows / Linux 版（C#）共用远端脚本、配置格式和界面风格；改远端脚本或解析逻辑时两边都要改。
 
 Read [`AGENTS.md`](AGENTS.md) first (in Chinese) — it lists the project layout and the rules learned the hard way. A few that matter most:
 
@@ -38,7 +51,7 @@ ServerIsland 使用 GPL-3.0 许可证。提交 Pull Request 即表示你同意�
 
 ## Reporting bugs / 报告问题
 
-Please include your macOS version, the server type (Slurm / direct) and, if possible, the output of
+Please include your OS version (macOS / Windows / Linux), the server type (Slurm / direct) and, if possible, the output of
 `/Applications/ServerIsland.app/Contents/MacOS/ServerIsland --diagnose <ssh-alias> slurm+` (**remove hostnames, usernames and paths before posting**) and the relevant part of `~/Library/Logs/ServerIsland/serverisland.log`.
 
 请附上 macOS 版本、服务器类型，以及 `--diagnose` 的输出和日志相关部分（**贴出来之前删掉主机名、用户名和路径**）。

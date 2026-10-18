@@ -1,6 +1,6 @@
 // 部署前只需要改这里。
 window.SI_CONFIG = {
-  version: "0.1.0",
+  version: "0.2.0",
   // GitHub 仓库地址，例如 "https://github.com/<用户名>/serverisland"。
   // 填好后：GitHub 链接、Issues、下载按钮（指向 Releases 最新版）都会自动生效。
   repo: "https://github.com/zhyan0603/ServerIsland",

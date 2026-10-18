@@ -8,6 +8,8 @@
   &nbsp;·&nbsp;
   <a href="https://zhyan0603.github.io/ServerIsland/">Website</a>
   &nbsp;·&nbsp;
+  <a href="https://zhyan0603.github.io/ServerIsland/manual.html">Guide</a>
+  &nbsp;·&nbsp;
   <a href="https://github.com/zhyan0603/ServerIsland/releases/latest">Download</a>
   &nbsp;·&nbsp;
   <a href="./CONTRIBUTING.md">Contributing</a>
@@ -16,12 +18,14 @@
   <a href="https://github.com/zhyan0603/ServerIsland/releases"><img src="https://img.shields.io/github/v/release/zhyan0603/ServerIsland?label=Version&style=flat-square&color=brightgreen" alt="Version"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-blue?style=flat-square" alt="License"></a>
   <a href="https://github.com/zhyan0603/ServerIsland/releases/latest"><img src="https://img.shields.io/badge/macOS-14%2B-black?style=flat-square&logo=apple" alt="macOS 14+"></a>
+  <a href="https://github.com/zhyan0603/ServerIsland/releases/latest"><img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?style=flat-square" alt="Windows 10 / 11"></a>
+  <a href="https://github.com/zhyan0603/ServerIsland/releases/latest"><img src="https://img.shields.io/badge/Linux-x64-FCC624?style=flat-square&logo=linux&logoColor=black" alt="Linux x64"></a>
   <a href="https://github.com/zhyan0603/ServerIsland/releases"><img src="https://img.shields.io/github/downloads/zhyan0603/ServerIsland/total?style=flat-square&color=red&label=Downloads" alt="Downloads"></a>
   <a href="https://github.com/zhyan0603/ServerIsland/stargazers"><img src="https://img.shields.io/github/stars/zhyan0603/ServerIsland?style=flat-square&color=yellow&label=Stars" alt="Stars"></a>
   <a href="https://github.com/zhyan0603/ServerIsland/graphs/contributors"><img src="https://img.shields.io/github/contributors/zhyan0603/ServerIsland?style=flat-square&color=brightgreen&label=Contributors" alt="Contributors"></a>
 </p>
 
-<p style="text-align: justify;"><strong>ServerIsland</strong> puts your remote computations in the MacBook notch. It watches Slurm clusters and plain Linux servers over SSH and shows your jobs, GPUs and the <em>live progress</em> of VASP, LAMMPS, GPUMD and NEP runs in a Dynamic-Island-style panel — with nothing installed on the server. It is built for people who spend their days in computational materials science, chemistry and physics, and are tired of typing <code>squeue</code> and <code>tail -f</code> every twenty minutes.</p>
+<p style="text-align: justify;"><strong>ServerIsland</strong> puts your remote computations in the MacBook notch — and, on Windows and Linux, at the top of your screen or on your desktop. It watches Slurm and PBS clusters and plain Linux servers over SSH and shows your jobs, GPUs and the <em>live progress</em> of VASP, LAMMPS, GPUMD and NEP runs in a Dynamic-Island-style panel — with nothing installed on the server. It is built for people who spend their days in computational materials science, chemistry and physics, and are tired of typing <code>squeue</code> and <code>tail -f</code> every twenty minutes.</p>
 
 <p align="center">
   <img src="./docs/demo-en.gif" width="720" alt="ServerIsland demo: the collapsed notch, a 'NEP training finished' alert, then the expanded panel">
@@ -30,12 +34,14 @@
 ## Features
 
 - **Every Server at a Glance**: Hover the notch to see one card per server — running / pending counts, CPU, memory and GPUs. Idle servers fold into a single line.
-- **Real Progress, Not Just "RUNNING"**: Detects NEP, GPUMD, VASP and LAMMPS from the job's working directory and shows progress, speed and ETA, plus loss and energy curves.
-- **Slurm Done Right**: Job arrays as one segmented bar, pending reasons in plain words, free CPUs / GPUs per partition, and 24-hour history.
+- **Real Progress, Not Just "RUNNING"**: Detects NEP, GPUMD, VASP and LAMMPS from the job's working directory and shows progress, speed and ETA, plus loss curves and, for VASP relaxations, energy and max-force curves.
+- **Slurm and PBS Done Right**: Job arrays as one segmented bar, pending reasons in plain words, free CPUs / GPUs per Slurm partition, and 24-hour history. PBS Pro, OpenPBS and Torque work too.
+- **Only What You Care About**: Limit a server to jobs and processes under certain folders, e.g. `~/projects/LLZO`.
 - **Alerts You Can Hear**: A notch pop-up with distinct sounds for success and failure — it can tell a clean finish from an early exit even without Slurm accounting.
 - **Your Own Programs, Too**: Write a custom rule (a file name + a keyword or regex) and test it against a real directory right from Settings.
-- **Zero Footprint**: No agent, no daemon, no root. One SSH channel per server per poll, reusing a single connection; your `~/.ssh/config` just works.
-- **Safe by Default**: Cancelling is off unless enabled per server, and then needs a long press, a confirmation and a server-side re-check. Password / OTP logins go through a native dialog and are never stored.
+- **Zero Footprint**: No agent, no daemon, no root. One SSH channel per server per poll, reusing a single connection; your `~/.ssh/config` just works — or type the address, user, port and key into Settings if you never wrote one.
+- **Any Login**: Key, password, key + password, or one-time codes, optionally through one or more jump hosts — each hop asks and reports errors on its own.
+- **Safe by Default**: Cancelling is off unless enabled per server, and then needs a long press, a confirmation and a server-side re-check. Passwords and one-time codes are typed into a native dialog and not stored by default; tick “Remember” to keep a password in the system keychain (one-time codes are never stored).
 - **Tako**: A pixel octopus lives in the notch — busy while jobs run, happy when they finish, red when something breaks.
 
 ## Supported Software
@@ -52,41 +58,29 @@ Detection only reads file tails. If anything doesn't look as expected, ServerIsl
 
 ## Installation
 
-### Download (Recommended)
+Download the package for your platform from **[Releases](https://github.com/zhyan0603/ServerIsland/releases/latest)**. No account, no extra runtime, and nothing to install on your servers.
 
-Download the DMG from [Releases](https://github.com/zhyan0603/ServerIsland/releases/latest) and drag **ServerIsland** into Applications. Requires macOS 14 or later (Apple silicon and Intel).
+| Platform | Download | Requirements |
+|---|---|---|
+| **macOS** | `ServerIsland-x.y.z.dmg` | macOS 14+, Apple silicon or Intel |
+| **Windows** | `ServerIsland-x.y.z-win-x64.zip` | Windows 10 / 11, 64-bit |
+| **Linux** | `ServerIsland-x.y.z-linux-x64.tar.gz` | x64, X11 or XWayland, a system tray |
 
-ServerIsland is not notarized by Apple, so macOS blocks the first launch once:
+- **macOS**: open the DMG and drag **ServerIsland** into Applications. It isn't notarized by Apple, so the first launch is blocked once: on macOS 15+, open it, then click **Open Anyway** in *System Settings → Privacy & Security*; on macOS 14, Control-click the app and choose **Open**.
+- **Windows**: unzip anywhere and double-click `ServerIsland.exe`. If you see "Windows protected your PC", click **More info → Run anyway**.
+- **Linux**: `tar xzf ServerIsland-*.tar.gz && ./ServerIsland`. On GNOME, install the AppIndicator extension so the tray icon shows up.
 
-- **macOS 15 and later**: open the app, then go to *System Settings → Privacy & Security* and click **Open Anyway**.
-- **macOS 14**: Control-click the app and choose **Open**.
-- Or run:
-
-  ```bash
-  xattr -dr com.apple.quarantine /Applications/ServerIsland.app
-  ```
-
-### From Source
-
-Only the Xcode Command Line Tools are needed:
-
-```bash
-git clone https://github.com/zhyan0603/ServerIsland.git
-cd ServerIsland
-./scripts/build_app.sh --run
-```
+On Windows and Linux there's no notch: ServerIsland hangs from the top center of the screen, or lives on your desktop as Tako the pet (*Settings → General → Display Style*), with a tray icon either way.
 
 ## Usage
 
 1. On first launch, the settings window opens. Click **Add Server** and pick hosts from your `~/.ssh/config`.
-2. Choose **Slurm** or **Direct** for each server (or let ServerIsland detect it).
-3. That's it — hover the notch.
+2. Choose **Slurm**, **PBS** or **Direct** for each server (or let ServerIsland detect it).
+3. That's it — hover the notch (or the island / Tako on Windows and Linux).
 
-Want to look around first? Start the demo with fake servers:
+Want to look around first? Start the demo with fake servers: `open /Applications/ServerIsland.app --args --demo` on macOS, `ServerIsland.exe --demo` on Windows, `./ServerIsland --demo` on Linux.
 
-```bash
-open /Applications/ServerIsland.app --args --demo
-```
+The **[User Guide](https://zhyan0603.github.io/ServerIsland/manual.html)** covers logins with passwords / one-time codes, alerts, custom progress rules and troubleshooting; the **[Feature Tour](https://zhyan0603.github.io/ServerIsland/features.html)** explains everything ServerIsland does.
 
 <details>
 <summary><b>Report progress from your own scripts</b></summary>
@@ -114,7 +108,7 @@ si-progress train done
   </picture>
 </p>
 
-ServerIsland uses the system `/usr/bin/ssh` with `BatchMode=yes`, so it never hangs on a password prompt in the background, and backs off exponentially on errors so it never trips fail2ban. Slurm sees one `squeue -u $USER` per poll and a single `sacct` when a job leaves the queue. Everything stays on your Mac — no account, no cloud, no telemetry.
+On macOS and Linux, ServerIsland uses the system `ssh` with a shared connection and `BatchMode=yes`; on Windows it keeps one connection per server with a built-in SSH client that reads your `~/.ssh/config` and `known_hosts`. Either way it never hangs on a password prompt in the background, and it backs off exponentially on errors so it never trips fail2ban. Slurm sees one `squeue -u $USER` per poll and a single `sacct` when a job leaves the queue. Everything stays on your computer — no account, no cloud, no telemetry.
 
 ## Screenshots
 
@@ -152,7 +146,9 @@ ServerIsland uses the system `/usr/bin/ssh` with `BatchMode=yes`, so it never ha
 
 - [x] Slurm, direct servers, GPUs, job arrays, pending reasons, partitions
 - [x] NEP / GNEP, GPUMD, VASP and LAMMPS detection, custom rules
-- [x] Loss / energy curves in job details
+- [x] Loss / energy / max-force curves in job details
+- [x] PBS (PBS Pro / OpenPBS / Torque), folder filters, log retention
+- [x] Windows and Linux versions
 - [ ] More packages: CP2K, Quantum ESPRESSO, ABACUS, Gaussian, ORCA
 - [ ] PBS / Torque and LSF
 - [ ] Display selection on multi-monitor setups
@@ -160,7 +156,7 @@ ServerIsland uses the system `/usr/bin/ssh` with `BatchMode=yes`, so it never ha
 
 ## Contributing
 
-Bug reports, ideas and pull requests are welcome, in English or Chinese — see [CONTRIBUTING.md](./CONTRIBUTING.md). The developer docs ([`AGENTS.md`](./AGENTS.md), [`references/`](./references/)) cover the architecture, the remote script protocol and how to add a new simulation package. If ServerIsland saves you a few `ssh` round-trips a day, a ⭐ helps others find it.
+Bug reports, ideas and pull requests are welcome, in English or Chinese — see [CONTRIBUTING.md](./CONTRIBUTING.md), which also explains how to build from source. The developer docs ([`AGENTS.md`](./AGENTS.md), [`references/`](./references/)) cover the architecture, the remote script protocol and how to add a new simulation package. If ServerIsland saves you a few `ssh` round-trips a day, a ⭐ helps others find it.
 
 ## Contact
 

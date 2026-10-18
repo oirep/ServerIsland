@@ -99,8 +99,14 @@ struct SettingsView: View {
                                                          }
                                                      }),
                                        engine: engine,
-                                       globalInterval: store.settings.defaultInterval) {
+                                       globalInterval: store.settings.defaultInterval,
+                                       allHosts: store.settings.hosts) {
                             store.settings.hosts.removeAll { $0.id == id }
+                            // 以它为跳板机的服务器改回直连；记住的密码一并删除。
+                            for i in store.settings.hosts.indices where store.settings.hosts[i].jumpHostID == id {
+                                store.settings.hosts[i].jumpHostID = nil
+                            }
+                            Keychain.delete(id)
                             selection = .general
                         }
                         .id(id)
@@ -117,7 +123,7 @@ struct SettingsView: View {
             .toolbarBackground(.visible, for: .windowToolbar)
         }
         .sheet(isPresented: $showingAdd) {
-            AddHostSheet(existing: Set(store.settings.hosts.map(\.alias))) { newHosts in
+            AddHostSheet(existing: store.settings.hosts) { newHosts in
                 store.settings.hosts.append(contentsOf: newHosts)
                 if let first = newHosts.first { selection = .host(first.id) }
             }
@@ -157,12 +163,12 @@ struct HostSidebarRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: host.kind == .slurm ? "square.stack.3d.up.fill" : "server.rack")
+            Image(systemName: host.kind.isScheduler ? "square.stack.3d.up.fill" : "server.rack")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 26, height: 26)
                 .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill((host.kind == .slurm ? Color.purple : Color.teal).gradient))
+                    .fill((host.kind == .slurm ? Color.purple : host.kind == .pbs ? Color.indigo : Color.teal).gradient))
                 .overlay(alignment: .bottomTrailing) {
                     Circle()
                         .fill(host.enabled ? Theme.color(for: snap?.health ?? .unknown) : Color.gray)
@@ -207,6 +213,8 @@ enum AppLinks {
 struct GeneralSettingsView: View {
     @ObservedObject var store: ConfigStore
     @ObservedObject var engine: MonitorEngine
+    @State private var confirmClearLog = false
+    @State private var logCleared = false
 
     var body: some View {
         Form {
@@ -337,12 +345,31 @@ struct GeneralSettingsView: View {
                     Text(DebugLog.url.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
                         .font(.system(.callout, design: .monospaced)).textSelection(.enabled)
                 }
+                Picker(selection: $store.settings.logRetentionDays) {
+                    ForEach([1, 3, 7, 14, 30, 0], id: \.self) { d in
+                        Text(d == 0 ? L("永久保留", "Forever") : L("\(d) 天", d == 1 ? "1 day" : "\(d) days")).tag(d)
+                    }
+                } label: {
+                    HelpLabel(L("日志保留", "Keep Logs For"),
+                              help: L("诊断日志里早于这个天数的记录会自动删除（启动时和之后每 6 小时检查一次）。日志只在本机，用来排查“为什么没提醒”之类的问题。",
+                                      "Diagnostic log entries older than this are deleted automatically (at launch and every 6 hours). The log stays on this Mac and helps answer questions like “why was there no alert?”."))
+                }
+                .onChange(of: store.settings.logRetentionDays) { _, d in DebugLog.prune(days: d) }
                 HStack {
                     Button(L("显示配置文件", "Show Config")) {
                         store.saveNow()
                         NSWorkspace.shared.activateFileViewerSelecting([ConfigStore.fileURL])
                     }
                     Button(L("打开诊断日志", "Open Log")) { NSWorkspace.shared.open(DebugLog.url) }
+                    Button(L("清除日志…", "Clear Log…")) { confirmClearLog = true }
+                        .confirmationDialog(L("清除全部诊断日志？", "Clear the whole diagnostic log?"), isPresented: $confirmClearLog) {
+                            Button(L("清除", "Clear"), role: .destructive) {
+                                DebugLog.clear { logCleared = true }
+                            }
+                        } message: {
+                            Text(L("当前 \(Format.bytes(Double(DebugLog.size)))。不影响设置和任务历史。", "Currently \(Format.bytes(Double(DebugLog.size))). Settings and job history are kept."))
+                        }
+                    if logCleared { Text(L("已清除", "Cleared")).font(.caption).foregroundStyle(.secondary) }
                     Spacer()
                     Button(L("立即刷新全部", "Refresh All")) { engine.refreshAll() }
                 }

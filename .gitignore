@@ -7,3 +7,7 @@ promo/node_modules/
 promo/out/
 references/*.mp4
 references/private/
+
+# 跨平台版（cross/）
+cross/**/bin/
+cross/**/obj/

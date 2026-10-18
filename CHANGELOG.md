@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.2.0 — 2026-10-18
+
+- **Windows and Linux** versions (virtual island at the top of the screen, or a desktop pet; tray icon)
+- **PBS clusters** (PBS Pro / OpenPBS / Torque): jobs, arrays, pending reasons, final states, hold-to-cancel with `qdel`
+- **More ways to log in**: key, password, key + password, or one-time code; enter the address, user, port and key file without `~/.ssh/config`; jump hosts (multi-hop, each hop asks and reports errors on its own)
+- **Remember password** (off by default): stored only in the macOS Keychain / Windows Credential Manager / Linux keyring, used to reconnect automatically
+- **Only these folders**: limit a server to jobs and processes under given directories
+- **VASP relaxations**: max-force curve next to the energy curve, with the EDIFFG target as a dashed line
+- **Diagnostic log retention** (7 days by default) and a Clear Log button
+
 ## v0.1.0 — 2026-10-17
 
 First public release.

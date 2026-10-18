@@ -137,7 +137,7 @@ enum AppDetectors {
     /// 比 cgroup 可靠：不依赖 Slurm 的 cgroup / proctrack 配置。
     static let jobIDFunction = #"""
     si_pick() { (cd "$1" 2>/dev/null && ls -td -- $2 2>/dev/null | head -n 1); }
-    si_jobid() { tr '\0' '\n' < /proc/$1/environ 2>/dev/null | awk -F= '$1=="SLURM_ARRAY_JOB_ID"{a=$2} $1=="SLURM_ARRAY_TASK_ID"{t=$2} $1=="SLURM_JOB_ID"{j=$2} END{if(a!=""&&t!="")print a"_"t; else if(j!="")print j}'; }
+    si_jobid() { tr '\0' '\n' < /proc/$1/environ 2>/dev/null | awk -F= '$1=="SLURM_ARRAY_JOB_ID"{a=$2} $1=="SLURM_ARRAY_TASK_ID"{t=$2} $1=="SLURM_JOB_ID"{j=$2} $1=="PBS_JOBID"{b=$2} END{if(a!=""&&t!="")print a"_"t; else if(j!="")print j; else if(b!=""){sub(/\..*$/,"",b); sub(/\[/,"_",b); sub(/\]/,"",b); print b}}'; }
 
     """#
 
@@ -145,12 +145,12 @@ enum AppDetectors {
         let me = "\"$(id -un)\""
         let names = host.appProcessNames.replacingOccurrences(of: "'", with: "")
         // 候选进程：名字匹配，或者正在用 GPU，或者 CPU ≥ 50%。真正判断是哪种软件靠工作目录里的文件。
-        let showLocal = host.kind == .direct || host.slurmAlsoProcesses
+        let showLocal = host.kind == .direct || (host.kind.isScheduler && host.slurmAlsoProcesses)
         let candidates = """
           for p in $( { pgrep -u \(me) -x '\(names)'
                         command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-compute-apps=pid --format=csv,noheader
                         ps -u \(me) -o pid=,pcpu= | awk '$2 >= 50 {print $1}'
-                        \(host.kind == .slurm ? "for q in $(pgrep -u \(me)); do [ -n \"$(si_jobid $q)\" ] && echo $q; done" : "")
+                        \(host.kind.isScheduler ? "for q in $(pgrep -u \(me)); do [ -n \"$(si_jobid $q)\" ] && echo $q; done" : "")
                       } 2>/dev/null | sort -un | head -n 60 ); do
             d=$(readlink /proc/$p/cwd 2>/dev/null) || continue
             # 属于 Slurm 作业的进程映射回作业号（单机 Slurm 能拿到作业真正运行的目录）
@@ -158,9 +158,14 @@ enum AppDetectors {
             if [ -n "$j" ]; then printf '%s|%s\\n' "$j" "$d"; \(showLocal ? "else printf '%s|%s\\n' \"$p\" \"$d\";" : "") fi
           done
         """
-        let slurm = host.kind == .slurm ? "squeue -u \(me) -h -t R -o '%i|%Z' 2>/dev/null | head -n 40" : ""
+        let slurm: String
+        switch host.kind {
+        case .slurm: slurm = "squeue -u \(me) -h -t R -o '%i|%Z' 2>/dev/null | head -n 40"
+        case .pbs: slurm = "{ \(host.commands.qstat)\n} 2>/dev/null | si_pbs w | head -n 40"
+        case .direct: slurm = ""
+        }
         return """
-        \(jobIDFunction)
+        \(jobIDFunction)\(host.kind == .pbs ? RemoteScript.pbsFunction : "")
         { \(slurm)
         \(candidates)
         } | awk -F'|' '!seen[$2]++' | while IFS='|' read -r id d; do

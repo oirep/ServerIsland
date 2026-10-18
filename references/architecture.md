@@ -28,7 +28,9 @@ SwiftUI（IslandRootView、SettingsView），通过 @ObservedObject 订阅 engin
 
 - `AppSettings`：全局设置，包括 `hosts`、`defaultInterval`、`autoRefresh`、`collapsedStyle`、`islandAlerts`、`systemNotifications`、`soundEnabled`、`soundVolume`、`arrayFirstFailureAlert`、`diskWarnThreshold`、`language`。
 - `HostConfig`：单台服务器。
-  - 基本：`alias`（ssh 别名）、`displayName`、`kind`（slurm / direct）、`auth`（key / interactive）、`enabled`、`interval`（nil 表示跟随全局）。
+  - 基本：`alias`（ssh 别名）、`displayName`、`kind`（slurm / direct）、`auth`（key / password / keyPassword / interactive）、`enabled`、`interval`（nil 表示跟随全局）。
+  - 手动连接：`hostName`（非空表示手动填写，此时 `alias` 只用于显示）、`port`、`user`、`identityFile`；`jumpHostID`（另一台 ServerIsland 服务器做跳板机，可多级）；`rememberPassword`（密码存进系统钥匙串，默认关）。
+  - `auth` 的原始值和旧版兼容：旧版的“密码 / 动态口令”就是 `interactive`（现在叫“动态口令”）。`password` / `keyPassword` 才能记住密码。
   - 显示：`showCPU/Memory/GPU/Disk`、`watchJobs`、`readProgressFiles`、`processFilter/processExclude`、`watched`（监听的 PID）。
   - 提醒与操作：`muted`、`allowCancel`、`paused`。
   - 连接：`keepAlive`、`reuseConnection`、`importShellPath`、`commands`（`CommandSet`：shell、preamble、squeue、sacct、gpu、gpuApps、processes、progressGlob、disk）。
@@ -102,12 +104,24 @@ SwiftUI（IslandRootView、SettingsView），通过 @ObservedObject 订阅 engin
 
 - 连接复用：`ControlPath=/tmp/serverisland-<uid>/%C`（unix socket 路径有 104 字节上限，所以放在短路径下）。
   - `key` 认证：`ControlMaster=auto`，`ControlPersist=15m`；
-  - `interactive` 认证：`ControlMaster=no`，只复用已有的主连接。
+  - 其它认证（`password` / `keyPassword` / `interactive`）：`ControlMaster=no`，只复用登录时建立的主连接。
+  - 手动填写 / 经跳板机的机器，socket 名前面加上自己 ID 的前 8 位（`ab12cd34-%C`）：不同跳板机后面可能是同一个内网地址，`%C` 只按地址、端口、用户算，会撞在一起。
 - `BatchMode=yes`：后台绝不等待密码输入。
-- 密码 / 动态口令登录（`AskPass.swift`）：
-  - 启动 `ssh -fN -o ControlMaster=yes`，环境变量设置 `SSH_ASKPASS=<App 自身可执行文件>`、`SSH_ASKPASS_REQUIRE=force`、`SERVERISLAND_ASKPASS=1`；
-  - App 以 askpass 身份被调用时，弹出 NSAlert（密码框或主机指纹确认），把输入写到 stdout；
+- **手动填写的服务器和跳板机（`SSHHosts.swift`）**：生成一份 App 私有的 ssh 配置 `/tmp/serverisland-<uid>/ssh_config`，只在这些机器上用 `ssh -F` 指定；普通别名机器不加 `-F`，行为和以前完全一样。
+  - 手动填写的机器别名是 `si-<UUID>`，块里写 `HostName / User / Port / IdentityFile`（有私钥时加 `IdentitiesOnly yes`）；
+  - 设了跳板机的机器在块里写 `ProxyCommand env SERVERISLAND_ASKPASS_HOSTID=<跳板机ID> /usr/bin/ssh -F <同一份配置> -o ControlMaster=no -o ControlPath=<跳板机的 socket> -W '[%h]:%p' <跳板机目标>`：
+    内层 ssh 读的还是这份配置，所以多级跳板自然一跳一跳接下去；跳板机已经登录时 `-W` 直接走它的主连接，不用再输密码；`%%C` 留给内层 ssh 展开；
+  - 别名机器设了跳板机时，块名就是别名本身，只加 ProxyCommand，其它设置仍来自 `~/.ssh/config`（ssh 取第一次出现的值，ProxyCommand / ProxyJump 也是先到先得）；
+  - 配置末尾 `Match all` + `Include ~/.ssh/config` + `Include /etc/ssh/ssh_config`（`-F` 会跳过系统配置，所以要手动加回来）。**用户的 `~/.ssh/config` 一个字都不改**；
+  - 设置一变就重写（内容相同不写）；每次用之前检查文件还在不在（/tmp 可能被清）。自检和预览渲染（`ConfigStore(persist: false)`）不写这个文件，免得覆盖正在运行的 App。
+- **跳板机出错时的提示**：开着 `ControlPersist` 时，OpenSSH 把 ProxyCommand 的 stderr 丢到 /dev/null，跳板机出错什么提示都没有。`SSHRunner.run` 遇到"255 + stderr 为空 + 有跳板机"时，不复用连接再握手一次（`true`，不跑脚本）拿到真正的错误。`jumpProblem` 按错误里的 `user@地址:` 找出是哪一跳，提示"跳板机 X 需要登录 / 连接失败 / 连不上这台服务器"。
+- 密钥被拒时（`keyFailureHint`）：`Permission denied (password).` 这类不含 `publickey` 的列表说明密钥已经通过（partial success），提示改成"密钥 + 密码"。
+- 弹窗登录（`AskPass.swift`）：
+  - 启动 `ssh -fN -o ControlMaster=yes`，环境变量设置 `SSH_ASKPASS=<App 自身可执行文件>`、`SSH_ASKPASS_REQUIRE=force`、`SERVERISLAND_ASKPASS=1`、`SERVERISLAND_ASKPASS_HOSTID`、`SERVERISLAND_ASKPASS_SESSION`（这次登录的临时目录）；
+  - App 以 askpass 身份被调用时，按提示语分类（`AskPass.kind`：主机指纹 / 私钥口令 / 动态口令 / 密码 / 用户名），弹出 NSAlert，把输入写到 stdout。经跳板机时每一跳的 ssh 环境里是那一跳的 ID，弹窗写明是哪台机器；
+  - **记住密码**（`Keychain.swift`，登录钥匙串里的通用密码，服务名 `ServerIsland`，账户是服务器 UUID）：只有 `password` / `keyPassword` 的密码提示可以记；有记住的密码就直接答，并在会话目录里留个 `used-<ID>` 标记——同一次登录里再被问，说明密码不对了，改为弹窗（带“记住密码”勾选框，勾选后写钥匙串，结果写 `remember-<ID>` 让 App 同步设置）；
+  - **自动重新登录**：轮询发现 `needsLogin` 时，对记住了密码的机器（先远端的跳板机，再自己）在后台登录一次（`SERVERISLAND_ASKPASS_SILENT=1`：askpass 只用钥匙串、绝不弹窗）；同一台机器 10 分钟内最多一次，主连接还活着就不登录；
   - 后台主连接会继承 stderr，所以 stderr 写到临时文件而不是管道，否则永远读不到 EOF；
   - 保活参数：`ControlPersist` 来自 `keepAlive`，`ServerAliveInterval=30`，`ServerAliveCountMax=6`。
-- 终端登录：生成一个 `.command` 脚本，用 `NSWorkspace.open` 打开。
+- 终端登录：生成一个 `.command` 脚本，用 `NSWorkspace.open` 打开（带上 `-F` 和私有目标）。
 - `classify`：把 ssh 退出码 255 的 stderr 翻译成 `needsLogin` 或 `error`。

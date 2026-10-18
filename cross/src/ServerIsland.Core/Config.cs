@@ -1,0 +1,411 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using static ServerIsland.Core.Lang;
+
+namespace ServerIsland.Core;
+
+/// 服务器类型：决定"任务"从哪里来。
+/// 存储的值和 Mac 版一致：slurm / pbs / direct。
+public enum HostKind { Slurm, Pbs, Direct }
+
+/// 认证方式。需要密码 / 动态口令的机器先弹窗登录一次，之后复用这条连接。密码默认不保存；
+/// 勾选"记住密码"时只存进系统的凭据库（Windows 凭据管理器 / Linux Secret Service），动态口令从不保存。
+/// 存储的值 key / password / keyPassword / interactive 和 Mac 版一致（旧版的"密码 / 动态口令"即 interactive）。
+public enum AuthMode { Key, Password, KeyPassword, Interactive }
+
+/// 需要密码登录的机器，主连接保持多久（期间不用再输密码）。
+public enum KeepAlive { H8, H24, D3, Forever }
+
+/// 收起状态下刘海两侧"小翅膀"的显示策略。
+public enum CollapsedStyle { Auto, Always, Never }
+
+/// Windows / Linux 版的显示形态：屏幕顶部的虚拟刘海，或者桌面上的小章鱼。
+public enum DisplayMode { Island, Pet }
+
+/// SSH 实现：系统 ssh（支持 ControlMaster 的平台）或内置的 SSH.NET（Windows 默认）。
+public enum SshBackend { Auto, OpenSsh, Managed }
+
+public static class EnumLabels
+{
+    public static string Label(this HostKind k) => k switch
+    {
+        HostKind.Slurm => L("Slurm 集群", "Slurm cluster"),
+        HostKind.Pbs => L("PBS 集群", "PBS cluster"),
+        _ => L("直连服务器", "Direct server"),
+    };
+    public static string Badge(this HostKind k) => k switch { HostKind.Slurm => "SLURM", HostKind.Pbs => "PBS", _ => "DIRECT" };
+    /// 有作业调度系统（Slurm / PBS）：任务是队列里的作业，而不是进程。
+    public static bool IsScheduler(this HostKind k) => k != HostKind.Direct;
+    /// 取消作业 / 终止进程用的命令（界面文案用）。
+    public static string CancelCommand(this HostKind k) => k switch { HostKind.Slurm => "scancel", HostKind.Pbs => "qdel", _ => "kill -TERM" };
+    public static string Label(this AuthMode a) => a switch
+    {
+        AuthMode.Key => L("密钥 / ssh-agent", "SSH key / agent"),
+        AuthMode.Password => L("密码", "Password"),
+        AuthMode.KeyPassword => L("密钥 + 密码", "Key + password"),
+        _ => L("动态口令 / 二次验证", "One-time code / 2FA"),
+    };
+    /// 需要先弹窗登录、之后复用连接。
+    public static bool NeedsLogin(this AuthMode a) => a != AuthMode.Key;
+    /// 可以记住密码（动态口令每次都不同，不能记）。
+    public static bool CanRemember(this AuthMode a) => a is AuthMode.Password or AuthMode.KeyPassword;
+
+    public static string Label(this KeepAlive k) => k switch
+    {
+        KeepAlive.H8 => L("8 小时", "8 hours"),
+        KeepAlive.H24 => L("24 小时", "24 hours"),
+        KeepAlive.D3 => L("3 天", "3 days"),
+        _ => L("一直保持", "Until disconnected"),
+    };
+
+    public static string ControlPersist(this KeepAlive k) => k switch
+    {
+        KeepAlive.H8 => "8h",
+        KeepAlive.H24 => "24h",
+        KeepAlive.D3 => "72h",
+        _ => "yes",
+    };
+
+    public static TimeSpan? Duration(this KeepAlive k) => k switch
+    {
+        KeepAlive.H8 => TimeSpan.FromHours(8),
+        KeepAlive.H24 => TimeSpan.FromHours(24),
+        KeepAlive.D3 => TimeSpan.FromHours(72),
+        _ => null,
+    };
+
+    public static string Label(this CollapsedStyle s) => s switch
+    {
+        CollapsedStyle.Auto => L("有任务或异常时显示", "When busy or failing"),
+        CollapsedStyle.Always => L("始终显示", "Always"),
+        _ => L("从不显示", "Never"),
+    };
+
+    public static string Label(this DisplayMode m) => m == DisplayMode.Island
+        ? L("屏幕顶部的灵动岛", "Island at the top of the screen")
+        : L("桌面小章鱼", "Desktop pet");
+
+    public static string Label(this SshBackend b) => b switch
+    {
+        SshBackend.Auto => L("自动", "Automatic"),
+        SshBackend.OpenSsh => L("系统 ssh", "System ssh"),
+        _ => L("内置 SSH（SSH.NET）", "Built-in SSH (SSH.NET)"),
+    };
+}
+
+/// 远程执行的命令。默认值适用于大多数 Linux / Slurm 环境，对不上时可以在设置里逐项修改。
+public sealed class CommandSet : IJsonOnDeserialized
+{
+    public const string OldSqueue = "squeue -u \"$(id -un)\" -h -o '%i|%j|%T|%M|%l|%D|%R|%P'";
+
+    public string Shell { get; set; } = "bash -l -s";
+    public string Preamble { get; set; } = "";
+    public string Squeue { get; set; } = "squeue -u \"$(id -un)\" -h -o '%i|%j|%T|%M|%l|%D|%R|%P|%F|%K'";
+    /// `{jobs}` 会被替换为逗号分隔的作业号。只在作业从队列消失时调用一次。
+    public string Sacct { get; set; } = "sacct -n -X -P -o JobID,JobName,State,Elapsed,ExitCode -j {jobs}";
+    public string Gpu { get; set; } = "nvidia-smi --query-gpu=index,name,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits";
+    public string GpuApps { get; set; } = "nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader,nounits";
+    public string Processes { get; set; } = "ps -u \"$(id -un)\" -o pid=,etimes=,pcpu=,rss=,args= --sort=-pcpu | head -n 300";
+    public string ProgressGlob { get; set; } = "~/.serverisland/progress/*.json";
+    public string Disk { get; set; } = "df -P -k ~";
+    /// PBS（PBS Pro / OpenPBS / Torque）：输出自己作业的 `qstat -f` 全文，由 App 的转换脚本解析。没有作业时什么都不输出。
+    public string Qstat { get; set; } = """SI_IDS=$(qselect -u "$(id -un)"); [ -z "$SI_IDS" ] || qstat -f -t $SI_IDS""";
+
+    public static readonly CommandSet Defaults = new();
+
+    public void OnDeserialized()
+    {
+        // 旧版默认命令没有数组列（%F|%K），自动升级。
+        if (Squeue == OldSqueue) Squeue = Defaults.Squeue;
+    }
+}
+
+public sealed class WatchedProcess
+{
+    public string Pid { get; set; } = "";
+    public string Name { get; set; } = "";
+    /// 进程启动时刻（由 etimes 推算），用来识别 PID 被复用的情况。存成"距 2001-01-01 的秒数"，和 Swift 版一致。
+    [JsonConverter(typeof(ReferenceDateConverter))]
+    public DateTime? StartedAt { get; set; }
+}
+
+public sealed class HostConfig : IJsonOnDeserialized
+{
+    public const string DefaultExclude = @"/usr/(lib|libexec|share)/|^/snap/|^/usr/sbin/|gnome-|Xorg|xdg-|ibus|gsd-|gvfs|update-manager|check-new-release|unattended-upgr|networkd-dispatcher|vscode-server|cursor-server|windsurf-server|\.codex/|codex app-server|jupyter-lab|ipykernel_launcher|pylsp|pyright|ruff|wireplumber|pipewire|dbus-daemon|update-notifier|systemd|at-spi|gcr-ssh|gnome-keyring|FlClash|clash";
+    public const string DefaultAppProcessNames = "gpumd|nep|gnep|vasp_std|vasp_gam|vasp_ncl|lmp|lmp_mpi|lmp_serial";
+    public const string DefaultFilter = @"python|torchrun|accelerate|deepspeed|julia|matlab|Rscript|java|node|\./";
+
+    [JsonConverter(typeof(UpperGuidConverter))]
+    public Guid Id { get; set; } = Guid.NewGuid();
+    /// `~/.ssh/config` 里的 Host 别名，或 user@1.2.3.4 这样的目标。
+    public string Alias { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+    public HostKind Kind { get; set; } = HostKind.Direct;
+    public AuthMode Auth { get; set; } = AuthMode.Key;
+    public bool Enabled { get; set; } = true;
+    /// null 表示跟随全局轮询间隔。
+    public int? Interval { get; set; }
+    public bool ShowCPU { get; set; } = true;
+    public bool ShowMemory { get; set; } = true;
+    public bool ShowGPU { get; set; } = true;
+    public bool WatchJobs { get; set; } = true;
+    public bool ReadProgressFiles { get; set; } = true;
+    public string ProcessFilter { get; set; } = DefaultFilter;
+    public string ProcessExclude { get; set; } = DefaultExclude;
+    public bool ReuseConnection { get; set; } = true;
+    public CommandSet Commands { get; set; } = new();
+    public bool Muted { get; set; }
+    public bool AllowCancel { get; set; }
+    public List<WatchedProcess> Watched { get; set; } = [];
+    public bool ShowDisk { get; set; } = true;
+    public KeepAlive KeepAlive { get; set; } = KeepAlive.H24;
+    public bool Paused { get; set; }
+    public bool DetectApps { get; set; } = true;
+    public string AppProcessNames { get; set; } = DefaultAppProcessNames;
+    public bool SlurmAlsoProcesses { get; set; }
+    public bool ImportShellPath { get; set; } = true;
+    /// 手动填写的连接信息（不依赖 ~/.ssh/config）。HostName 为空表示用 Alias 连接。
+    public string HostName { get; set; } = "";
+    public int? Port { get; set; }
+    public string User { get; set; } = "";
+    /// 私钥文件路径（可用 ~）。空表示用默认密钥。
+    public string IdentityFile { get; set; } = "";
+    /// 经由另一台 ServerIsland 服务器（跳板机）连接；跳板机自己也可以再有跳板机。
+    [JsonConverter(typeof(UpperNullableGuidConverter))]
+    public Guid? JumpHostID { get; set; }
+    /// 把密码记进系统凭据库，连接断开后自动重新登录（默认关闭）。
+    public bool RememberPassword { get; set; }
+    /// 只看这些目录下的任务（每行一个，可用 ~）。作业按工作目录、进程按当前目录判断；空表示不过滤。
+    public string PathFilter { get; set; } = "";
+
+    /// 过滤目录列表（去掉空行）。
+    [JsonIgnore]
+    public List<string> PathPrefixes => PathFilter.Split(['\n', ',', ';']).Select(x => x.Trim()).Where(x => x.Length > 0).ToList();
+
+    /// 是否使用手动填写的连接信息。
+    [JsonIgnore] public bool IsManual => HostName.Trim().Length > 0;
+
+    public HostConfig() { }
+
+    public HostConfig(string alias, string? displayName = null, HostKind kind = HostKind.Direct)
+    {
+        Alias = alias;
+        DisplayName = displayName ?? alias;
+        Kind = kind;
+    }
+
+    public void OnDeserialized()
+    {
+        if (string.IsNullOrEmpty(DisplayName)) DisplayName = Alias;
+        // 旧版默认值自动升级（用户改过的保持不动）
+        if (AppProcessNames == "gpumd|nep|gnep") AppProcessNames = DefaultAppProcessNames;
+        Commands ??= new CommandSet();
+        Watched ??= [];
+        HostName ??= ""; User ??= ""; IdentityFile ??= ""; PathFilter ??= "";
+    }
+
+    public HostConfig Clone() => Json.Clone(this);
+    public string Fingerprint() => JsonSerializer.Serialize(this, Json.Options);
+}
+
+public sealed class AppSettings
+{
+    public List<HostConfig> Hosts { get; set; } = [];
+    public int DefaultInterval { get; set; } = 60;
+    /// false：所有机器都只手动刷新。
+    public bool AutoRefresh { get; set; } = true;
+    public CollapsedStyle CollapsedStyle { get; set; } = CollapsedStyle.Always;
+    /// 展开面板里把空闲的机器合并成一行（全部空闲时照常显示卡片）。
+    public bool FoldIdleHosts { get; set; } = true;
+    public bool IslandAlerts { get; set; } = true;
+    public bool SystemNotifications { get; set; } = true;
+    public bool SoundEnabled { get; set; } = true;
+    public double SoundVolume { get; set; } = 0.6;
+    public bool ArrayFirstFailureAlert { get; set; } = true;
+    public double DiskWarnThreshold { get; set; } = 0.9;
+    public AppLanguage Language { get; set; } = AppLanguage.System;
+    public List<ProgressRule> ProgressRules { get; set; } = [];
+    /// 诊断日志保留天数（更早的行自动删除；0 表示永久保留）。
+    public int LogRetentionDays { get; set; } = 7;
+
+    // —— 只有 Windows / Linux 版用到的设置 ——
+    public DisplayMode DisplayMode { get; set; } = DisplayMode.Island;
+    public SshBackend SshBackend { get; set; } = SshBackend.Auto;
+    /// 桌面小章鱼的位置（物理像素，屏幕坐标）。
+    public int? PetX { get; set; }
+    public int? PetY { get; set; }
+
+    public AppSettings Clone() => Json.Clone(this);
+}
+
+public static class Json
+{
+    public static readonly JsonSerializerOptions Options = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
+    public static T Clone<T>(T value) => JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(value, Options), Options)!;
+}
+
+/// Swift 的 JSONEncoder 默认把 Date 存成"距 2001-01-01 的秒数"。
+public sealed class ReferenceDateConverter : JsonConverter<DateTime?>
+{
+    static readonly DateTime Reference = new(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    public override DateTime? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null) return null;
+        if (reader.TokenType == JsonTokenType.Number) return Reference.AddSeconds(reader.GetDouble()).ToLocalTime();
+        if (reader.TokenType == JsonTokenType.String && DateTime.TryParse(reader.GetString(), out var d)) return d;
+        return null;
+    }
+
+    public override void Write(Utf8JsonWriter writer, DateTime? value, JsonSerializerOptions options)
+    {
+        if (value is { } d) writer.WriteNumberValue((d.ToUniversalTime() - Reference).TotalSeconds);
+        else writer.WriteNullValue();
+    }
+}
+
+/// UUID 和 Swift 版一样写成大写。
+public sealed class UpperGuidConverter : JsonConverter<Guid>
+{
+    public override Guid Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        Guid.TryParse(reader.GetString(), out var g) ? g : Guid.NewGuid();
+
+    public override void Write(Utf8JsonWriter writer, Guid value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(value.ToString("D").ToUpperInvariant());
+}
+
+public sealed class UpperNullableGuidConverter : JsonConverter<Guid?>
+{
+    public override Guid? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.TokenType == JsonTokenType.String && Guid.TryParse(reader.GetString(), out var g) ? g : null;
+
+    public override void Write(Utf8JsonWriter writer, Guid? value, JsonSerializerOptions options)
+    {
+        if (value is { } g) writer.WriteStringValue(g.ToString("D").ToUpperInvariant());
+        else writer.WriteNullValue();
+    }
+}
+
+/// 各平台的数据目录。
+public static class AppPaths
+{
+    public static string Home => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+    /// 配置目录：Windows %APPDATA%\ServerIsland；Linux ~/.config/ServerIsland；
+    /// macOS 上只用于开发调试，单独放一个目录，避免覆盖 Swift 版的真实配置。
+    public static string ConfigDirectory
+    {
+        get
+        {
+            if (Environment.GetEnvironmentVariable("SERVERISLAND_CONFIG_DIR") is { Length: > 0 } custom) return custom;
+            if (OperatingSystem.IsWindows())
+                return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ServerIsland");
+            if (OperatingSystem.IsMacOS())
+                return Path.Combine(Home, "Library", "Application Support", "ServerIsland-Avalonia");
+            var xdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
+            return Path.Combine(string.IsNullOrEmpty(xdg) ? Path.Combine(Home, ".config") : xdg, "ServerIsland");
+        }
+    }
+
+    public static string ConfigFile => Path.Combine(ConfigDirectory, "config.json");
+
+    public static string LogDirectory
+    {
+        get
+        {
+            if (OperatingSystem.IsWindows())
+                return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ServerIsland", "Logs");
+            if (OperatingSystem.IsMacOS()) return Path.Combine(Home, "Library", "Logs", "ServerIsland-Avalonia");
+            var state = Environment.GetEnvironmentVariable("XDG_STATE_HOME");
+            return Path.Combine(string.IsNullOrEmpty(state) ? Path.Combine(Home, ".local", "state") : state, "ServerIsland");
+        }
+    }
+
+    public static string SshDirectory => Path.Combine(Home, ".ssh");
+
+    public static string Tilde(string path) =>
+        path.StartsWith(Home, StringComparison.Ordinal) ? "~" + path[Home.Length..] : path;
+}
+
+/// 读写 config.json。修改后 0.5 秒防抖保存。所有修改都在界面线程上进行。
+public sealed class ConfigStore
+{
+    public AppSettings Settings { get; private set; }
+    readonly bool _persist;
+    System.Threading.Timer? _saveTimer;
+    readonly object _lock = new();
+
+    /// 设置有变化（界面据此刷新、引擎据此重新安排轮询）。
+    public event Action? Changed;
+
+    public ConfigStore(bool persist = true)
+    {
+        _persist = persist;
+        AppSettings? loaded = null;
+        if (persist && File.Exists(AppPaths.ConfigFile))
+        {
+            try { loaded = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(AppPaths.ConfigFile), Json.Options); }
+            catch (Exception e) { DebugLog.Log("读取配置失败：" + e.Message); }
+        }
+        Settings = loaded ?? new AppSettings();
+        Apply();
+    }
+
+    void Apply()
+    {
+        Lang.Setting = Settings.Language;
+        ProgressRule.Active = Settings.ProgressRules;
+        Ssh.SshHosts.Update(Settings.Hosts.Select(h => h.Clone()).ToList(), write: _persist);
+    }
+
+    public void Replace(AppSettings s)
+    {
+        Settings = s;
+        Touch();
+    }
+
+    public HostConfig? Host(Guid id) => Settings.Hosts.FirstOrDefault(h => h.Id == id);
+
+    public int Interval(HostConfig host) => Math.Max(10, host.Interval ?? Settings.DefaultInterval);
+
+    /// 修改了 Settings 之后调用：更新语言 / 规则，通知界面，并安排保存。
+    public void Touch()
+    {
+        Apply();
+        Changed?.Invoke();
+        if (!_persist) return;
+        lock (_lock)
+        {
+            _saveTimer?.Dispose();
+            var json = JsonSerializer.Serialize(Settings, Json.Options);
+            _saveTimer = new System.Threading.Timer(_ => Write(json), null, 500, Timeout.Infinite);
+        }
+    }
+
+    public void SaveNow()
+    {
+        if (!_persist) return;
+        lock (_lock) { _saveTimer?.Dispose(); _saveTimer = null; }
+        Write(JsonSerializer.Serialize(Settings, Json.Options));
+    }
+
+    void Write(string json)
+    {
+        try
+        {
+            Directory.CreateDirectory(AppPaths.ConfigDirectory);
+            var tmp = AppPaths.ConfigFile + ".tmp";
+            File.WriteAllText(tmp, json);
+            File.Move(tmp, AppPaths.ConfigFile, overwrite: true);
+        }
+        catch (Exception e) { DebugLog.Log("保存配置失败：" + e.Message); }
+    }
+}

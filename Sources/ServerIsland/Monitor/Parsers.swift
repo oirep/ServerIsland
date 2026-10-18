@@ -69,6 +69,61 @@ enum Parsers {
         return map
     }
 
+    // MARK: - PBS
+
+    /// `qstat -f` 的一个作业：`    key = value`，续行以 Tab 开头。Variable_List 里的 PBS_O_WORKDIR 单独取出来。
+    static func pbsKeyValues(_ lines: [String]) -> [String: String] {
+        var kv: [String: String] = [:]
+        var key: String?
+        for raw in lines {
+            let line = raw.hasSuffix("\r") ? String(raw.dropLast()) : raw
+            if line.hasPrefix("\t") {
+                if let k = key { kv[k, default: ""] += line.drop(while: { $0 == "\t" }) }
+                continue
+            }
+            key = nil
+            let t = line.drop(while: { $0 == " " })
+            guard t.count < line.count, let r = t.range(of: " = ") else { continue }
+            let k = String(t[..<r.lowerBound])
+            if kv[k] == nil { kv[k] = String(t[r.upperBound...]); key = k }
+        }
+        if let vars = kv["Variable_List"], let r = vars.range(of: #"PBS_O_WORKDIR=[^,]*"#, options: .regularExpression) {
+            kv["PBS_O_WORKDIR"] = String(vars[r].dropFirst("PBS_O_WORKDIR=".count))
+        }
+        return kv
+    }
+
+    // MARK: - 目录过滤
+
+    /// workdirs 段：`id|目录`，以及 `@@SI:HOME 家目录`。
+    static func workdirs(_ lines: [String]) -> (home: String?, dirs: [String: String]) {
+        var home: String?
+        var dirs: [String: String] = [:]
+        for line in lines {
+            if line.hasPrefix(RemoteScript.marker + "HOME ") { home = String(line.dropFirst(RemoteScript.marker.count + 5)); continue }
+            guard let bar = line.firstIndex(of: "|") else { continue }
+            let id = String(line[..<bar]).trimmingCharacters(in: .whitespaces)
+            let dir = String(line[line.index(after: bar)...])
+            if !id.isEmpty && !dir.isEmpty { dirs[id] = dir }
+        }
+        return (home, dirs)
+    }
+
+    /// 目录是否在某个过滤目录里（含子目录）。`~` 按远端家目录展开；末尾的 / 忽略。
+    static func pathMatches(_ dir: String, prefixes: [String], home: String?) -> Bool {
+        func norm(_ p: String) -> String {
+            var s = p.trimmingCharacters(in: .whitespaces)
+            if let home, s == "~" || s.hasPrefix("~/") { s = home + s.dropFirst() }
+            while s.count > 1 && s.hasSuffix("/") { s.removeLast() }
+            return s
+        }
+        let d = norm(dir)
+        return prefixes.contains { raw in
+            let p = norm(raw)
+            return p == "/" || d == p || d.hasPrefix(p + "/")
+        }
+    }
+
     // MARK: - Slurm
 
     /// `%i|%j|%T|%M|%l|%D|%R|%P|%F|%K`（后两列是数组主编号和元素序号；老格式没有也能解析）。

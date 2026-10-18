@@ -35,7 +35,7 @@ enum DemoData {
         }
 
         switch host.kind {
-        case .slurm:
+        case .slurm, .pbs:
             s.metrics = HostMetrics(cpuPercent: 18 + wave(0) * 12, load1: 6.2, cores: 64,
                                     memoryUsed: 92e9 + wave(1) * 8e9, memoryTotal: 256e9)
 

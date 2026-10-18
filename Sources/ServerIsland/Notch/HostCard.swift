@@ -108,7 +108,7 @@ struct HostCard: View {
                 gap
                 HStack(spacing: 6) {
                     Image(systemName: "moon.zzz.fill").font(.system(size: 9.5))
-                    Text(host.kind == .slurm ? L("队列里没有你的作业", "No jobs in the queue") : L("空闲中 · 没有在跑的任务", "Idle · nothing running"))
+                    Text(host.kind.isScheduler ? L("队列里没有你的作业", "No jobs in the queue") : L("空闲中 · 没有在跑的任务", "Idle · nothing running"))
                 }
                 .font(Theme.rounded(11))
                 .foregroundStyle(Theme.tertiary)
@@ -130,9 +130,9 @@ struct HostCard: View {
 
     private var gap: some View { Spacer().frame(height: IslandLayout.sectionGap) }
 
-    /// squeue 不存在（command not found / 未找到命令 / 退出码 127）。
+    /// squeue / qstat 不存在（command not found / 未找到命令 / 退出码 127）。
     static func isMissingSqueue(_ w: String, _ host: HostConfig) -> Bool {
-        guard host.kind == .slurm, w.hasPrefix("squeue") else { return false }
+        guard (host.kind == .slurm && w.hasPrefix("squeue")) || (host.kind == .pbs && w.hasPrefix("qstat")) else { return false }
         let l = w.lowercased()
         return l.contains("not found") || w.contains("未找到") || l.contains("no such file") || w.contains("127")
     }
@@ -152,7 +152,7 @@ struct HostCard: View {
             HStack(spacing: 0) {
                 if host.kind == .direct {
                     SmallIconButton(systemName: "eye", help: L("从高负载进程中挑选要监听的进程", "Pick a busy process to watch"), action: onPicker)
-                } else {
+                } else if host.kind == .slurm {
                     SmallIconButton(systemName: "square.grid.3x3.fill", help: L("分区空闲资源（按需查询 sinfo）", "Free partition resources (sinfo, on demand)"), action: onPartitions)
                 }
                 SmallIconButton(systemName: "clock.arrow.circlepath", help: L("最近 24 小时结束的任务", "Finished in the last 24 h"), action: onHistory)

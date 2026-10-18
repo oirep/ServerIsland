@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=ServerIsland
+Comment=Watch Slurm jobs, GPUs and computing progress on your servers
+Exec=ServerIsland
+Icon=serverisland
+Terminal=false
+Categories=Utility;Development;

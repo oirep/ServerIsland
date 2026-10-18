@@ -177,6 +177,8 @@ enum SelfTest {
         let cancelS = RemoteScript.cancelScript(host: slurm, job: sj, expectedElapsed: nil, force: false)!
         check(cancelS.contains("squeue -h -j 4821337") && cancelS.contains("scancel 4821337"), "取消前先核对作业")
         SelfTestApps.run(check)
+        SelfTestConnection.run(check)
+        SelfTestPBS.run(check)
         return ok
     }
 
@@ -185,7 +187,21 @@ enum SelfTest {
         let store = ConfigStore(persist: false)
         var host = HostConfig(alias: alias, kind: kind)
         host.slurmAlsoProcesses = alsoProcesses
+        // 已添加到 ServerIsland 的服务器（按别名或显示名称）：用它的全部连接设置（手动地址、跳板机、认证）。
+        if let data = try? Data(contentsOf: ConfigStore.fileURL),
+           let saved = try? JSONDecoder().decode(AppSettings.self, from: data),
+           var configured = saved.hosts.first(where: { $0.alias == alias || $0.displayName == alias }) {
+            configured.kind = kind
+            configured.slurmAlsoProcesses = alsoProcesses
+            host = configured
+            print("（使用设置里的“\(host.displayName)”：\(SSHHosts.summary(host))，跳板机 \(SSHHosts.chain(host, in: Dictionary(saved.hosts.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })).map(\.displayName)))")
+        }
         store.settings.hosts = [host]
+        // 跳板机要能在全部服务器里找到（上面那行只放了这一台）。
+        if let data = try? Data(contentsOf: ConfigStore.fileURL),
+           let saved = try? JSONDecoder().decode(AppSettings.self, from: data) {
+            SSHHosts.update(saved.hosts, write: true)
+        }
         let engine = MonitorEngine(store: store)
         print(await engine.diagnose(host))
         print("\n===== 解析结果 =====")

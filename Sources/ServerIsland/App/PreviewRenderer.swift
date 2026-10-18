@@ -139,8 +139,8 @@ enum PreviewRenderer {
         ]))
 
         // 设置窗口（离屏窗口 + cacheDisplay，不需要屏幕录制权限）
-        func settingsShot(_ name: String, _ page: SettingsPage, dark: Bool) {
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 880, height: 640), styleMask: [.titled, .fullSizeContentView],
+        func settingsShot(_ name: String, _ page: SettingsPage, dark: Bool, height: CGFloat = 640) {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 880, height: height), styleMask: [.titled, .fullSizeContentView],
                              backing: .buffered, defer: false)
             w.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
             w.titlebarAppearsTransparent = true
@@ -159,6 +159,11 @@ enum PreviewRenderer {
         store.settings.hosts[0].auth = .interactive
         settingsShot("settings-general", .general, dark: true)
         settingsShot("settings-host", .host(store.settings.hosts[0].id), dark: true)
+        // 整页（自查用：页面下方的目录过滤、日志保留等）
+        settingsShot("settings-general-full", .general, dark: true, height: 2000)
+        store.settings.hosts[0].pathFilter = "~/projects/LiCoO2"
+        settingsShot("settings-host-full", .host(store.settings.hosts[0].id), dark: true, height: 3600)
+        store.settings.hosts[0].pathFilter = ""
         settingsShot("settings-host-light", .host(store.settings.hosts[1].id), dark: false)
         store.settings.language = .en
         settingsShot("settings-host-en", .host(store.settings.hosts[1].id), dark: true)
@@ -197,14 +202,21 @@ enum PreviewRenderer {
                 }
             page("detail-nep", JobDetailPage(host: nepHost, job: nepJob, sampledAt: Date(), stillListed: true, engine: engine,
                                              onBack: {}, openSettings: {}, preloaded: nepDetail,
-                                             preloadedCurve: AppCurves.curve(.loss(path: "", gnep: false), rows: rows)))
+                                             preloadedCurves: [AppCurves.curve(.loss(path: "", gnep: false), rows: rows)].compactMap { $0 }))
             var relaxApp = AppProgress(kind: .vasp, dir: DemoData.home + "/LiCoO2/relax-hse"); relaxApp.vaspMode = .relax; relaxApp.current = 23
             var relaxJob = RemoteJob(id: "31022", name: "vasp_std", state: .running, source: .process)
             relaxJob.app = relaxApp; relaxJob.message = relaxApp.title + " · " + relaxApp.summary
             let eRows: [[Double]] = (1...23).map { k in [Double(k), -432.1 - 3.2 * (1 - exp(-Double(k) / 5))] }
+            let fRows: [[Double]] = (1...23).map { k -> [Double] in
+                let x = Double(k)
+                let f: Double = 1.8 * exp(-x / 4.5) + 0.012 + 0.004 * sin(x)
+                return [0, f]
+            }
+            let relaxCurves: [AppCurve] = [AppCurves.curve(.vaspEnergy(path: ""), rows: eRows),
+                                           AppCurves.curve(.vaspForce(path: ""), rows: fRows, extra: ["ediffg": "-0.02"])].compactMap { $0 }
             page("detail-vasp", JobDetailPage(host: nepHost, job: relaxJob, sampledAt: Date(), stillListed: true, engine: engine,
                                               onBack: {}, openSettings: {}, preloaded: JobDetail(),
-                                              preloadedCurve: AppCurves.curve(.vaspEnergy(path: ""), rows: eRows)))
+                                              preloadedCurves: relaxCurves))
         }
 
         store.settings.hosts[1].muted = true
@@ -249,6 +261,37 @@ enum PreviewRenderer {
         // 进度识别设置页 + 规则编辑
         var r1 = ProgressRule(); r1.name = "PyTorch"; r1.file = "*.log"; r1.pattern = "epoch"; r1.unit = "epoch"
         var r2 = ProgressRule(); r2.name = "MySolver"; r2.file = "out/*.txt"; r2.match = .regex; r2.pattern = "iter=("; r2.enabled = false
+        // 手动填写 + 跳板机 + 密钥加密码（虚构地址）
+        var bastion = HostConfig(alias: "demo@gate.example.edu", displayName: L("学校跳板机", "Campus Gateway"), kind: .direct)
+        bastion.hostName = "gate.example.edu"; bastion.user = "demo"; bastion.auth = .password; bastion.rememberPassword = true
+        bastion.enabled = false
+        var inner = HostConfig(alias: "demo@10.20.0.5", displayName: L("内网集群", "Internal Cluster"), kind: .slurm)
+        inner.hostName = "10.20.0.5"; inner.user = "demo"; inner.port = 2222; inner.identityFile = "~/.ssh/id_ed25519"
+        inner.auth = .keyPassword; inner.rememberPassword = true; inner.jumpHostID = bastion.id
+        store.settings.hosts += [bastion, inner]
+        engine.setPreviewSnapshot(HostSnapshot(health: .needsLogin(L("需要登录", "Login required"))), for: inner.id)
+        settingsShot("settings-host-manual", .host(inner.id), dark: true)
+        store.settings.language = .en
+        settingsShot("settings-host-manual-en", .host(inner.id), dark: false)
+        store.settings.language = language
+        do {
+            let sheet = AddHostSheet(existing: store.settings.hosts, startManual: true) { _ in }
+                .background(Color(nsColor: .windowBackgroundColor))
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+            w.appearance = NSAppearance(named: .darkAqua)
+            let hv = NSHostingView(rootView: sheet)
+            w.contentView = hv
+            w.setFrameOrigin(NSPoint(x: -5000, y: -5000))
+            w.orderFrontRegardless()
+            for _ in 0..<30 { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+            if let rep = hv.bitmapImageRepForCachingDisplay(in: hv.bounds) {
+                hv.cacheDisplay(in: hv.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?.write(to: url.appendingPathComponent("settings-add-manual.png"))
+            }
+            w.orderOut(nil)
+        }
+        store.settings.hosts.removeAll { $0.id == bastion.id || $0.id == inner.id }
+
         store.settings.progressRules = [r1, r2]
         settingsShot("settings-rules", .rules, dark: true)
         let sheet = RuleEditorSheetPreview(rule: r1, hosts: store.settings.hosts, engine: engine)

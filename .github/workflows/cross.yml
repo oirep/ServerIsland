@@ -1,0 +1,80 @@
+# Windows / Linux 版（cross/）：在 GitHub 的 Windows、Linux 机器上跑自检和真实窗口的界面走查（--ui-smoke），并打包。
+# 打出来的 zip / tar.gz 在这次运行的 Artifacts 里可以下载；发布正式版本时把它们上传到 Release。
+name: Cross-platform build
+
+on:
+  push:
+    branches: [main, avalonia]
+    paths: ["cross/**", ".github/workflows/cross.yml"]
+  pull_request:
+    paths: ["cross/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: ubuntu-latest
+            rid: linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build
+        run: dotnet build cross/src/ServerIsland.Desktop -c Release
+
+      - name: Self-test
+        shell: bash
+        run: dotnet run --project cross/src/ServerIsland.Desktop -c Release --no-build -- --selftest
+
+      - name: Install X server (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb dbus-x11 libice6 libsm6 libfontconfig1 fonts-noto-cjk
+
+      - name: UI smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          dotnet run --project cross/src/ServerIsland.Desktop -c Release --no-build -- --ui-smoke "$RUNNER_TEMP/smoke"
+          cat "$RUNNER_TEMP/smoke/result.txt"
+          grep -qx OK "$RUNNER_TEMP/smoke/result.txt"
+
+      - name: UI smoke test (Linux, Xvfb)
+        if: runner.os == 'Linux'
+        run: |
+          dbus-run-session -- xvfb-run -a -s "-screen 0 1920x1080x24" \
+            dotnet run --project cross/src/ServerIsland.Desktop -c Release --no-build -- --ui-smoke "$RUNNER_TEMP/smoke"
+          cat "$RUNNER_TEMP/smoke/result.txt"
+          grep -qx OK "$RUNNER_TEMP/smoke/result.txt"
+
+      - name: Upload smoke screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-smoke-${{ matrix.rid }}
+          path: ${{ runner.temp }}/smoke
+          if-no-files-found: ignore
+
+      - name: Package
+        shell: bash
+        run: |
+          sudo apt-get install -y zip 2>/dev/null || true
+          cross/scripts/publish.sh ${{ matrix.rid }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ServerIsland-${{ matrix.rid }}
+          path: |
+            build/ServerIsland-*-${{ matrix.rid }}.zip
+            build/ServerIsland-*-${{ matrix.rid }}.tar.gz
+          if-no-files-found: error

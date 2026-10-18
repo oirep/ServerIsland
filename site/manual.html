@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en" data-lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ServerIsland Guide</title>
+  <meta name="description" content="How to install and use ServerIsland on macOS, Windows and Linux: adding servers, the notch panel, alerts, logins and progress detection.">
+  <script>
+    (function () {
+      var l = null;
+      try { l = localStorage.getItem("si-lang"); } catch (e) {}
+      if (l !== "zh" && l !== "en") {
+        var langs = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || ""];
+        l = /^zh/i.test(langs[0]) ? "zh" : "en";
+      }
+      document.documentElement.setAttribute("data-lang", l);
+      document.documentElement.setAttribute("lang", l === "zh" ? "zh-CN" : "en");
+    })();
+  </script>
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body data-title-zh="使用手册 — ServerIsland" data-title-en="Guide — ServerIsland">
+
+<header class="nav">
+  <a class="brand" href="index.html">
+    <canvas class="tako" data-mood="idle" data-size="26" width="26" height="26" aria-hidden="true"></canvas>
+    <span>ServerIsland</span>
+  </a>
+  <nav class="nav-links">
+    <a href="index.html#features"><span lang="zh">功能</span><span lang="en">Features</span></a>
+    <a href="index.html#apps"><span lang="zh">计算软件</span><span lang="en">Software</span></a>
+    <a class="current" href="manual.html"><span lang="zh">使用手册</span><span lang="en">Guide</span></a>
+    <a href="index.html#opensource"><span lang="zh">开源</span><span lang="en">Open source</span></a>
+  </nav>
+  <div class="nav-right">
+    <a class="gh-link js-github" href="index.html#download" aria-label="GitHub"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><span>GitHub</span></a>
+    <button class="lang-toggle" type="button" aria-label="Switch language"><span lang="zh">EN</span><span lang="en">中文</span></button>
+    <a class="btn btn-small" href="#install"><span lang="zh">下载</span><span lang="en">Download</span></a>
+  </div>
+</header>
+
+<div class="doc-hero">
+  <canvas class="tako" data-mood="working" data-size="64" width="64" height="64" aria-hidden="true"></canvas>
+  <div>
+    <h1><span lang="zh">使用手册</span><span lang="en">User Guide</span></h1>
+    <p><span lang="zh">从安装到日常使用，十分钟上手 ServerIsland。</span><span lang="en">From installation to everyday use — get going with ServerIsland in ten minutes.</span></p>
+  </div>
+</div>
+<nav class="doc-tabs">
+  <a class="active" href="manual.html"><span lang="zh">上手指南</span><span lang="en">Getting started</span></a>
+  <a href="features.html"><span lang="zh">功能详解</span><span lang="en">Feature tour</span></a>
+</nav>
+
+<div class="docs">
+  <aside class="toc">
+    <b><span lang="zh">目录</span><span lang="en">Contents</span></b>
+    <a href="#install"><span lang="zh">安装</span><span lang="en">Install</span></a>
+    <a class="sub" href="#first-launch"><span lang="zh">第一次打开</span><span lang="en">First launch</span></a>
+    <a href="#quickstart"><span lang="zh">添加服务器</span><span lang="en">Add servers</span></a>
+    <a href="#panel"><span lang="zh">认识面板</span><span lang="en">The panel</span></a>
+    <a href="#details"><span lang="zh">任务详情与取消</span><span lang="en">Job details</span></a>
+    <a href="#alerts"><span lang="zh">提醒与提示音</span><span lang="en">Alerts</span></a>
+    <a href="#login"><span lang="zh">登录方式与跳板机</span><span lang="en">Logins &amp; jump hosts</span></a>
+    <a href="#progress"><span lang="zh">计算进度</span><span lang="en">Progress</span></a>
+    <a href="#winlinux"><span lang="zh">Windows 与 Linux</span><span lang="en">Windows &amp; Linux</span></a>
+    <a href="#faq"><span lang="zh">常见问题</span><span lang="en">FAQ</span></a>
+    <a href="#files"><span lang="zh">文件位置</span><span lang="en">Files</span></a>
+  </aside>
+
+  <main class="doc">
+
+    <!-- 安装 -->
+    <section id="install">
+      <h2><span lang="zh">安装</span><span lang="en">Install</span></h2>
+      <p><span lang="zh">从 GitHub 的 Releases 页面下载对应平台的安装包即可，免费、不需要账号，也不需要另装运行环境。服务器上什么都不用装。</span>
+         <span lang="en">Grab the package for your platform from the GitHub Releases page. It's free, needs no account and no extra runtime — and nothing is installed on your servers.</span></p>
+      <div class="platforms">
+        <div class="platform">
+          <h3><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16.4 12.6c0-2.6 2.1-3.8 2.2-3.9-1.2-1.8-3.1-2-3.7-2-1.6-.2-3.1.9-3.9.9-.8 0-2-.9-3.4-.9-1.7 0-3.3 1-4.2 2.6-1.8 3.1-.5 7.7 1.3 10.2.9 1.2 1.9 2.6 3.2 2.6 1.3-.1 1.8-.8 3.3-.8 1.6 0 2 .8 3.4.8 1.4 0 2.3-1.3 3.1-2.5 1-1.4 1.4-2.8 1.4-2.9 0 0-2.7-1-2.7-4.1zM13.9 5c.7-.9 1.2-2 1.1-3.2-1 0-2.3.7-3 1.6-.7.8-1.3 2-1.1 3.1 1.2.1 2.3-.6 3-1.5z"/></svg>macOS</h3>
+          <span class="req"><span lang="zh">macOS 14 及以上 · Apple 芯片与 Intel</span><span lang="en">macOS 14+ · Apple silicon &amp; Intel</span></span>
+          <ol>
+            <li><span lang="zh">下载 <code>ServerIsland-x.y.z.dmg</code></span><span lang="en">Download <code>ServerIsland-x.y.z.dmg</code></span></li>
+            <li><span lang="zh">打开 DMG，把 ServerIsland 拖进"应用程序"</span><span lang="en">Open it and drag ServerIsland into Applications</span></li>
+            <li><span lang="zh">打开 App，它会出现在刘海里</span><span lang="en">Launch it — it appears in the notch</span></li>
+          </ol>
+          <a class="btn btn-ghost js-github" data-path="/releases/latest" href="#"><span lang="zh">下载 macOS 版</span><span lang="en">Download for macOS</span></a>
+        </div>
+        <div class="platform">
+          <h3><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 5.4 10.4 4.4v7.1H3zM11.4 4.3 21 3v8.5h-9.6zM3 12.5h7.4v7.1L3 18.6zM11.4 12.5H21V21l-9.6-1.3z"/></svg>Windows</h3>
+          <span class="req"><span lang="zh">Windows 10 / 11 · 64 位（Intel / AMD）</span><span lang="en">Windows 10 / 11 · 64-bit (Intel / AMD)</span></span>
+          <ol>
+            <li><span lang="zh">下载 <code>ServerIsland-x.y.z-win-x64.zip</code></span><span lang="en">Download <code>ServerIsland-x.y.z-win-x64.zip</code></span></li>
+            <li><span lang="zh">解压到任意文件夹（比如"文档"）</span><span lang="en">Unzip it anywhere (e.g. Documents)</span></li>
+            <li><span lang="zh">双击 <code>ServerIsland.exe</code></span><span lang="en">Double-click <code>ServerIsland.exe</code></span></li>
+          </ol>
+          <a class="btn btn-ghost js-github" data-path="/releases/latest" href="#"><span lang="zh">下载 Windows 版</span><span lang="en">Download for Windows</span></a>
+        </div>
+        <div class="platform">
+          <h3><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 17l6-6-6-6M12 19h8"/></svg>Linux</h3>
+          <span class="req"><span lang="zh">x64 · X11 或 XWayland · 需要系统托盘</span><span lang="en">x64 · X11 or XWayland · a system tray</span></span>
+          <ol>
+            <li><span lang="zh">下载 <code>ServerIsland-x.y.z-linux-x64.tar.gz</code></span><span lang="en">Download <code>ServerIsland-x.y.z-linux-x64.tar.gz</code></span></li>
+            <li><span lang="zh">解压：<code>tar xzf ServerIsland-*.tar.gz</code></span><span lang="en">Extract: <code>tar xzf ServerIsland-*.tar.gz</code></span></li>
+            <li><span lang="zh">运行 <code>./ServerIsland</code></span><span lang="en">Run <code>./ServerIsland</code></span></li>
+          </ol>
+          <a class="btn btn-ghost js-github" data-path="/releases/latest" href="#"><span lang="zh">下载 Linux 版</span><span lang="en">Download for Linux</span></a>
+        </div>
+      </div>
+
+      <h3 id="first-launch"><span lang="zh">第一次打开时被系统拦住？</span><span lang="en">Blocked on first launch?</span></h3>
+      <p><span lang="zh">ServerIsland 是免费的开源软件，没有购买商业签名，所以第一次打开时系统会提醒一下，允许一次就好：</span>
+         <span lang="en">ServerIsland is free and open source and isn't commercially signed, so your system asks once. Allow it and you're done:</span></p>
+      <ul>
+        <li><span lang="zh"><b>macOS 15 及以后</b>：先双击打开一次（会被拦住），然后到 系统设置 → 隐私与安全性，往下找到 ServerIsland，点"仍要打开"。<b>macOS 14</b>：按住 Control 点 App 图标，选"打开"。</span>
+            <span lang="en"><b>macOS 15 and later</b>: double-click once (it gets blocked), then go to System Settings → Privacy &amp; Security and click "Open Anyway". <b>macOS 14</b>: Control-click the app and choose Open.</span></li>
+        <li><span lang="zh"><b>Windows</b>：如果出现"Windows 已保护你的电脑"，点"更多信息"→"仍要运行"。</span>
+            <span lang="en"><b>Windows</b>: if you see "Windows protected your PC", click "More info" → "Run anyway".</span></li>
+        <li><span lang="zh"><b>Linux</b>：如果提示没有执行权限，运行 <code>chmod +x ServerIsland</code>。GNOME 默认没有托盘，需要装 AppIndicator 扩展。</span>
+            <span lang="en"><b>Linux</b>: if it isn't executable, run <code>chmod +x ServerIsland</code>. GNOME has no tray by default — install the AppIndicator extension.</span></li>
+      </ul>
+      <div class="callout tip"><p><span lang="zh">想先看看效果？用演示模式启动，会显示两台假服务器，不连接任何机器：Mac 上运行 <code>open /Applications/ServerIsland.app --args --demo</code>；Windows 上在命令提示符里运行 <code>ServerIsland.exe --demo</code>；Linux 上运行 <code>./ServerIsland --demo</code>。</span>
+        <span lang="en">Want a look first? Start in demo mode with two fake servers — nothing is contacted: <code>open /Applications/ServerIsland.app --args --demo</code> on macOS, <code>ServerIsland.exe --demo</code> in a Windows command prompt, <code>./ServerIsland --demo</code> on Linux.</span></p></div>
+    </section>
+
+    <!-- 添加服务器 -->
+    <section id="quickstart">
+      <h2><span lang="zh">添加服务器</span><span lang="en">Add your servers</span></h2>
+      <p><span lang="zh">ServerIsland 通过 SSH 查看服务器。已经在 <code>~/.ssh/config</code>（Windows 上是 <code>%USERPROFILE%\.ssh\config</code>）里配好的机器可以直接选；没写过这个文件也没关系，可以在 ServerIsland 里直接填地址。</span>
+         <span lang="en">ServerIsland talks to your servers over SSH. Hosts already in your <code>~/.ssh/config</code> (<code>%USERPROFILE%\.ssh\config</code> on Windows) can be picked from a list; never written one? Just type the address into ServerIsland.</span></p>
+      <ol class="steps">
+        <li><span lang="zh"><b>打开设置。</b>第一次启动时会自动打开；以后可以点面板右上角的 ⚙，或者菜单栏 / 托盘图标 → 设置。</span>
+            <span lang="en"><b>Open Settings.</b> It opens by itself on first launch; later use ⚙ at the top right of the panel, or the menu-bar / tray icon → Settings.</span></li>
+        <li><span lang="zh"><b>点"添加服务器"</b>：在"从 ~/.ssh/config 选择"里勾选机器；或者切到<b>"手动填写"</b>，填地址、用户名、端口（默认 22）和私钥文件（可留空）。ServerIsland 不会改动你的 <code>~/.ssh/config</code>。</span>
+            <span lang="en"><b>Click "Add Server"</b>: tick hosts under "From ~/.ssh/config", or switch to <b>"Enter Manually"</b> and fill in the address, user, port (22 by default) and key file (optional). ServerIsland never changes your <code>~/.ssh/config</code>.</span></li>
+        <li><span lang="zh"><b>选择类型</b>：Slurm 集群、PBS 集群（PBS Pro / OpenPBS / Torque，看作业队列）或直连服务器（看进程和 GPU）。不确定的话，在服务器页面点"自动检测类型"。</span>
+            <span lang="en"><b>Pick a type</b>: Slurm cluster, PBS cluster (PBS Pro / OpenPBS / Torque — both show the job queue) or direct server (processes and GPUs). Not sure? Click "Detect Type" on the server page.</span></li>
+        <li><span lang="zh"><b>只看某些目录（可选）</b>：服务器页面"显示内容"里的"只看这些目录"，每行一个，比如 <code>~/projects/LLZO</code>。之后只显示工作目录在这些文件夹（含子文件夹）里的作业和进程。</span>
+            <span lang="en"><b>Only some folders (optional)</b>: "Only These Folders" under Display on the server page, one per line, e.g. <code>~/projects/LLZO</code>. Only jobs and processes whose working directory is inside them are shown.</span></li>
+        <li><span lang="zh"><b>选择认证方式</b>：密钥、密码、密钥 + 密码或动态口令；要经过跳板机的，在"跳板机"里选（见下文<a href="#login">登录方式与跳板机</a>）。</span>
+            <span lang="en"><b>Pick how you log in</b>: key, password, key + password, or one-time code; pick a jump host if you need one (see <a href="#login">Logins &amp; jump hosts</a>).</span></li>
+        <li><span lang="zh"><b>完成。</b>几秒后刘海里就会出现数据。把鼠标移上去看看。</span>
+            <span lang="en"><b>Done.</b> Data shows up within seconds — hover the notch.</span></li>
+      </ol>
+      <div class="callout"><p><span lang="zh">单机装了 Slurm 的工作站（既用 sbatch 也直接跑程序）：类型选 Slurm，再打开"同时显示直接运行的进程"。如果提示找不到 <code>squeue</code>，在服务器页面的"连接后先执行"里写上 <code>module load slurm</code> 或 <code>source …/env.sh</code>。</span>
+        <span lang="en">A workstation with its own Slurm (you both sbatch and run things directly)? Choose Slurm and turn on "Also Show Direct Processes". If <code>squeue</code> isn't found, put <code>module load slurm</code> or <code>source …/env.sh</code> in "Run First" on the server page.</span></p></div>
+    </section>
+
+    <!-- 面板 -->
+    <section id="panel">
+      <h2><span lang="zh">认识面板</span><span lang="en">The panel</span></h2>
+      <p><span lang="zh">ServerIsland 平时缩在刘海两侧：左边是 Tako 和正在运行的任务数，右边是最接近完成的任务进度。有任务结束时会弹出提示；鼠标移上去就展开成完整面板，移开自动收起。</span>
+         <span lang="en">Most of the time ServerIsland sits beside the notch: Tako and the number of running jobs on the left, the job closest to finishing on the right. It pops up when something ends, expands into the full panel on hover, and folds away when you move on.</span></p>
+      <figure class="shot"><img data-shot="expanded" alt="Expanded panel" loading="lazy"></figure>
+      <table>
+        <tr><th><span lang="zh">位置</span><span lang="en">Where</span></th><th><span lang="zh">作用</span><span lang="en">What it does</span></th></tr>
+        <tr><td><span lang="zh">顶部 ⏱ 1m</span><span lang="en">Top ⏱ 1m</span></td><td><span lang="zh">所有服务器的刷新间隔；也可以改成"仅手动刷新"</span><span lang="en">Refresh interval for all servers, or "Manual refresh only"</span></td></tr>
+        <tr><td><span lang="zh">顶部 📌</span><span lang="en">Top 📌</span></td><td><span lang="zh">固定面板：鼠标移开也不收起</span><span lang="en">Pin: keep the panel open when the mouse leaves</span></td></tr>
+        <tr><td><span lang="zh">顶部 ↻ / ⚙</span><span lang="en">Top ↻ / ⚙</span></td><td><span lang="zh">立即刷新全部 / 打开设置</span><span lang="en">Refresh everything now / open Settings</span></td></tr>
+        <tr><td><span lang="zh">卡片上的 👁 或 ▦</span><span lang="en">Card 👁 or ▦</span></td><td><span lang="zh">直连服务器：从高负载进程里挑一个"监听"；Slurm：查看各分区空闲的 CPU / GPU</span><span lang="en">Direct servers: pick a busy process to watch; Slurm: free CPUs / GPUs per partition</span></td></tr>
+        <tr><td><span lang="zh">卡片上的 🕘</span><span lang="en">Card 🕘</span></td><td><span lang="zh">最近 24 小时结束的任务</span><span lang="en">Jobs that ended in the last 24 hours</span></td></tr>
+        <tr><td><span lang="zh">卡片上的 1m / ⏸ / 🔔</span><span lang="en">Card 1m / ⏸ / 🔔</span></td><td><span lang="zh">这台服务器自己的刷新间隔 / 暂停自动刷新 / 静音</span><span lang="en">This server's own interval / pause auto refresh / mute</span></td></tr>
+        <tr><td><span lang="zh">任务行</span><span lang="en">A job row</span></td><td><span lang="zh">点击看详情和日志；右键复制作业号、名称或完整命令</span><span lang="en">Click for details and the log; right-click to copy the ID, name or full command</span></td></tr>
+      </table>
+      <p><span lang="zh">没有任务的服务器会合并成一行"N 台空闲"，点一下展开。每张卡片最多显示 5 个任务，多的点"还有 N 个任务，查看全部"，那里可以搜索和筛选。</span>
+         <span lang="en">Servers with nothing running fold into one "N idle" line — click to expand. A card shows up to five jobs; "N more — show all" opens a searchable, filterable list.</span></p>
+    </section>
+
+    <!-- 详情 -->
+    <section id="details">
+      <h2><span lang="zh">任务详情与取消</span><span lang="en">Job details &amp; cancelling</span></h2>
+      <p><span lang="zh">点开任务可以看到作业信息、工作目录、实时刷新的日志末尾（每 4 秒），识别到计算软件时还有进度、速度、预计剩余时间和曲线。路径、作业号旁边都有复制按钮，"tail -f"按钮会复制一条在终端里实时看日志的命令。</span>
+         <span lang="en">Open a job to see its info, working directory and a live log tail (every 4 s); for recognised software you also get progress, speed, ETA and a curve. Paths and IDs have copy buttons, and "tail -f" copies a command to follow the log in your terminal.</span></p>
+      <figure class="shot"><img data-shot="detail-confirm" alt="Job detail with cancel confirmation" loading="lazy"></figure>
+      <div class="callout warn"><p><span lang="zh"><b>取消任务默认是关闭的。</b>需要在设置里为这台服务器打开"允许取消任务"；之后在详情页要按住按钮 1.5 秒、再点一次确认，执行前 ServerIsland 还会在服务器上核对任务名称、所有者和启动时间，对不上就不执行。</span>
+        <span lang="en"><b>Cancelling is off by default.</b> Turn on "Allow Cancelling" for that server in Settings; then on the job page hold the button for 1.5 s and confirm. Before running anything, ServerIsland re-checks the job's name, owner and start time on the server, and refuses if they don't match.</span></p></div>
+    </section>
+
+    <!-- 提醒 -->
+    <section id="alerts">
+      <h2><span lang="zh">提醒与提示音</span><span lang="en">Alerts &amp; sounds</span></h2>
+      <ul>
+        <li><span lang="zh"><b>什么时候提醒</b>：任务完成或失败、排队的任务开始运行、数组作业全部结束（可选：第一个元素失败时也提醒）、磁盘快满了。</span>
+            <span lang="en"><b>When</b>: a job finishes or fails, a pending job starts, a job array completes (optionally also on its first failure), a disk is nearly full.</span></li>
+        <li><span lang="zh"><b>怎么判断成功还是失败</b>：Slurm 优先看 <code>sacct</code>；集群没开作业记录时，按计算软件的输出判断是正常结束还是提前退出；都没有就只说"已离开队列"，不瞎猜。</span>
+            <span lang="en"><b>Success or failure</b>: Slurm jobs use <code>sacct</code>; without job accounting, the software's own output tells a clean finish from an early exit; if neither is available it just says "left the queue" — no guessing.</span></li>
+        <li><span lang="zh"><b>提示音</b>：成功和失败是两种声音，可以在 设置 → 通用 → 提示音 里试听、调音量或关掉。</span>
+            <span lang="en"><b>Sounds</b>: success and failure sound different; preview, adjust or turn them off in Settings → General → Sounds.</span></li>
+        <li><span lang="zh"><b>不想被打扰</b>：点卡片上的 🔔 静音这台服务器，或者 ⏸ 暂停它的自动刷新。</span>
+            <span lang="en"><b>Too chatty?</b> Mute a server with 🔔 on its card, or pause its auto refresh with ⏸.</span></li>
+      </ul>
+    </section>
+
+    <!-- 登录 -->
+    <section id="login">
+      <h2><span lang="zh">登录方式与跳板机</span><span lang="en">Logins &amp; jump hosts</span></h2>
+      <p><span lang="zh">在服务器页面的"认证方式"里选：</span>
+         <span lang="en">Choose under "Authentication" on the server page:</span></p>
+      <ul>
+        <li><span lang="zh"><b>密钥</b>：用 SSH 密钥（或 ssh-agent）登录，全程在后台进行，什么都不用输。</span>
+            <span lang="en"><b>Key</b>: logs in with your SSH key (or ssh-agent), entirely in the background.</span></li>
+        <li><span lang="zh"><b>密码</b>：卡片上出现"需要登录"时点 <b>登录…</b>，在弹出的对话框里输入密码。</span>
+            <span lang="en"><b>Password</b>: when the card says "Login required", click <b>Log In…</b> and type your password into the dialog.</span></li>
+        <li><span lang="zh"><b>密钥 + 密码</b>：有的集群要求两样都有——先验证密钥，再输密码。密钥在"私钥文件"里选（或用默认的），密码在登录时输入。用"密钥"登录时如果提示"密钥已通过，服务器还要求密码"，就改选这一项。</span>
+            <span lang="en"><b>Key + password</b>: some clusters need both — your key first, then a password. Pick the key under "Key File" (or use the default) and type the password when you log in. If "Key" mode tells you "Key accepted, but the server also wants a password", switch to this one.</span></li>
+        <li><span lang="zh"><b>动态口令</b>：每次的验证码都不同（二次验证、令牌），只能每次手动输入。</span>
+            <span lang="en"><b>One-time code</b>: the code changes every time (2FA, tokens), so you type it each time.</span></li>
+      </ul>
+      <p><span lang="zh">登录后连接会在后台保持（默认 24 小时，可以在服务器页面改成 8 小时、3 天或一直保持），之后的刷新都复用这条连接，不会再问你。</span>
+         <span lang="en">After you log in, the connection stays open in the background (24 hours by default — 8 hours, 3 days or "until disconnected" on the server page) and every refresh reuses it.</span></p>
+      <div class="callout tip"><p><span lang="zh"><b>密码默认不保存。</b>如果嫌每次断线都要重新输，可以打开"记住密码"（只有"密码"和"密钥 + 密码"有这个选项）：下次登录时输入的密码存进系统自带的钥匙串——macOS 钥匙串、Windows 凭据管理器或 Linux 的系统钥匙圈，不会写进配置文件；连接断开后 ServerIsland 会用它自动重新登录。关掉开关会立刻删除。动态口令从不保存。</span>
+        <span lang="en"><b>Passwords are not stored by default.</b> If retyping after every disconnect gets old, turn on "Remember Password" (only for "Password" and "Key + password"): the password you enter at the next login goes into your system's own keychain — the macOS Keychain, Windows Credential Manager or the Linux keyring, never the config file — and ServerIsland uses it to log in again automatically when the connection drops. Turning the switch off deletes it right away. One-time codes are never stored.</span></p></div>
+      <h3><span lang="zh">跳板机</span><span lang="en">Jump hosts</span></h3>
+      <p><span lang="zh">要先登录一台跳板机才能连到集群？先把跳板机也添加为一台服务器（不想在刘海里看到它，就关掉它的"启用"），再在集群的服务器页面"跳板机"里选它。跳板机自己也可以再经过另一台跳板机。登录时每一跳需要密码都会单独弹窗，写明是哪台机器；出错时也会告诉你是哪一跳的问题。跳板机已经登录时，经它连接的服务器直接复用它的连接。</span>
+         <span lang="en">Need to hop through a gateway first? Add the gateway as a server too (turn off its "Enabled" if you don't want it in the notch), then pick it under "Jump Host" on the cluster's page. A jump host can itself go through another one. When logging in, each hop that needs a password gets its own dialog naming the machine, and errors tell you which hop failed. While the jump host is logged in, servers behind it reuse its connection.</span></p>
+      <p><span lang="zh">在 <code>~/.ssh/config</code> 里写好了 <code>ProxyJump</code> 的话，不用在这里重复设置，照常生效。</span>
+         <span lang="en">Already have <code>ProxyJump</code> in your <code>~/.ssh/config</code>? It keeps working — no need to set it again here.</span></p>
+      <p><span lang="zh">第一次连接某台服务器时，可能还会让你确认它的"主机指纹"——确认是你的服务器后再继续。</span>
+         <span lang="en">The first time you connect to a server you may be asked to confirm its host key — continue only if it's really your server.</span></p>
+    </section>
+
+    <!-- 进度 -->
+    <section id="progress">
+      <h2><span lang="zh">计算进度</span><span lang="en">Computation progress</span></h2>
+      <p><span lang="zh">ServerIsland 会看任务工作目录里的文件，自动认出 NEP / GNEP、GPUMD、VASP 和 LAMMPS，显示真实的进度而不只是"运行中"。格式对不上时宁可不显示，也不会给你一个错的数字。</span>
+         <span lang="en">ServerIsland looks at the files in each job's working directory and recognises NEP / GNEP, GPUMD, VASP and LAMMPS, so you see real progress instead of just "RUNNING". If anything doesn't match, it shows nothing rather than a wrong number.</span></p>
+      <ul>
+        <li><span lang="zh"><b>自己的程序</b>：设置 → 进度识别 → 添加规则。填一个文件名（可以用 <code>*.log</code>）和关键字（比如 <code>epoch</code>），点"测试"就能在真实目录上试，规则对所有服务器生效。</span>
+            <span lang="en"><b>Your own code</b>: Settings → Progress Detection → Add Rule. Give a file name (wildcards like <code>*.log</code> work) and a keyword such as <code>epoch</code>, then hit "Test" against a real directory. Rules apply to every server.</span></li>
+        <li><span lang="zh"><b>让脚本主动上报</b>：往服务器的 <code>~/.serverisland/progress/名称.json</code> 写一行 JSON 即可：</span>
+            <span lang="en"><b>Report from your script</b>: write one line of JSON to <code>~/.serverisland/progress/name.json</code> on the server:</span></li>
+      </ul>
+      <pre><code>{"name": "train", "progress": 0.42, "message": "epoch 3/10", "jobid": "12345"}</code></pre>
+      <p><span lang="zh">各软件具体怎么识别，见<a href="features.html#software">功能详解</a>。</span><span lang="en">How each package is detected is covered in the <a href="features.html#software">feature tour</a>.</span></p>
+    </section>
+
+    <!-- Windows / Linux -->
+    <section id="winlinux">
+      <h2><span lang="zh">Windows 与 Linux</span><span lang="en">Windows &amp; Linux</span></h2>
+      <p><span lang="zh">Windows 和 Linux 版功能和 Mac 版一样，只是电脑上没有刘海，所以多了两种显示方式，在 设置 → 通用 → 显示方式 里切换：</span>
+         <span lang="en">The Windows and Linux versions do everything the Mac version does. There's no notch, so you get two ways to show it — switch under Settings → General → Display Style:</span></p>
+      <ul>
+        <li><span lang="zh"><b>灵动岛</b>（默认）：挂在主屏幕顶部正中，用法和 Mac 一样，鼠标移上去展开。</span>
+            <span lang="en"><b>Island</b> (default): hangs from the top center of your main screen and works just like on a Mac — hover to expand.</span></li>
+        <li><span lang="zh"><b>桌面小章鱼</b>：Tako 待在桌面上，可以拖到任何地方；身上的小徽章显示运行数或异常，鼠标移上去展开面板，点一下固定。</span>
+            <span lang="en"><b>Desktop pet</b>: Tako sits on your desktop and can be dragged anywhere; a little badge shows running jobs or problems. Hover to open the panel, click to pin it.</span></li>
+      </ul>
+      <figure class="shot narrow"><img data-shot="cross-pet" alt="Desktop pet mode" loading="lazy"></figure>
+      <ul>
+        <li><span lang="zh"><b>托盘图标</b>：右下角（Windows 通知区域）或状态栏里有一个 Tako 图标，点击打开并固定面板，右键可以刷新、切换显示方式、打开设置、退出。</span>
+            <span lang="en"><b>Tray icon</b>: Tako also lives in the notification area (Windows) or status bar (Linux). Click to open and pin the panel; right-click to refresh, switch display style, open Settings or quit.</span></li>
+        <li><span lang="zh"><b>SSH</b>：Windows 上默认用内置 SSH，读取你的 <code>.ssh\config</code> 和 <code>known_hosts</code>，支持密钥、跳板机（ProxyJump）、密码和动态口令。如果你依赖 ssh-agent 或 ProxyCommand，在 设置 → 通用 → SSH 实现 里改成"系统 ssh"。Linux 上默认就用系统 ssh。</span>
+            <span lang="en"><b>SSH</b>: on Windows the built-in SSH is used by default — it reads your <code>.ssh\config</code> and <code>known_hosts</code> and supports keys, ProxyJump, passwords and one-time codes. If you rely on ssh-agent or ProxyCommand, switch Settings → General → SSH Implementation to "System ssh". Linux uses the system ssh by default.</span></li>
+        <li><span lang="zh"><b>通知</b>：Windows 上以弹窗和提示音提醒；Linux 上还会发系统通知。</span>
+            <span lang="en"><b>Notifications</b>: Windows alerts with the pop-up and sounds; Linux also posts system notifications.</span></li>
+      </ul>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq">
+      <h2><span lang="zh">常见问题</span><span lang="en">FAQ</span></h2>
+      <h3><span lang="zh">卡片上提示找不到 squeue</span><span lang="en">The card says squeue was not found</span></h3>
+      <p><span lang="zh">很多集群只在交互式登录时才加载 Slurm。ServerIsland 会自动从 <code>~/.bashrc</code> 等文件补全 PATH；还不行的话，在服务器页面的"连接后先执行"里写 <code>module load slurm</code>，再点"检查命令"确认。如果这台机器根本不是 Slurm，卡片上可以一键改成直连服务器。</span>
+         <span lang="en">Many clusters only load Slurm for interactive logins. ServerIsland adds the PATH entries from <code>~/.bashrc</code> and friends automatically; if that's not enough, put <code>module load slurm</code> in "Run First" on the server page and click "Check Commands". If the machine isn't a Slurm cluster at all, switch it to Direct right from the card.</span></p>
+      <h3><span lang="zh">任务结束了却没有提醒</span><span lang="en">A job ended but nothing popped up</span></h3>
+      <p><span lang="zh">先确认这台服务器没有被静音（🔔）或暂停（⏸）。运行不到 30 秒就结束的进程不会提醒。还不清楚的话看诊断日志（位置见<a href="#files">文件位置</a>）：每次刷新、每个任务结束、每条提醒发没发都有记录。</span>
+         <span lang="en">Check the server isn't muted (🔔) or paused (⏸). Processes that end within 30 seconds aren't reported. Still unsure? The diagnostic log (see <a href="#files">Files</a>) records every refresh, every job that ended and whether each alert went out.</span></p>
+      <h3><span lang="zh">会不会给服务器增加负担？</span><span lang="en">Does it load the server?</span></h3>
+      <p><span lang="zh">几乎不会。每台服务器每次刷新只开一个 SSH 通道，只读小文件和文件末尾；Slurm 每次只调一次 <code>squeue</code>。刷新间隔可以按服务器调，也可以改成只手动刷新。连接出错时会自动拉长间隔，不会触发服务器的封禁。</span>
+         <span lang="en">Barely. Each refresh opens one SSH channel per server and reads only small files and file tails; Slurm sees a single <code>squeue</code>. Intervals are per server, or manual only. On errors it backs off automatically, so it won't trip fail2ban.</span></p>
+      <h3><span lang="zh">某条命令在我的服务器上不对</span><span lang="en">A command doesn't fit my server</span></h3>
+      <p><span lang="zh">服务器页面最下面的"高级 → 远程命令"里每条命令都可以改；"测试连接并查看原始输出"会把服务器的原始回应显示出来，方便核对。</span>
+         <span lang="en">Every remote command can be edited under Advanced → Remote Commands at the bottom of the server page, and "Test Connection &amp; Show Raw Output" shows exactly what the server returned.</span></p>
+    </section>
+
+    <!-- 文件位置 -->
+    <section id="files">
+      <h2><span lang="zh">文件位置</span><span lang="en">Where files live</span></h2>
+      <table>
+        <tr><th></th><th><span lang="zh">配置</span><span lang="en">Settings</span></th><th><span lang="zh">诊断日志</span><span lang="en">Diagnostic log</span></th></tr>
+        <tr><td>macOS</td><td><code>~/Library/Application Support/ServerIsland/</code></td><td><code>~/Library/Logs/ServerIsland/</code></td></tr>
+        <tr><td>Windows</td><td><code>%APPDATA%\ServerIsland\</code></td><td><code>%LOCALAPPDATA%\ServerIsland\Logs\</code></td></tr>
+        <tr><td>Linux</td><td><code>~/.config/ServerIsland/</code></td><td><code>~/.local/state/ServerIsland/</code></td></tr>
+      </table>
+      <p><span lang="zh">诊断日志只在本机，默认保留 7 天（设置 → 通用 → 文件与诊断 → 日志保留，可改成 1 天到永久），也可以点"清除日志…"马上清空。</span>
+         <span lang="en">The diagnostic log stays on your computer and is kept for 7 days by default (Settings → General → Files &amp; Diagnostics → Keep Logs For, from 1 day to forever); "Clear Log…" empties it right away.</span></p>
+      <p><span lang="zh">三个平台的配置文件格式一样，可以直接拷过去用。设置 → 通用 → 文件与诊断 里有打开这两个位置的按钮。卸载时删掉 App（或解压出来的文件夹）和上面两个目录即可。</span>
+         <span lang="en">The settings file has the same format on all three platforms, so you can copy it across. Settings → General → Files &amp; Diagnostics has buttons to open both locations. To uninstall, delete the app (or the unzipped folder) and the two folders above.</span></p>
+      <div class="doc-next">
+        <span></span>
+        <a href="features.html"><span lang="zh">下一页：功能详解 →</span><span lang="en">Next: feature tour →</span></a>
+      </div>
+    </section>
+  </main>
+</div>
+
+<footer class="footer">
+  <canvas class="tako" data-mood="idle" data-size="20" width="20" height="20"></canvas>
+  <span>© 2026 Zihan Yan</span>
+  <a class="muted js-github" href="index.html">GitHub</a>
+  <span class="site-stats">
+    <span id="busuanzi_container_site_pv"><span lang="zh">访问量</span><span lang="en">Views</span> <span id="busuanzi_value_site_pv"></span></span>
+    <span id="busuanzi_container_site_uv"><span class="sep">·</span><span lang="zh">访客</span><span lang="en">Visitors</span> <span id="busuanzi_value_site_uv"></span></span>
+  </span>
+</footer>
+
+<script src="js/config.js"></script>
+<script src="js/tako.js"></script>
+<script src="js/main.js"></script>
+<script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+</body>
+</html>

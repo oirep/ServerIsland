@@ -1,5 +1,7 @@
 # 界面、中英文与资源
 
+> 总的设计风格和开发规范（两个版本共用）见 `design-guide.md`；本文件是 Mac 版界面的实现细节。Windows / Linux 版的界面实现见 `cross-platform.md`。
+
 ## 刘海（`Notch/`）
 
 - **形状**：`NotchShape`（在 `NotchGeometry.swift` 里）。顶部是向外弯的"耳朵"（ear），底部是普通圆角，两种半径都可以做动画。
@@ -49,6 +51,12 @@
 - 标题栏：`.toolbarBackground(.visible, for: .windowToolbar)`，避免内容滚动时和标题重叠。
 - 每一项都用 `HelpLabel("标题", help: "说明")`：标题后面带一个 ⓘ，悬停显示说明。**不要在标题里加括号写说明。**
 - 单台服务器页的分组顺序：概览 → 连接 → 环境 → 轮询 → 显示内容 → 计算软件 → 提醒 → 监听的进程 → 危险操作 → 高级（远程命令）→ 诊断。
+- "连接"分组：类型 → 自动检测 → 连接方式（`~/.ssh/config 别名` / `手动填写`，手动时显示地址、用户名、端口、私钥文件）→ 跳板机 → 认证方式 → 记住密码（只有"密码""密钥 + 密码"有）→ 保持连接和登录按钮（需要登录的认证方式才有）。这几组控件在 `ConnectionFields.swift` / `ConnectionFields.cs` 里，服务器页和"添加服务器"共用。
+- "显示内容"分组里有"只看这些目录"（多行文本框，每行一个目录）。
+- 类型有三种：Slurm 集群 / PBS 集群 / 直连服务器。PBS 的卡片没有分区按钮；取消按钮的文案用 `HostKind.cancelCommand`（scancel / qdel / kill -TERM）。
+- 详情页的曲线可以有多张（VASP 结构优化：能量 | 最大力），并排显示、总高度不变；并排时 `CurveChart(compact: true)` 省掉右上角的步数。`threshold` 画成琥珀色虚线并出现在图例里。
+- 通用页"文件与诊断"：日志保留（1 / 3 / 7 / 14 / 30 天 / 永久）和"清除日志…"（先确认，显示当前大小）。
+- "添加服务器"有两个页签：从 `~/.ssh/config` 选择 / 手动填写；`~/.ssh/config` 里没有条目时直接打开手动填写。
 - 窗口打开时临时把激活策略切到 `.regular`，关闭后切回 `.accessory`。
 
 ## 中英文（`Shared/Localization.swift`）

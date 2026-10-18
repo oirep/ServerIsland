@@ -4,6 +4,8 @@ struct HostDetailView: View {
     @Binding var host: HostConfig
     @ObservedObject var engine: MonitorEngine
     var globalInterval: Int = 60
+    /// 全部服务器（选跳板机用）。
+    var allHosts: [HostConfig] = []
     var onDelete: () -> Void
 
     @State private var diagnosing = false
@@ -39,7 +41,7 @@ struct HostDetailView: View {
         }
         .formStyle(.grouped)
         .navigationTitle(host.displayName)
-        .task(id: host.auth) { if host.auth == .interactive { await checkMaster() } }
+        .task(id: host.auth) { if host.auth.needsLogin { await checkMaster() } }
         .confirmationDialog(L("移除 \(host.displayName)？", "Remove \(host.displayName)?"), isPresented: $confirmDelete) {
             Button(L("移除", "Remove"), role: .destructive, action: onDelete)
         } message: {
@@ -62,14 +64,25 @@ struct HostDetailView: View {
                     Text(detectMessage).font(.caption).foregroundStyle(.secondary)
                 }
             }
-            Picker(selection: $host.auth) {
-                ForEach(AuthMode.allCases) { Text($0.label).tag($0) }
+            Picker(selection: Binding(get: { host.isManual }, set: { setManual($0) })) {
+                Text(L("~/.ssh/config 别名", "~/.ssh/config alias")).tag(false)
+                Text(L("手动填写", "Manual")).tag(true)
             } label: {
-                HelpLabel(L("认证方式", "Authentication"),
-                          help: L("密钥：后台直接用 ssh 密钥 / agent 连接。\n密码 / 动态口令：点“登录…”弹出密码框，输入只交给 ssh 用一次，ServerIsland 不保存；之后连接在后台保持并复用。",
-                                  "Key: connects in the background with your SSH key / agent.\nPassword / OTP: click “Log In…” to enter it in a native dialog. It is passed to ssh once and never stored; the connection is then kept alive and reused."))
+                HelpLabel(L("连接方式", "Connect Using"),
+                          help: L("别名：用 ~/.ssh/config 里写好的 Host（推荐已经配置过 ssh 的用户）。\n手动填写：直接填地址、用户名、端口、私钥，不需要 ~/.ssh/config。ServerIsland 不会修改 ~/.ssh/config。",
+                                  "Alias: use a Host from ~/.ssh/config (for people who already set up ssh).\nManual: fill in the address, user, port and key here — no ~/.ssh/config needed. ServerIsland never modifies ~/.ssh/config."))
             }
-            if host.auth == .interactive {
+            .pickerStyle(.segmented)
+            if host.isManual {
+                ManualAddressFields(host: $host)
+            } else {
+                LabeledContent(L("别名", "Alias")) {
+                    Text(host.alias).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+                }
+            }
+            JumpHostPicker(host: $host, allHosts: allHosts)
+            AuthFields(host: $host)
+            if host.auth.needsLogin {
                 Picker(selection: $host.keepAlive) {
                     ForEach(KeepAlive.allCases) { Text($0.label).tag($0) }
                 } label: {
@@ -167,16 +180,26 @@ struct HostDetailView: View {
     private var display: some View {
         Section {
             Toggle(isOn: $host.watchJobs) {
-                HelpLabel(host.kind == .slurm ? L("我的 Slurm 作业", "My Slurm Jobs") : L("我的进程", "My Processes"),
+                HelpLabel(host.kind == .slurm ? L("我的 Slurm 作业", "My Slurm Jobs") : host.kind == .pbs ? L("我的 PBS 作业", "My PBS Jobs") : L("我的进程", "My Processes"),
                           help: host.kind == .slurm ? L("用 squeue 读取你的作业，数组作业会合并成一行。", "Reads your jobs with squeue; job arrays are merged into one row.")
+                              : host.kind == .pbs ? L("用 qselect + qstat -f 读取你的作业（PBS Pro / OpenPBS / Torque），数组作业会合并成一行。", "Reads your jobs with qselect + qstat -f (PBS Pro / OpenPBS / Torque); job arrays are merged into one row.")
                                                     : L("用 ps 读取你的进程，按下面的规则过滤。", "Reads your processes with ps, filtered by the rules below."))
             }
-            if host.kind == .slurm {
+            if host.kind.isScheduler {
                 Toggle(isOn: $host.slurmAlsoProcesses) {
                     HelpLabel(L("同时显示直接运行的进程", "Also Show Direct Processes"),
-                              help: L("适合单机 Slurm 工作站：既用 sbatch 提交，也直接运行程序。属于 Slurm 作业的进程不会重复显示。集群登录节点一般不需要。",
-                                      "For single-machine Slurm workstations where you also run programs directly. Processes that belong to Slurm jobs are not listed twice. Usually not needed on cluster login nodes."))
+                              help: L("适合单机装了作业调度系统的工作站：既提交作业，也直接运行程序。属于作业的进程不会重复显示。集群登录节点一般不需要。",
+                                      "For single-machine workstations with a scheduler where you also run programs directly. Processes that belong to jobs are not listed twice. Usually not needed on cluster login nodes."))
                 }
+            }
+            LabeledContent {
+                TextField("", text: $host.pathFilter, prompt: Text("~/projects/LLZO"), axis: .vertical)
+                    .lineLimit(1...4)
+                    .font(.system(.body, design: .monospaced))
+            } label: {
+                HelpLabel(L("只看这些目录", "Only These Folders"),
+                          help: L("只显示工作目录在这些文件夹（含子文件夹）里的任务，每行一个，可以用 ~。作业按提交时的工作目录判断，进程按当前所在目录判断。留空显示全部。手动监听的进程和进度文件不受影响。",
+                                  "Only show tasks whose working directory is inside one of these folders (subfolders included), one per line; ~ works. Jobs use their submit directory, processes their current directory. Empty shows everything. Watched processes and progress files are not affected."))
             }
             if host.kind == .direct || host.slurmAlsoProcesses {
                 LabeledContent {
@@ -287,8 +310,8 @@ struct HostDetailView: View {
         Section {
             Toggle(isOn: $host.allowCancel) {
                 HelpLabel(L("允许在刘海里取消任务", "Allow Cancelling from the Island"),
-                          help: L("在任务详情页按住按钮 1.5 秒并再确认一次，才会执行 \(host.kind == .slurm ? "scancel" : "kill -TERM")；执行前会再次核对任务名称、所有者和启动时间。",
-                                  "Hold the button for 1.5 s on the job page and confirm again to run \(host.kind == .slurm ? "scancel" : "kill -TERM"). The job's name, owner and start time are re-checked first."))
+                          help: L("在任务详情页按住按钮 1.5 秒并再确认一次，才会执行 \(host.kind.cancelCommand)；执行前会再次核对任务名称、所有者和启动时间。",
+                                  "Hold the button for 1.5 s on the job page and confirm again to run \(host.kind.cancelCommand). The job's name, owner and start time are re-checked first."))
             }
         } header: { SettingsHeader(title: L("危险操作", "Danger Zone"), symbol: "exclamationmark.triangle.fill", tint: .red) }
     }
@@ -306,6 +329,10 @@ struct HostDetailView: View {
                     CommandField(title: "sacct", hint: L("{jobs} 替换为作业号", "{jobs} = job IDs"),
                                  text: $host.commands.sacct, defaultValue: CommandSet.defaults.sacct)
                 }
+                if host.kind == .pbs {
+                    CommandField(title: "qstat", hint: L("输出自己作业的 qstat -f 全文", "prints qstat -f for your jobs"),
+                                 text: $host.commands.qstat, defaultValue: CommandSet.defaults.qstat)
+                }
                 if host.kind == .direct || host.slurmAlsoProcesses {
                     CommandField(title: L("进程列表", "Processes"), hint: "pid etimes pcpu rss args",
                                  text: $host.commands.processes, defaultValue: CommandSet.defaults.processes)
@@ -319,7 +346,7 @@ struct HostDetailView: View {
                 CommandField(title: L("磁盘", "Disk"), hint: "df -P -k ~ /scratch",
                              text: $host.commands.disk, defaultValue: CommandSet.defaults.disk)
                 Toggle(L("复用 SSH 连接", "Reuse SSH Connection"), isOn: $host.reuseConnection)
-                    .disabled(host.auth == .interactive)
+                    .disabled(host.auth.needsLogin)
             }
         } header: { SettingsHeader(title: L("高级", "Advanced"), symbol: "terminal.fill", tint: .gray) }
     }
@@ -368,8 +395,11 @@ struct HostDetailView: View {
                     .textFieldStyle(.plain)
                     .font(.system(size: 19, weight: .bold, design: .rounded))
                 HStack(spacing: 6) {
-                    Text(host.alias).font(.system(.callout, design: .monospaced))
-                    if let e = sshEntry { Text(e.summary).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                    Text(host.isManual ? SSHHosts.summary(host) : host.alias).font(.system(.callout, design: .monospaced))
+                    if !host.isManual, let e = sshEntry { Text(e.summary).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                    if let j = host.jumpHostID.flatMap({ id in allHosts.first { $0.id == id } }) {
+                        Text(L("经 \(j.displayName)", "via \(j.displayName)")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
                 }
                 HStack(spacing: 6) {
                     chip(statusText, Theme.color(for: snap?.health ?? .unknown))
@@ -425,6 +455,24 @@ struct HostDetailView: View {
 
     // MARK: - 动作
 
+    /// 切换"别名 / 手动填写"：切到手动时把别名里能看出来的信息带过去。
+    private func setManual(_ on: Bool) {
+        guard on != host.isManual else { return }
+        if on {
+            let e = sshEntry
+            var addr = e?.hostName ?? host.alias
+            if e == nil, let at = addr.lastIndex(of: "@") {
+                if host.user.isEmpty { host.user = String(addr[..<at]) }
+                addr = String(addr[addr.index(after: at)...])
+            }
+            host.hostName = addr
+            if host.user.isEmpty, let u = e?.user { host.user = u }
+            if host.port == nil, let p = e?.port.flatMap(Int.init), p != 22 { host.port = p }
+        } else {
+            host.hostName = ""
+        }
+    }
+
     private func checkMaster() async {
         masterAlive = await SSHRunner.masterAlive(host: host)
     }
@@ -473,12 +521,13 @@ struct HostDetailView: View {
             if let r = await engine.detect(h) {
                 // 写回到"发起检测的那台服务器"，即使用户已经切到别的页面。
                 // 本机就跑着 slurmd（单机 Slurm 工作站）：GPU 就在这台机器上，也顺便显示直接运行的进程。
-                engine.setKind(h.id, r.slurm ? .slurm : .direct,
+                engine.setKind(h.id, r.slurm ? .slurm : r.pbs ? .pbs : .direct,
                                showGPU: r.slurm ? (r.gpu || r.localSlurmd) : nil,
                                alsoProcesses: r.slurm ? r.localSlurmd : nil)
-                DebugLog.log("[\(h.displayName)] 自动检测类型：\(r.slurm ? "Slurm" : "直连") gpu=\(r.gpu) slurmd=\(r.localSlurmd)")
+                DebugLog.log("[\(h.displayName)] 自动检测类型：\(r.slurm ? "Slurm" : r.pbs ? "PBS" : "直连") gpu=\(r.gpu) slurmd=\(r.localSlurmd)")
                 detectMessage = (r.slurm ? (r.localSlurmd ? L("检测到单机 Slurm", "Single-machine Slurm detected") : L("检测到 Slurm", "Slurm detected"))
-                                         : L("未检测到 Slurm，设为直连", "No Slurm found; set to direct"))
+                                 : r.pbs ? L("检测到 PBS", "PBS detected")
+                                         : L("未检测到 Slurm / PBS，设为直连", "No Slurm / PBS found; set to direct"))
                     + (r.gpu ? " · nvidia-smi" : "") + (r.info.isEmpty ? "" : " · " + r.info)
             } else {
                 detectMessage = L("连接失败，请先测试连接", "Connection failed; test the connection first")
@@ -516,7 +565,9 @@ struct CommandField: View {
 }
 
 struct AddHostSheet: View {
-    var existing: Set<String>
+    var existing: [HostConfig]
+    /// 直接打开"手动填写"（预览图用；~/.ssh/config 为空时也会自动切过去）。
+    var startManual = false
     var onAdd: ([HostConfig]) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var entries: [SSHConfigEntry] = []
@@ -524,11 +575,45 @@ struct AddHostSheet: View {
     @State private var manual = ""
     @State private var kind: HostKind = .direct
     @State private var auth: AuthMode = .key
+    @State private var jumpHostID: UUID?
+    /// false：从 ~/.ssh/config 选；true：手动填写。
+    @State private var manualMode = false
+    @State private var draft = HostConfig(alias: "")
+
+    private var existingAliases: Set<String> { Set(existing.map(\.alias)) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(L("添加服务器", "Add Servers")).font(.title3.weight(.semibold))
-            Text(L("从 ~/.ssh/config 中选择。连接完全使用系统 ssh，跳板机、密钥等配置都会生效。",
+            Picker("", selection: $manualMode) {
+                Text(L("从 ~/.ssh/config 选择", "From ~/.ssh/config")).tag(false)
+                Text(L("手动填写", "Enter Manually")).tag(true)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            if manualMode { manualForm } else { configList }
+
+            HStack {
+                Spacer()
+                Button(L("取消", "Cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(L("添加", "Add")) { add() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!canAdd)
+            }
+        }
+        .padding(20)
+        .frame(width: 520, height: 600)
+        .onAppear {
+            entries = SSHConfigParser.load()
+            // ~/.ssh/config 里什么都没有时，直接打开手动填写。
+            if entries.isEmpty || startManual { manualMode = true }
+        }
+    }
+
+    private var configList: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(L("从 ~/.ssh/config 中选择。连接使用系统 ssh，跳板机、密钥等配置都会生效。",
                    "Pick from ~/.ssh/config. Connections use the system ssh, so ProxyJump, keys, etc. all apply."))
                 .font(.callout).foregroundStyle(.secondary)
 
@@ -540,44 +625,82 @@ struct AddHostSheet: View {
                         Text(e.summary).font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                .disabled(existing.contains(e.alias))
+                .disabled(existingAliases.contains(e.alias))
             }
-            .frame(minHeight: 200)
+            .frame(minHeight: 180)
             .overlay {
                 if entries.isEmpty {
                     Text(L("~/.ssh/config 里没有找到具体的 Host 条目", "No concrete Host entries in ~/.ssh/config")).foregroundStyle(.secondary)
                 }
             }
 
-            TextField(L("或手动输入，如 user@10.0.0.2", "Or type one, e.g. user@10.0.0.2"), text: $manual)
+            TextField(L("或直接输入 ssh 目标，如 user@10.0.0.2", "Or type an ssh target, e.g. user@10.0.0.2"), text: $manual)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(.body, design: .monospaced))
             Picker(L("默认类型", "Type"), selection: $kind) {
                 ForEach(HostKind.allCases) { Text($0.label).tag($0) }
             }
             .pickerStyle(.segmented)
-            Picker(L("认证方式", "Authentication"), selection: $auth) {
+            Picker(selection: $auth) {
                 ForEach(AuthMode.allCases) { Text($0.label).tag($0) }
+            } label: { HelpLabel(L("认证方式", "Authentication"), help: AuthFields.help) }
+            if !existing.isEmpty {
+                JumpHostPicker(host: Binding(get: { var h = HostConfig(alias: ""); h.jumpHostID = jumpHostID; return h },
+                                             set: { jumpHostID = $0.jumpHostID }),
+                               allHosts: existing)
             }
             Text(L("添加后可以在详情页点“自动检测类型”。", "You can use “Detect Type” on the server page afterwards."))
                 .font(.caption).foregroundStyle(.secondary)
+        }
+    }
 
-            HStack {
-                Spacer()
-                Button(L("取消", "Cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
-                Button(L("添加", "Add")) {
-                    var aliases = entries.map(\.alias).filter { picked.contains($0) }
-                    let m = manual.trimmingCharacters(in: .whitespaces)
-                    if !m.isEmpty && !existing.contains(m) { aliases.append(m) }
-                    onAdd(aliases.map { var h = HostConfig(alias: $0, kind: kind); h.auth = auth; return h })
-                    dismiss()
+    private var manualForm: some View {
+        Form {
+            Section {
+                LabeledContent(L("显示名称", "Name")) {
+                    TextField("", text: $draft.displayName, prompt: Text(L("比如：实验室集群", "e.g. Lab Cluster")))
+                        .labelsHidden().multilineTextAlignment(.trailing)
                 }
-                .keyboardShortcut(.defaultAction)
-                .disabled(picked.isEmpty && manual.trimmingCharacters(in: .whitespaces).isEmpty)
+                ManualAddressFields(host: $draft)
+            }
+            Section {
+                Picker(L("类型", "Type"), selection: $draft.kind) {
+                    ForEach(HostKind.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                AuthFields(host: $draft)
+                if !existing.isEmpty { JumpHostPicker(host: $draft, allHosts: existing) }
+            } footer: {
+                Text(L("不会修改 ~/.ssh/config。需要密码的服务器添加后点“登录…”。",
+                       "~/.ssh/config is not modified. For servers that need a password, click “Log In…” after adding."))
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
-        .padding(20)
-        .frame(width: 500, height: 560)
-        .onAppear { entries = SSHConfigParser.load() }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .padding(.horizontal, -20)
+    }
+
+    private var canAdd: Bool {
+        manualMode ? draft.isManual : !(picked.isEmpty && manual.trimmingCharacters(in: .whitespaces).isEmpty)
+    }
+
+    private func add() {
+        if manualMode {
+            var h = draft
+            h.hostName = h.hostName.trimmingCharacters(in: .whitespaces)
+            h.user = h.user.trimmingCharacters(in: .whitespaces)
+            h.identityFile = h.identityFile.trimmingCharacters(in: .whitespaces)
+            // 别名只用于显示和"改回别名模式"时的兜底，写成 ssh 能识别的 user@host。
+            h.alias = (h.user.isEmpty || h.hostName.contains("@") ? "" : h.user + "@") + h.hostName
+            if h.displayName.trimmingCharacters(in: .whitespaces).isEmpty { h.displayName = SSHHosts.summary(h) }
+            onAdd([h])
+        } else {
+            var aliases = entries.map(\.alias).filter { picked.contains($0) }
+            let m = manual.trimmingCharacters(in: .whitespaces)
+            if !m.isEmpty && !existingAliases.contains(m) { aliases.append(m) }
+            onAdd(aliases.map { var h = HostConfig(alias: $0, kind: kind); h.auth = auth; h.jumpHostID = jumpHostID; return h })
+        }
+        dismiss()
     }
 }

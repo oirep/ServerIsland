@@ -16,7 +16,8 @@
   function setLang(lang, save) {
     document.documentElement.dataset.lang = lang;
     document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
-    document.title = TITLES[lang];
+    // 子页面（手册、功能介绍）在 <body data-title-zh / data-title-en> 里写自己的标题
+    document.title = document.body.dataset[lang === "zh" ? "titleZh" : "titleEn"] || TITLES[lang];
     $$("img[data-shot]").forEach(img => { img.src = `assets/shots/${lang}/${img.dataset.shot}.png`; });
     // 宣传视频：中文页面放中文版，英文页面放英文版
     $$("video.js-promo").forEach(v => {
@@ -33,8 +34,21 @@
   const isZh = () => document.documentElement.dataset.lang === "zh";
   $(".lang-toggle").addEventListener("click", () => setLang(isZh() ? "en" : "zh", true));
 
+  // ------------------------------------------------------------ 手册目录：滚动时高亮当前小节
+  (function toc() {
+    const links = $$(".toc a[href^='#']");
+    if (!links.length || !("IntersectionObserver" in window)) return;
+    const map = new Map(links.map(a => [a.getAttribute("href").slice(1), a]));
+    const io = new IntersectionObserver(es => es.forEach(e => {
+      if (!e.isIntersecting) return;
+      links.forEach(a => a.classList.remove("active"));
+      map.get(e.target.id)?.classList.add("active");
+    }), { rootMargin: "-80px 0px -70% 0px" });
+    map.forEach((_, id) => { const el = document.getElementById(id); if (el) io.observe(el); });
+  })();
+
   // ------------------------------------------------------------ 版本、GitHub 和下载
-  $$(".js-version").forEach(el => { el.textContent = cfg.version || "0.1.0"; });
+  $$(".js-version").forEach(el => { el.textContent = cfg.version || "0.2.0"; });
   const repo = (cfg.repo || "").replace(/\/$/, "");
   if (repo) {
     $$(".js-github").forEach(a => { a.href = repo + (a.dataset.path || ""); a.target = "_blank"; a.rel = "noopener"; });

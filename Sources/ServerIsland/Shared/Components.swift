@@ -127,10 +127,10 @@ struct KindBadge: View {
         Text(kind.badge)
             .font(.system(size: 8, weight: .bold, design: .rounded))
             .tracking(0.6)
-            .foregroundStyle(kind == .slurm ? Theme.violet : Theme.cyan)
+            .foregroundStyle(kind.isScheduler ? Theme.violet : Theme.cyan)
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
-            .background(Capsule().fill((kind == .slurm ? Theme.violet : Theme.cyan).opacity(0.14)))
+            .background(Capsule().fill((kind.isScheduler ? Theme.violet : Theme.cyan).opacity(0.14)))
     }
 }
 

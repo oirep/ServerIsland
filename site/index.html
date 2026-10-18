@@ -36,6 +36,7 @@
     <a href="#features"><span lang="zh">功能</span><span lang="en">Features</span></a>
     <a href="#apps"><span lang="zh">计算软件</span><span lang="en">Software</span></a>
     <a href="#video"><span lang="zh">视频</span><span lang="en">Video</span></a>
+    <a href="manual.html"><span lang="zh">使用手册</span><span lang="en">Guide</span></a>
     <a href="#opensource"><span lang="zh">开源</span><span lang="en">Open source</span></a>
   </nav>
   <div class="nav-right">
@@ -74,8 +75,8 @@
       </a>
     </div>
     <p class="fine">
-      <span lang="zh">免费开源（GPL-3.0）· macOS 14 及以上 · Apple 芯片与 Intel 通用 · v<span class="js-version">0.1.0</span></span>
-      <span lang="en">Free & open source (GPL-3.0) · macOS 14+ · Apple silicon & Intel · v<span class="js-version">0.1.0</span></span>
+      <span lang="zh">免费开源（GPL-3.0）· macOS 14 及以上 · 也有 <a href="#download">Windows 和 Linux 版</a> · v<span class="js-version">0.2.0</span></span>
+      <span lang="en">Free & open source (GPL-3.0) · macOS 14+ · also on <a href="#download">Windows and Linux</a> · v<span class="js-version">0.2.0</span></span>
     </p>
   </div>
 
@@ -226,8 +227,8 @@
 <!-- 隐私 -->
 <section class="section privacy reveal">
   <div class="privacy-grid">
-    <div><h3><span lang="zh">只在你的 Mac 上运行</span><span lang="en">Runs only on your Mac</span></h3><p><span lang="zh">没有账号、没有云端、不收集任何数据。所有连接都是你的 Mac 直接 ssh 到你的服务器。</span><span lang="en">No account, no cloud, no telemetry. Your Mac talks to your servers over ssh, and that's it.</span></p></div>
-    <div><h3><span lang="zh">用系统自带的 ssh</span><span lang="en">Uses the system ssh</span></h3><p><span lang="zh">不保存密码。需要密码或动态口令的机器，用系统原生对话框输入，连接复用后不再打扰。</span><span lang="en">No stored passwords. Password / OTP prompts use a native dialog, then the connection is reused.</span></p></div>
+    <div><h3><span lang="zh">只在你的电脑上运行</span><span lang="en">Runs only on your computer</span></h3><p><span lang="zh">没有账号、没有云端、不收集任何数据。所有连接都是你的电脑直接 ssh 到你的服务器。</span><span lang="en">No account, no cloud, no telemetry. Your computer talks to your servers over ssh, and that's it.</span></p></div>
+    <div><h3><span lang="zh">用系统自带的 ssh</span><span lang="en">Uses the system ssh</span></h3><p><span lang="zh">密钥、密码、密钥 + 密码、动态口令和跳板机都能用。密码在原生对话框里输入，默认不保存；连接复用后不再打扰。</span><span lang="en">Keys, passwords, key + password, one-time codes and jump hosts all work. Passwords go into a native dialog and aren't stored by default; the connection is then reused.</span></p></div>
     <div><h3><span lang="zh">轻量到感觉不到</span><span lang="en">Featherweight</span></h3><p><span lang="zh">每台机器每轮一个 SSH 通道，只读小文件和文件末尾；可以按机器调间隔，或只手动刷新。</span><span lang="en">One SSH channel per server per poll, reading only small files and tails. Tune the interval per server, or refresh manually.</span></p></div>
   </div>
 </section>
@@ -237,9 +238,25 @@
   <canvas class="tako big" data-mood="happy" data-size="96" width="96" height="96"></canvas>
   <h2><span lang="zh">下载 ServerIsland</span><span lang="en">Get ServerIsland</span></h2>
   <p class="section-lead"><span lang="zh">免费、开源，GPL-3.0 许可证。</span><span lang="en">Free and open source under the GPL-3.0 license.</span></p>
-  <a class="btn btn-primary btn-large js-download-real" href="#">
-    <span lang="zh">下载 DMG（macOS 14+）</span><span lang="en">Download DMG (macOS 14+)</span>
-  </a>
+  <div class="dl-grid">
+    <a class="dl-card js-github" data-path="/releases/latest" href="#download">
+      <b><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16.4 12.6c0-2.6 2.1-3.8 2.2-3.9-1.2-1.8-3.1-2-3.7-2-1.6-.2-3.1.9-3.9.9-.8 0-2-.9-3.4-.9-1.7 0-3.3 1-4.2 2.6-1.8 3.1-.5 7.7 1.3 10.2.9 1.2 1.9 2.6 3.2 2.6 1.3-.1 1.8-.8 3.3-.8 1.6 0 2 .8 3.4.8 1.4 0 2.3-1.3 3.1-2.5 1-1.4 1.4-2.8 1.4-2.9 0 0-2.7-1-2.7-4.1zM13.9 5c.7-.9 1.2-2 1.1-3.2-1 0-2.3.7-3 1.6-.7.8-1.3 2-1.1 3.1 1.2.1 2.3-.6 3-1.5z"/></svg>macOS</b>
+      <span><span lang="zh">macOS 14+ · Apple 芯片与 Intel · DMG</span><span lang="en">macOS 14+ · Apple silicon &amp; Intel · DMG</span></span>
+      <em><span lang="zh">下载 →</span><span lang="en">Download →</span></em>
+    </a>
+    <a class="dl-card js-github" data-path="/releases/latest" href="#download">
+      <b><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 5.4 10.4 4.4v7.1H3zM11.4 4.3 21 3v8.5h-9.6zM3 12.5h7.4v7.1L3 18.6zM11.4 12.5H21V21l-9.6-1.3z"/></svg>Windows</b>
+      <span><span lang="zh">Windows 10 / 11 · 64 位 · 解压即用</span><span lang="en">Windows 10 / 11 · 64-bit · unzip and run</span></span>
+      <em><span lang="zh">下载 →</span><span lang="en">Download →</span></em>
+    </a>
+    <a class="dl-card js-github" data-path="/releases/latest" href="#download">
+      <b><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 17l6-6-6-6M12 19h8"/></svg>Linux</b>
+      <span><span lang="zh">x64 · X11 / XWayland · tar.gz</span><span lang="en">x64 · X11 / XWayland · tar.gz</span></span>
+      <em><span lang="zh">下载 →</span><span lang="en">Download →</span></em>
+    </a>
+  </div>
+  <p class="fine"><span lang="zh">安装步骤、第一次打开被系统拦住怎么办，见 <a href="manual.html#install">使用手册</a>。</span>
+     <span lang="en">Installation steps and what to do if your system blocks the first launch: see the <a href="manual.html#install">guide</a>.</span></p>
   <div class="star-cta">
     <p><span lang="zh">ServerIsland 免费开源。如果它帮你少敲了几次 <code>squeue</code>，在 GitHub 上点个 Star，能让更多人看到它。</span>
        <span lang="en">ServerIsland is free and open source. If it saves you a few <code>squeue</code>s a day, a star on GitHub helps others find it.</span></p>
@@ -248,29 +265,13 @@
       <span class="star-count js-star-count" hidden><b class="js-stars"></b></span>
     </a>
   </div>
-  <p class="fine"><span lang="zh">也可以从源码构建：</span><span lang="en">Or build from source:</span></p>
-  <pre class="build"><code>git clone <span class="js-repo-url">https://github.com/…/serverisland</span>.git
-cd serverisland && ./scripts/build_app.sh --run</code></pre>
-  <details class="first-open">
-    <summary><span lang="zh">第一次打开提示"无法验证开发者"？</span><span lang="en">"Cannot verify the developer" on first launch?</span></summary>
-    <p><span lang="zh">ServerIsland 没有经过 Apple 公证，第一次打开时 macOS 会拦一下，只需要允许一次：</span>
-       <span lang="en">ServerIsland isn't notarized by Apple, so macOS blocks the first launch. You only need to allow it once:</span></p>
-    <ul>
-      <li><span lang="zh"><b>macOS 15 及以后</b>：先双击打开一次（会被拦住），然后到 系统设置 → 隐私与安全性，往下找到 ServerIsland，点"仍要打开"。</span>
-          <span lang="en"><b>macOS 15 and later</b>: double-click the app once (it will be blocked), then open System Settings → Privacy &amp; Security, scroll down and click "Open Anyway".</span></li>
-      <li><span lang="zh"><b>macOS 14</b>：按住 Control 点 App 图标，选"打开"，再点"打开"。</span>
-          <span lang="en"><b>macOS 14</b>: Control-click the app icon, choose Open, then Open again.</span></li>
-    </ul>
-    <p><span lang="zh">或者在终端里执行一行命令：</span><span lang="en">Or run this once in Terminal:</span></p>
-    <pre><code>xattr -dr com.apple.quarantine /Applications/ServerIsland.app</code></pre>
-  </details>
 </section>
 
 <!-- 开源 -->
 <section class="section oss reveal" id="opensource">
   <h2><span lang="zh">开源，一起把它做得更好</span><span lang="en">Open source — help make it better</span></h2>
-  <p class="section-lead"><span lang="zh">你的计算软件还不在列表里？你用的是 PBS 或 LSF？欢迎提 Issue 或直接发 Pull Request。</span>
-     <span lang="en">Your simulation package isn't supported yet? Using PBS or LSF? Open an issue or send a pull request.</span></p>
+  <p class="section-lead"><span lang="zh">你的计算软件还不在列表里？你用的是 LSF 或 SGE？欢迎提 Issue 或直接发 Pull Request。</span>
+     <span lang="en">Your simulation package isn't supported yet? Using LSF or SGE? Open an issue or send a pull request.</span></p>
   <div class="oss-grid">
     <a class="oss-card js-github" href="#download"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><b>GitHub</b><span><span lang="zh">源码、Releases、点个 Star</span><span lang="en">Source, releases — and a star</span></span></a>
     <a class="oss-card js-github" data-path="/issues" href="#download"><b>Issues</b><span><span lang="zh">报告问题、提需求</span><span lang="en">Bugs and feature requests</span></span></a>
@@ -282,10 +283,15 @@ cd serverisland && ./scripts/build_app.sh --run</code></pre>
   <canvas class="tako" data-mood="idle" data-size="20" width="20" height="20"></canvas>
   <span>© 2026 Zihan Yan</span>
   <a class="muted js-github" href="#download">GitHub</a>
+  <span class="site-stats">
+    <span id="busuanzi_container_site_pv"><span lang="zh">访问量</span><span lang="en">Views</span> <span id="busuanzi_value_site_pv"></span></span>
+    <span id="busuanzi_container_site_uv"><span class="sep">·</span><span lang="zh">访客</span><span lang="en">Visitors</span> <span id="busuanzi_value_site_uv"></span></span>
+  </span>
 </footer>
 
 <script src="js/config.js"></script>
 <script src="js/tako.js"></script>
 <script src="js/main.js"></script>
+<script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
 </body>
 </html>

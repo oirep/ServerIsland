@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let demo: Bool
     private var store: ConfigStore!
     private var engine: MonitorEngine!
+    private var logPruneTimer: Timer?
     private var island: IslandController!
     private var settings: SettingsWindowController!
     private var statusItem: NSStatusItem!
@@ -22,6 +23,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settings = SettingsWindowController(store: store, engine: engine)
         island = IslandController(engine: engine, store: store) { [weak self] in self?.settings.show() }
         engine.onEvent = { [weak self] e in self?.postNotification(e) }
+        // 按设置的天数清理诊断日志：启动时一次，之后每 6 小时一次。
+        DebugLog.prune(days: store.settings.logRetentionDays)
+        logPruneTimer = Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { if let self { DebugLog.prune(days: self.store.settings.logRetentionDays) } }
+        }
 
         setupStatusItem()
         island.show()

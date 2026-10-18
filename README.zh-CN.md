@@ -8,6 +8,8 @@
   &nbsp;·&nbsp;
   <a href="https://zhyan0603.github.io/ServerIsland/">官网</a>
   &nbsp;·&nbsp;
+  <a href="https://zhyan0603.github.io/ServerIsland/manual.html">使用手册</a>
+  &nbsp;·&nbsp;
   <a href="https://github.com/zhyan0603/ServerIsland/releases/latest">下载</a>
   &nbsp;·&nbsp;
   <a href="./CONTRIBUTING.md">参与贡献</a>
@@ -16,12 +18,14 @@
   <a href="https://github.com/zhyan0603/ServerIsland/releases"><img src="https://img.shields.io/github/v/release/zhyan0603/ServerIsland?label=Version&style=flat-square&color=brightgreen" alt="Version"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-blue?style=flat-square" alt="License"></a>
   <a href="https://github.com/zhyan0603/ServerIsland/releases/latest"><img src="https://img.shields.io/badge/macOS-14%2B-black?style=flat-square&logo=apple" alt="macOS 14+"></a>
+  <a href="https://github.com/zhyan0603/ServerIsland/releases/latest"><img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?style=flat-square" alt="Windows 10 / 11"></a>
+  <a href="https://github.com/zhyan0603/ServerIsland/releases/latest"><img src="https://img.shields.io/badge/Linux-x64-FCC624?style=flat-square&logo=linux&logoColor=black" alt="Linux x64"></a>
   <a href="https://github.com/zhyan0603/ServerIsland/releases"><img src="https://img.shields.io/github/downloads/zhyan0603/ServerIsland/total?style=flat-square&color=red&label=Downloads" alt="Downloads"></a>
   <a href="https://github.com/zhyan0603/ServerIsland/stargazers"><img src="https://img.shields.io/github/stars/zhyan0603/ServerIsland?style=flat-square&color=yellow&label=Stars" alt="Stars"></a>
   <a href="https://github.com/zhyan0603/ServerIsland/graphs/contributors"><img src="https://img.shields.io/github/contributors/zhyan0603/ServerIsland?style=flat-square&color=brightgreen&label=Contributors" alt="Contributors"></a>
 </p>
 
-<p style="text-align: justify;"><strong>ServerIsland</strong> 把你的远程计算装进 MacBook 的刘海里。它通过 SSH 查看 Slurm 集群和普通 Linux 服务器，把作业、GPU 占用，以及 VASP、LAMMPS、GPUMD、NEP 的<em>实时进度</em>放进一个"灵动岛"式的面板，服务器上什么都不用装。它为每天和计算材料、计算化学、计算物理打交道的人而做，让你不用再每隔二十分钟敲一遍 <code>squeue</code> 和 <code>tail -f</code>。</p>
+<p style="text-align: justify;"><strong>ServerIsland</strong> 把你的远程计算装进 MacBook 的刘海里；在 Windows 和 Linux 上，它待在屏幕顶部或你的桌面上。它通过 SSH 查看 Slurm、PBS 集群和普通 Linux 服务器，把作业、GPU 占用，以及 VASP、LAMMPS、GPUMD、NEP 的<em>实时进度</em>放进一个"灵动岛"式的面板，服务器上什么都不用装。它为每天和计算材料、计算化学、计算物理打交道的人而做，让你不用再每隔二十分钟敲一遍 <code>squeue</code> 和 <code>tail -f</code>。</p>
 
 <p align="center">
   <img src="./docs/demo-zh.gif" width="720" alt="ServerIsland 演示：收起的刘海、弹出“NEP 训练完成”、展开面板">
@@ -30,12 +34,14 @@
 ## 功能
 
 - **一眼看完所有服务器**：鼠标移到刘海上，每台服务器一张卡片：运行数、排队数、CPU、内存、GPU。空闲的机器自动合并成一行。
-- **真实进度，而不只是 "RUNNING"**：按工作目录里的文件识别 NEP、GPUMD、VASP、LAMMPS，显示进度、速度和剩余时间，还有 loss 曲线和能量曲线。
-- **好好对待 Slurm**：数组作业合并成一条分段进度条；排队原因翻译成人话；按需查看各分区的空闲 CPU / GPU；最近 24 小时历史。
+- **真实进度，而不只是 "RUNNING"**：按工作目录里的文件识别 NEP、GPUMD、VASP、LAMMPS，显示进度、速度和剩余时间，还有 loss 曲线，VASP 结构优化的能量和最大力曲线。
+- **好好对待 Slurm 和 PBS**：数组作业合并成一条分段进度条；排队原因翻译成人话；按需查看 Slurm 各分区的空闲 CPU / GPU；最近 24 小时历史。PBS Pro、OpenPBS、Torque 也支持。
+- **只看你关心的**：可以让一台服务器只显示某些目录（比如 `~/projects/LLZO`）下的作业和进程。
 - **听得见的提醒**：刘海弹窗，成功和失败是两种提示音。就算集群没开作业记录，也能分辨正常结束还是提前退出。
 - **你自己的程序也行**：写一条自定义规则（文件名 + 关键字或正则），在设置里就能对着服务器上的真实目录当场测试。
-- **服务器上零负担**：不装 agent、不跑守护进程、不要 root。每台机器每轮一个 SSH 通道，并复用同一条连接；`~/.ssh/config` 照常生效。
-- **默认就安全**：取消任务默认关闭，要按服务器单独打开；打开后也要长按、二次确认，执行前还会在服务器上再核对一次。密码 / 动态口令用原生对话框输入，从不保存。
+- **服务器上零负担**：不装 agent、不跑守护进程、不要 root。每台机器每轮一个 SSH 通道，并复用同一条连接；`~/.ssh/config` 照常生效，没写过也可以在设置里直接填地址、用户名、端口和私钥。
+- **各种登录方式**：密钥、密码、密钥 + 密码、动态口令都支持；可以经过一级或多级跳板机，每一跳分别询问、分别报错。
+- **默认就安全**：取消任务默认关闭，要按服务器单独打开；打开后也要长按、二次确认，执行前还会在服务器上再核对一次。密码 / 动态口令用原生对话框输入，默认不保存；勾选“记住密码”时只存进系统钥匙串（动态口令从不保存）。
 - **Tako**：刘海里住着一只像素小章鱼，任务在跑时手舞足蹈，完成了开心蹦跶，出错了会变红。
 
 ## 支持的计算软件
@@ -52,41 +58,29 @@
 
 ## 安装
 
-### 下载安装（推荐）
+从 **[Releases](https://github.com/zhyan0603/ServerIsland/releases/latest)** 下载对应平台的安装包即可：免费、不需要账号、不需要另装运行环境，服务器上也什么都不用装。
 
-从 [Releases](https://github.com/zhyan0603/ServerIsland/releases/latest) 下载 DMG，把 **ServerIsland** 拖进"应用程序"。需要 macOS 14 及以上（Apple 芯片和 Intel 通用）。
+| 平台 | 下载 | 要求 |
+|---|---|---|
+| **macOS** | `ServerIsland-x.y.z.dmg` | macOS 14 及以上，Apple 芯片或 Intel |
+| **Windows** | `ServerIsland-x.y.z-win-x64.zip` | Windows 10 / 11，64 位 |
+| **Linux** | `ServerIsland-x.y.z-linux-x64.tar.gz` | x64，X11 或 XWayland，需要系统托盘 |
 
-ServerIsland 没有经过 Apple 公证，第一次打开时 macOS 会拦一下：
+- **macOS**：打开 DMG，把 **ServerIsland** 拖进"应用程序"。App 没有经过 Apple 公证，第一次打开会被拦一下：macOS 15 及以后，先打开一次，再到 *系统设置 → 隐私与安全性* 点 **仍要打开**；macOS 14 按住 Control 点 App，选 **打开**。
+- **Windows**：解压到任意位置，双击 `ServerIsland.exe`。如果出现"Windows 已保护你的电脑"，点 **更多信息 → 仍要运行**。
+- **Linux**：`tar xzf ServerIsland-*.tar.gz && ./ServerIsland`。GNOME 需要装 AppIndicator 扩展才能看到托盘图标。
 
-- **macOS 15 及以后**：先打开一次，再到 *系统设置 → 隐私与安全性*，点 **仍要打开**。
-- **macOS 14**：按住 Control 点 App，选 **打开**。
-- 或者执行：
-
-  ```bash
-  xattr -dr com.apple.quarantine /Applications/ServerIsland.app
-  ```
-
-### 从源码构建
-
-只需要 Xcode Command Line Tools：
-
-```bash
-git clone https://github.com/zhyan0603/ServerIsland.git
-cd ServerIsland
-./scripts/build_app.sh --run
-```
+Windows 和 Linux 上没有刘海：ServerIsland 挂在屏幕顶部正中，也可以变成待在桌面上的小章鱼 Tako（*设置 → 通用 → 显示方式*），两种方式都有托盘图标。
 
 ## 使用
 
 1. 第一次启动会打开设置。点 **添加服务器**，从 `~/.ssh/config` 里勾选机器。
-2. 为每台机器选择 **Slurm** 或 **直连**（也可以自动检测）。
-3. 完成，把鼠标移到刘海上看看。
+2. 为每台机器选择 **Slurm**、**PBS** 或 **直连**（也可以自动检测）。
+3. 完成，把鼠标移到刘海上看看（Windows / Linux 上是屏幕顶部的灵动岛或桌面上的 Tako）。
 
-想先看看效果？用几台假服务器启动演示模式：
+想先看看效果？用几台假服务器启动演示模式：macOS 上 `open /Applications/ServerIsland.app --args --demo`，Windows 上 `ServerIsland.exe --demo`，Linux 上 `./ServerIsland --demo`。
 
-```bash
-open /Applications/ServerIsland.app --args --demo
-```
+**[使用手册](https://zhyan0603.github.io/ServerIsland/manual.html)** 介绍了密码 / 动态口令登录、提醒、自定义进度规则和常见问题；**[功能详解](https://zhyan0603.github.io/ServerIsland/features.html)** 介绍了 ServerIsland 能做的每一件事。
 
 <details>
 <summary><b>让自己的脚本上报进度</b></summary>
@@ -110,8 +104,7 @@ si-progress train done
 
 - **非交互 shell 里找不到 `squeue`**：App 会自动从 `~/.bashrc` 等文件补全 PATH；还不行就在"连接后先执行"里写 `module load slurm`。
 - **命令跑不通**：每条远程命令都能在设置里修改，"测试连接"会显示原始输出。
-- **没收到提醒**：看诊断日志 `~/Library/Logs/ServerIsland/serverisland.log`，每次轮询、每个任务结束、每次提醒发没发都有记录。
-- 配置文件在 `~/Library/Application Support/ServerIsland/config.json`。
+- **没收到提醒**：看诊断日志（设置 → 通用 → 文件与诊断 → 打开诊断日志），每次轮询、每个任务结束、每次提醒发没发都有记录。
 </details>
 
 ## 工作原理
@@ -123,7 +116,7 @@ si-progress train done
   </picture>
 </p>
 
-ServerIsland 使用系统自带的 `/usr/bin/ssh`，开启 `BatchMode=yes`，后台绝不会卡在等密码上；出错时指数退避，不会触发 fail2ban。对 Slurm 来说，每轮只有一次 `squeue -u $USER`，作业离开队列时再调用一次 `sacct`。一切都留在你的 Mac 上：没有账号、没有云端、不收集任何数据。
+在 macOS 和 Linux 上，ServerIsland 使用系统自带的 `ssh`，复用同一条连接并开启 `BatchMode=yes`；在 Windows 上，它用内置的 SSH 为每台服务器保持一条连接，读取你的 `~/.ssh/config` 和 `known_hosts`。无论哪种方式，后台都不会卡在等密码上；出错时指数退避，不会触发 fail2ban。对 Slurm 来说，每轮只有一次 `squeue -u $USER`，作业离开队列时再调用一次 `sacct`。一切都留在你的电脑上：没有账号、没有云端、不收集任何数据。
 
 ## 截图
 
@@ -161,7 +154,9 @@ ServerIsland 使用系统自带的 `/usr/bin/ssh`，开启 `BatchMode=yes`，后
 
 - [x] Slurm、直连服务器、GPU、数组作业、排队原因、分区空闲资源
 - [x] NEP / GNEP、GPUMD、VASP、LAMMPS 识别，自定义规则
-- [x] 详情页的 loss / 能量曲线
+- [x] 详情页的 loss / 能量 / 最大力曲线
+- [x] PBS（PBS Pro / OpenPBS / Torque）、按目录过滤、日志保留天数
+- [x] Windows 和 Linux 版
 - [ ] 更多软件：CP2K、Quantum ESPRESSO、ABACUS、Gaussian、ORCA
 - [ ] PBS / Torque 和 LSF
 - [ ] 多显示器时选择显示在哪块屏幕
@@ -169,7 +164,7 @@ ServerIsland 使用系统自带的 `/usr/bin/ssh`，开启 `BatchMode=yes`，后
 
 ## 参与贡献
 
-欢迎提 Bug、提想法、发 Pull Request，中英文都可以，见 [CONTRIBUTING.md](./CONTRIBUTING.md)。开发文档（[`AGENTS.md`](./AGENTS.md)、[`references/`](./references/)）介绍了架构、远端脚本协议，以及怎样新增一种计算软件。如果 ServerIsland 每天帮你省下几次 `ssh`，点个 ⭐ 能让更多人看到它。
+欢迎提 Bug、提想法、发 Pull Request，中英文都可以，见 [CONTRIBUTING.md](./CONTRIBUTING.md)（从源码构建的方法也在那里）。开发文档（[`AGENTS.md`](./AGENTS.md)、[`references/`](./references/)）介绍了架构、远端脚本协议，以及怎样新增一种计算软件。如果 ServerIsland 每天帮你省下几次 `ssh`，点个 ⭐ 能让更多人看到它。
 
 ## 联系
 

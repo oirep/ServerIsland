@@ -23,7 +23,7 @@ enum RemoteScript {
         if host.showMemory {
             section("mem", "grep -E '^(MemTotal|MemAvailable):' /proc/meminfo")
         }
-        let listsProcesses = host.kind == .direct || host.slurmAlsoProcesses
+        let listsProcesses = host.kind == .direct || (host.kind.isScheduler && host.slurmAlsoProcesses)
         if host.showGPU || (listsProcesses && host.watchJobs) {
             // 没有 nvidia-smi 的机器直接跳过，不算错误。
             section("gpu", "if command -v nvidia-smi >/dev/null 2>&1; then \(c.gpu); else echo '\(marker)NA'; fi")
@@ -40,8 +40,21 @@ enum RemoteScript {
                     // 属于 Slurm 作业的进程（环境变量里有 SLURM_JOB_ID）由作业行显示，不再重复列出。
                     section("slurmpids", AppDetectors.jobIDFunction + #"for p in $(pgrep -u "$(id -un)"); do [ -n "$(si_jobid $p)" ] && echo $p; done; true"#)
                 }
+            case .pbs:
+                section("qstat", pbsFunction + """
+                if command -v qstat >/dev/null 2>&1; then { \(c.qstat)
+                } | si_pbs q; else echo 'qstat: command not found'; false; fi
+                """)
+                if host.slurmAlsoProcesses {
+                    section("procs", c.processes)
+                    // 属于 PBS 作业的进程（环境变量里有 PBS_JOBID）由作业行显示，不再重复列出。
+                    section("slurmpids", AppDetectors.jobIDFunction + #"for p in $(pgrep -u "$(id -un)"); do [ -n "$(si_jobid $p)" ] && echo $p; done; true"#)
+                }
             case .direct: section("procs", c.processes)
             }
+        }
+        if !host.pathPrefixes.isEmpty && host.watchJobs {
+            section("workdirs", workdirScript(host: host))
         }
         if host.detectApps && host.watchJobs {
             section("apps", AppDetectors.script(host: host))
@@ -69,6 +82,11 @@ enum RemoteScript {
     }
 
     static func sacctScript(for host: HostConfig, jobIDs: [String]) -> String {
+        if host.kind == .pbs {
+            // PBS Pro / OpenPBS 用 qstat -x 查已结束的作业；Torque 没有 -x，已结束的作业会以 C 状态保留一段时间。
+            let ids = jobIDs.compactMap(safeSlurmID).map { SSHRunner.shellQuote(pbsID($0)) }.joined(separator: " ")
+            return wrap(host, [("sacct", pbsFunction + "{ qstat -x -f -t \(ids) 2>/dev/null || qstat -f -t \(ids) 2>/dev/null; } | si_pbs a")])
+        }
         let cmd = host.commands.sacct.replacingOccurrences(of: "{jobs}", with: jobIDs.joined(separator: ","))
         var s = ""
         if !host.commands.preamble.isEmpty { s += host.commands.preamble + "\n" }
@@ -94,15 +112,30 @@ enum RemoteScript {
     }
 
     /// 任务详情 + 日志末尾（只在用户打开详情时调用）。
-    /// Slurm 作业号：123 或数组元素 123_5（只允许数字和下划线，防止注入）。
+    /// 作业号：123 或数组元素 123_5（只允许数字和下划线，防止注入）。PBS 的作业也统一写成这种形式。
     static func safeSlurmID(_ s: String) -> String? {
         s.range(of: #"^\d+(_\d+)?$"#, options: .regularExpression) != nil ? s : nil
+    }
+
+    /// "123_5" -> "123[5]"（PBS 数组子作业的写法）；普通作业不变。
+    static func pbsID(_ id: String) -> String {
+        guard let us = id.firstIndex(of: "_") else { return id }
+        return String(id[..<us]) + "[" + String(id[id.index(after: us)...]) + "]"
     }
 
     static func detailScript(host: HostConfig, job: RemoteJob, logLines: Int = 40) -> String {
         let idOK: String? = job.source == .slurm ? safeSlurmID(job.id) : Int(job.id).map(String.init)
         guard let id = idOK else { return wrap(host, []) }
         switch job.source {
+        case .slurm where host.kind == .pbs:
+            let q = SSHRunner.shellQuote(pbsID(id))
+            let full = "{ qstat -x -f \(q) 2>/dev/null || qstat -f \(q); }"
+            // Output_Path / Error_Path 形如 主机名:/路径；作业运行时 PBS 常把输出先放在计算节点的 spool 里，结束后才拷回来。
+            return wrap(host, [
+                ("qstat", full),
+                ("stdout", pbsFunction + "SI_P=$(\(full) 2>/dev/null | si_pbsval Output_Path); SI_P=${SI_P#*:}\n" + tailVar("SI_P", lines: logLines)),
+                ("stderr", pbsFunction + "SI_O=$(\(full) 2>/dev/null | si_pbsval Output_Path); SI_O=${SI_O#*:}\nSI_E=$(\(full) 2>/dev/null | si_pbsval Error_Path); SI_E=${SI_E#*:}\n[ \"$SI_E\" = \"$SI_O\" ] && SI_E=''\n" + tailVar("SI_E", lines: logLines)),
+            ])
         case .slurm:
             return wrap(host, [
                 ("scontrol", "scontrol show job -o \(id)"),
@@ -131,6 +164,18 @@ enum RemoteScript {
         guard let id = idOK else { return nil }
         let me = "\"$(id -un)\""
         switch job.source {
+        case .slurm where host.kind == .pbs:
+            let q = SSHRunner.shellQuote(pbsID(id))
+            let name = SSHRunner.shellQuote(job.name)
+            return wrap(host, [("cancel", pbsFunction + """
+            SI_F=$(qstat -f \(q) 2>/dev/null)
+            SI_N=$(printf '%s\\n' "$SI_F" | si_pbsval Job_Name)
+            SI_W=$(printf '%s\\n' "$SI_F" | si_pbsval Job_Owner); SI_W=${SI_W%%@*}
+            SI_S=$(printf '%s\\n' "$SI_F" | si_pbsval job_state)
+            if [ -z "$SI_F" ] || [ "$SI_N" != \(name) ] || [ "$SI_W" != \(me) ]; then echo '\(marker)ABORT 作业已不在队列中，或不属于你'; exit 3; fi
+            case "$SI_S" in F|X|C) echo '\(marker)ABORT 作业已经结束'; exit 3;; esac
+            qdel \(q) && echo '\(marker)DONE'
+            """)])
         case .slurm:
             let name = SSHRunner.shellQuote(job.name)
             return wrap(host, [("cancel", """
@@ -170,12 +215,85 @@ enum RemoteScript {
 
     /// 用于"自动检测类型"。
     static let detectScript = """
-    for c in squeue sbatch sinfo nvidia-smi; do
+    for c in squeue sbatch sinfo qstat qsub qselect nvidia-smi; do
       if command -v "$c" >/dev/null 2>&1; then echo "$c=yes"; else echo "$c=no"; fi
     done
     if pgrep -x slurmd >/dev/null 2>&1; then echo "slurmd=yes"; else echo "slurmd=no"; fi
     uname -sr
     """
+
+    /// 每个任务的工作目录（目录过滤用）：作业用调度系统记录的工作目录，进程用当前目录。输出 `id|目录`，另有一行 `@@SI:HOME 家目录`。
+    static func workdirScript(host: HostConfig) -> String {
+        let me = "\"$(id -un)\""
+        var s = "printf '\(marker)HOME %s\\n' \"$HOME\"\n"
+        switch host.kind {
+        case .slurm:
+            s += "squeue -u \(me) -h -o '%i|%Z' 2>/dev/null\n"
+        case .pbs:
+            s += pbsFunction + "{ \(host.commands.qstat)\n} 2>/dev/null | si_pbs d\n"
+        case .direct:
+            break
+        }
+        if host.kind == .direct || host.slurmAlsoProcesses {
+            s += "for p in $(pgrep -u \(me)); do d=$(readlink /proc/$p/cwd 2>/dev/null) && printf '%s|%s\\n' \"$p\" \"$d\"; done\n"
+        }
+        return s + "true"
+    }
+
+    /// PBS（PBS Pro / OpenPBS / Torque）：把 `qstat -f` 的全文转换成和 squeue / sacct 一样的行，后面的解析、数组合并、提醒全部沿用 Slurm 的。
+    /// `si_pbs q`：`作业号|名称|状态|已运行|上限|节点数|原因或节点|队列|数组主编号|元素序号`（已结束的不输出）；
+    /// `si_pbs a`：`作业号|名称|状态|已运行|退出码`（作业结束后查最终状态）；`si_pbs w` / `si_pbs d`：运行中 / 全部作业的 `作业号|工作目录`。
+    /// 作业号统一写成 Slurm 的形式：1234.server → 1234，数组子作业 1234[5].server → 1234_5；数组本身（1234[]）跳过，子作业由 -t 列出。
+    /// 状态：R/B 运行，E 收尾，H/Q/W/T 排队，S/U 挂起，F/X/C 结束（按 Exit_status：0 完成，-29/-11 超时，≥256 被信号终止，其它失败）。
+    /// 续行（以 Tab 开头）接到上一个值后面。`si_pbsval 键` 取单个值。
+    static let pbsFunction = #"""
+    si_pbs() { awk -v mode="$1" '
+    function clear() { id = ""; k = ""; delete v }
+    function out(   jid, arr, task, st, ex, S, name, n, r, h, nh, parts, i, x, seen, wd) {
+      if (id == "") return
+      jid = id; sub(/\..*$/, "", jid)
+      if (jid ~ /\[\]$/) { clear(); return }
+      arr = jid; task = "N/A"
+      if (match(jid, /\[[0-9]+\]$/)) { task = substr(jid, RSTART + 1, RLENGTH - 2); arr = substr(jid, 1, RSTART - 1); jid = arr "_" task }
+      st = v["job_state"]; ex = v["Exit_status"]; if (ex == "") ex = v["exit_status"]
+      if (st == "R" || st == "B") S = "RUNNING"
+      else if (st == "E") S = "COMPLETING"
+      else if (st == "S" || st == "U") S = "SUSPENDED"
+      else if (st == "F" || st == "X" || st == "C") {
+        if (ex == "") S = (v["stime"] == "" && v["start_time"] == "" && v["resources_used.walltime"] == "") ? "CANCELLED" : "COMPLETED"
+        else if (ex + 0 == 0) S = "COMPLETED"
+        else if (ex + 0 == -29 || ex + 0 == -11) S = "TIMEOUT"
+        else if (ex + 0 >= 256) S = "CANCELLED"
+        else S = "FAILED"
+      } else S = "PENDING"
+      name = v["Job_Name"]; gsub(/\|/, "/", name)
+      n = v["Resource_List.nodect"]; if (n == "") { n = v["Resource_List.nodes"]; sub(/[^0-9].*$/, "", n) }; if (n == "") n = 1
+      if (S == "PENDING") {
+        r = v["comment"]; gsub(/\|/, "/", r)
+        if (st == "H") r = "JobHeldUser" (r == "" ? "" : ": " r)
+        else if (st == "W") r = "BeginTime"
+        else if (r == "") r = "Priority"
+        r = "(" r ")"
+      } else {
+        h = v["exec_host"]; r = ""; nh = split(h, parts, "+")
+        for (i = 1; i <= nh; i++) { x = parts[i]; sub(/\/.*$/, "", x); if (x != "" && !(x in seen)) { seen[x] = 1; r = r (r == "" ? "" : ",") x } }
+      }
+      wd = v["Variable_List"]
+      if (match(wd, /PBS_O_WORKDIR=[^,]*/)) wd = substr(wd, RSTART + 14, RLENGTH - 14); else wd = ""
+      if (mode == "q") { if (st != "F" && st != "X" && st != "C") print jid "|" name "|" S "|" v["resources_used.walltime"] "|" v["Resource_List.walltime"] "|" n "|" r "|" v["queue"] "|" arr "|" task }
+      else if (mode == "a") print jid "|" name "|" S "|" v["resources_used.walltime"] "|" (ex == "" ? "" : ex ":0")
+      else if (mode == "w") { if (S == "RUNNING" && wd != "") print jid "|" wd }
+      else if (mode == "d") { if (wd != "") print jid "|" wd }
+      clear()
+    }
+    /^Job Id: / { out(); id = substr($0, 9); gsub(/[ \t\r]/, "", id); next }
+    /^\t/ { if (k != "") { t = $0; sub(/^\t+/, "", t); sub(/\r$/, "", t); v[k] = v[k] t }; next }
+    /^ +[A-Za-z_][A-Za-z0-9_.]* = / { t = $0; sub(/^ +/, "", t); sub(/\r$/, "", t); i = index(t, " = "); k = substr(t, 1, i - 1); v[k] = substr(t, i + 3); next }
+    { k = "" }
+    END { out() }'; }
+    si_pbsval() { awk -v key="$1" '/^\t/ { if (on) { t = $0; sub(/^\t+/, "", t); val = val t }; next } { on = 0 } $0 ~ ("^ +" key " = ") { on = 1; val = substr($0, index($0, " = ") + 3) } END { print val }'; }
+
+    """#
 
     struct Section {
         var lines: [String] = []

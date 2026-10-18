@@ -17,6 +17,17 @@ if let i = arguments.firstIndex(of: "--render-preview"), i + 1 < arguments.count
     exit(0)
 }
 
+// 开发用：导出远端脚本，和 Windows / Linux 版逐字比较（见 references/cross-platform.md）。
+if let i = arguments.firstIndex(of: "--dump-scripts"), i + 1 < arguments.count {
+    let dir = URL(fileURLWithPath: arguments[i + 1])
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    for (name, text) in MainActor.assumeIsolated({ ReferenceScripts.all() }) {
+        try? text.write(to: dir.appendingPathComponent(name), atomically: true, encoding: .utf8)
+    }
+    print("ok")
+    exit(0)
+}
+
 if arguments.contains("--selftest") {
     exit(SelfTest.run() ? 0 : 1)
 }
@@ -80,7 +91,8 @@ if let i = arguments.firstIndex(of: "--curve"), i + 2 < arguments.count {
         let mode = i + 3 < arguments.count ? arguments[i + 3] : "nep"
         var app = AppProgress(kind: mode == "gnep" ? .gnep : (mode == "vasp" ? .vasp : .nep), dir: arguments[i + 2])
         if mode == "vasp" { app.vaspMode = .relax }
-        let src = AppCurves.source(for: app)!
+        for src in AppCurves.sources(for: app) {
+        print("== \(src.path)")
         var cache = CurveCache()
         for round in 1...2 {
             let script = AppCurves.script(src, offset: cache.lineCount, head: cache.head)
@@ -91,8 +103,10 @@ if let i = arguments.firstIndex(of: "--curve"), i + 2 < arguments.count {
             cache = merged
             print("第 \(round) 次：文件 \(cache.lineCount) 行，本次传回 \(rows) 行，累计 \(cache.rows.count) 行，\(r.stdout.utf8.count) 字节，\(String(format: "%.2fs", Date().timeIntervalSince(t0)))")
         }
-        if let c = AppCurves.curve(src, rows: cache.rows) {
+        if let c = AppCurves.curve(src, rows: cache.rows, extra: cache.extra) {
             for s in c.series { print(" ", s.name, s.points.count, "点，最后", s.points.last.map { "\($0.x) → \($0.y)" } ?? "-") }
+            if let t = c.threshold { print("  目标", t) }
+        }
         }
         sem.signal()
     }

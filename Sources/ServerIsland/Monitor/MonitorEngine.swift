@@ -33,9 +33,16 @@ final class MonitorEngine: ObservableObject {
     var appRates: [String: AppRateState] = [:]
     /// 详情页曲线的增量缓存（见 AppCurves）。
     var curveCaches: [String: CurveCache] = [:]
+    /// 目录过滤用：每台服务器上各任务的工作目录。
+    struct WorkdirCache { var home: String?; var dirs: [String: String] = [:] }
+    var workdirCache: [UUID: WorkdirCache] = [:]
     var partitionCache: [UUID: (stats: [PartitionStat], at: Date)] = [:]
     /// 正在弹窗登录的主机。
     @Published var loggingIn: Set<UUID> = []
+    /// 上次后台自动重新登录的时间（限频）。
+    var lastAutoLogin: [UUID: Date] = [:]
+    /// 运行中各机器的跳板机链（跳板机的连接设置变了，经它跳转的机器也要重连）。
+    private var runningChain: [UUID: [HostConfig]] = [:]
     func arrayKey(_ host: UUID, _ base: String) -> String { host.uuidString + "|" + base }
 
     /// 不支持 sacct 历史查询的主机（本次运行内不再尝试）。
@@ -113,7 +120,11 @@ final class MonitorEngine: ObservableObject {
             a.displayName = ""; b.displayName = ""
             a.muted = false; b.muted = false; a.allowCancel = false; b.allowCancel = false
             a.paused = false; b.paused = false
-            if a != b {
+            a.rememberPassword = false; b.rememberPassword = false
+            let chain = SSHHosts.chain(host, in: Dictionary(store.settings.hosts.map { ($0.id, $0) }, uniquingKeysWith: { x, _ in x }))
+            let chainChanged = runningChain[host.id].map { connectionKey($0) != connectionKey(chain) } ?? false
+            runningChain[host.id] = chain
+            if a != b || chainChanged {
                 restart(host, pollNow: true)
             } else if old.paused != host.paused {
                 // 暂停：停止循环；恢复：立刻刷新一次并继续。
@@ -124,6 +135,12 @@ final class MonitorEngine: ObservableObject {
                 runningConfig[host.id] = host
             }
         }
+    }
+
+    /// 跳板机链里影响连接的字段。
+    private func connectionKey(_ chain: [HostConfig]) -> [String] {
+        chain.map { [$0.id.uuidString, $0.alias, $0.hostName, $0.user, "\($0.port ?? 0)", $0.identityFile,
+                     $0.jumpHostID?.uuidString ?? "", $0.auth.rawValue].joined(separator: "|") }
     }
 
     /// 刷新全部（不包括已暂停的机器；暂停的机器只能在它自己的卡片上手动刷新）。
@@ -217,6 +234,8 @@ final class MonitorEngine: ObservableObject {
             applyDemo(host)
             return
         }
+        // 渲染预览图时不连接任何真实服务器（虚构的主机用 setPreviewSnapshot 给定状态）。
+        if IslandPreview.active { return }
         snapshots[id]?.isRefreshing = true
         let result = await SSHRunner.run(host: host, remoteCommand: host.commands.shell,
                                          script: RemoteScript.build(for: host))
@@ -229,6 +248,10 @@ final class MonitorEngine: ObservableObject {
             failures[id, default: 0] += 1
             snap.health = problem
             snapshots[id] = snap
+            if case .needsLogin = problem {
+                // 先登录远端的跳板机，再登录自己（都只在记住了密码时才会自动进行）
+                for h in SSHHosts.jumpChain(host).reversed() + [host] { autoRelogin(h) }
+            }
             DebugLog.log("[\(host.displayName)] 连接失败（第 \(failures[id] ?? 0) 次）：\(problem)  stderr=\(result.stderr.prefix(200))")
             return
         }
@@ -292,8 +315,10 @@ final class MonitorEngine: ObservableObject {
         let apps: [String: AppProgress] = parsed.sections["apps"].map { AppDetectors.parse($0.lines) } ?? [:]
         var jobs: [RemoteJob] = []
         switch host.kind {
-        case .slurm:
-            if let sec = check("squeue", label: "squeue") {
+        case .slurm, .pbs:
+            // PBS 的 qstat 输出在远端已经转换成 squeue 的格式（见 RemoteScript.pbsFunction）。
+            let queue = host.kind == .pbs ? "qstat" : "squeue"
+            if let sec = check(queue, label: queue) {
                 jobs = Parsers.squeue(sec.exitCode == 0 ? sec.lines : [])
             }
             // 单机 Slurm：同时列出不经过 Slurm 直接运行的进程（属于作业的进程已由作业行显示）。
@@ -331,6 +356,10 @@ final class MonitorEngine: ObservableObject {
                     jobs.append(p)
                 }
             }
+        }
+        // 只看指定目录：按工作目录过滤作业和进程（手动监听的进程不受影响）。
+        if !host.pathPrefixes.isEmpty {
+            jobs = applyPathFilter(host: host, jobs: jobs, section: parsed.sections["workdirs"])
         }
         if host.showDisk, let sec = parsed.sections["disk"], sec.exitCode == 0 {
             snap.disks = Parsers.disks(sec.lines)
@@ -374,13 +403,33 @@ final class MonitorEngine: ObservableObject {
                 jobs[i].message = msg
             }
         }
-        if host.kind == .slurm {
+        if host.kind.isScheduler {
             jobs = Parsers.groupArrays(jobs)
             for i in jobs.indices { if jobs[i].array != nil { applyTrack(host: host.id, &jobs[i]) } }
         }
         snap.jobs = jobs.sorted { order($0) < order($1) }
         snap.warnings = Array(warnings.prefix(2))
         return snap
+    }
+
+    /// 目录过滤。工作目录按任务号缓存：某一次没查到（网络抖动、刚提交的作业）时沿用上次的结果，
+    /// 不会让任务忽隐忽现、误发"已结束"的提醒。查不到目录的任务不显示。
+    private func applyPathFilter(host: HostConfig, jobs: [RemoteJob], section: RemoteScript.Section?) -> [RemoteJob] {
+        var cache = workdirCache[host.id] ?? WorkdirCache()
+        if let section {
+            let r = Parsers.workdirs(section.lines)
+            if let h = r.home { cache.home = h }
+            for (k, v) in r.dirs { cache.dirs[k] = v }
+        }
+        // 只保留当前还在列表里的，缓存不会越积越大。
+        let ids = Set(jobs.map(\.id))
+        cache.dirs = cache.dirs.filter { ids.contains($0.key) }
+        workdirCache[host.id] = cache
+        return jobs.filter { job in
+            if job.source == .progressFile || job.watched { return true }
+            guard let dir = cache.dirs[job.id] else { return false }
+            return Parsers.pathMatches(dir, prefixes: host.pathPrefixes, home: cache.home)
+        }
     }
 
     /// 每秒推进量：与上次采样比较，指数平滑；数字倒退（续训 / 重跑）时重置。
@@ -775,13 +824,14 @@ final class MonitorEngine: ObservableObject {
     }
 
     /// 检测远端有没有 squeue / nvidia-smi，用于自动判断类型。
-    func detect(_ host: HostConfig) async -> (slurm: Bool, gpu: Bool, localSlurmd: Bool, info: String)? {
+    func detect(_ host: HostConfig) async -> (slurm: Bool, pbs: Bool, gpu: Bool, localSlurmd: Bool, info: String)? {
         var h = host
         h.commands.shell = host.commands.shell
         let r = await SSHRunner.run(host: h, remoteCommand: host.commands.shell, script: (host.commands.preamble.isEmpty ? "" : host.commands.preamble + "\n") + RemoteScript.detectScript, timeout: 20)
         guard r.status == 0 else { return nil }
         let out = r.stdout
-        return (out.contains("squeue=yes"), out.contains("nvidia-smi=yes"), out.contains("slurmd=yes"),
+        let slurm = out.contains("squeue=yes")
+        return (slurm, !slurm && out.contains("qstat=yes") && out.contains("qselect=yes"), out.contains("nvidia-smi=yes"), out.contains("slurmd=yes"),
                 out.components(separatedBy: "\n").last { !$0.isEmpty && !$0.contains("=") } ?? "")
     }
 
@@ -794,7 +844,7 @@ final class MonitorEngine: ObservableObject {
         let old = snapshots[host.id] ?? HostSnapshot()
         let new = DemoData.snapshot(for: host, tick: demoTick, previous: old)
         snapshots[host.id] = new
-        if demoTick % 30 == 0, host.kind == .slurm {
+        if demoTick % 30 == 0, host.kind.isScheduler {
             emit(.init(kind: demoTick % 60 == 0 ? .failed : .finished,
                        title: demoTick % 60 == 0 ? "eval_mmlu 失败" : "pretrain_7b 已完成",
                        subtitle: demoTick % 60 == 0 ? "OUT_OF_MEMORY · 用时 0:42:18" : "用时 11:42:05",

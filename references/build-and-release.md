@@ -43,8 +43,18 @@ App 是非沙盒的，因为要读 `~/.ssh`、调用 ssh，所以**上不了 Mac
 
 在 `Resources/Info.plist` 的 `CFBundleShortVersionString`（目前是 0.1.0）和 `CFBundleVersion`。DMG 的文件名会跟着变。
 
+## Windows / Linux 版
+
+```bash
+cross/scripts/publish.sh                 # → build/ServerIsland-<版本>-win-x64.zip、-linux-x64.tar.gz
+cross/scripts/publish.sh win-arm64       # 其它目标（win-arm64、linux-arm64……）
+cross/scripts/build_mac_preview.sh --run # 在 Mac 上试用跨平台版（不是正式的 Mac 版）
+```
+版本号在 `cross/Directory.Build.props` 的 `<Version>`，**发布时和 Info.plist 一起改**。推送到 GitHub 后，`.github/workflows/cross.yml` 会在 Windows / Linux 机器上自检、走查界面并打包（Actions 页面的 Artifacts）。详见 `references/cross-platform.md`。
+
 ## git
 
-- 本地仓库，**没有配置远程**。目前只有一个提交：`498a4d8`（v0.1 的第一版）。之后的所有改动都还没有提交，需要用户确认后再提交。
-- 提交信息结尾要带上 `Co-Authored-By` 行（见会话里的提示）。
-- `.gitignore` 里忽略了：`.build/`、`build/`、`promo/node_modules/`、`promo/out/`。
+- 远程：`git@github.com:zhyan0603/ServerIsland.git`（公开仓库）。`main` 是 Mac 版的发布分支；`avalonia` 分支开发 Windows / Linux 版，测好后合并进 `main`。
+- **提交、推送都要等用户确认。** 提交信息结尾要带上 `Co-Authored-By` 行（见会话里的提示）。
+- `.gitignore` 里忽略了：`.build/`、`build/`、`promo/node_modules/`、`promo/out/`、`cross/**/bin/`、`cross/**/obj/`、`references/private/`。
+- 编译产物（DMG、zip、tar.gz）**不进 git**，发布时作为 GitHub Release 的附件上传。

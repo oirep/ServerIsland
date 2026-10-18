@@ -47,7 +47,7 @@ extension MonitorEngine {
         }
         let p = RemoteScript.parse(r.stdout)
         switch job.source {
-        case .slurm: fillSlurm(&d, p, job: job)
+        case .slurm: if host.kind == .pbs { fillPbs(&d, p) } else { fillSlurm(&d, p, job: job) }
         case .process: fillProcess(&d, p, job: job)
         case .progressFile: break
         }
@@ -56,7 +56,9 @@ extension MonitorEngine {
             d.stderr = logTail(e)
         }
         if d.stdout.path == nil && d.stdout.note == nil {
-            d.stdout.note = job.source == .slurm ? L("没有找到 StdOut 路径（作业可能已结束太久）", "No StdOut path found (the job may have ended too long ago)") : L("没有找到日志", "No log found")
+            d.stdout.note = job.source != .slurm ? L("没有找到日志", "No log found")
+                : host.kind == .pbs ? L("没有找到输出文件（PBS 常在作业结束后才把输出拷回来）", "No output file yet (PBS often copies it back only when the job ends)")
+                : L("没有找到 StdOut 路径（作业可能已结束太久）", "No StdOut path found (the job may have ended too long ago)")
         }
         return d
     }
@@ -83,6 +85,36 @@ extension MonitorEngine {
             }
         } else {
             d.error = L("scontrol / sacct 都查不到这个作业", "Neither scontrol nor sacct knows this job")
+        }
+    }
+
+    /// PBS：`qstat -f` 的 key = value（续行以 Tab 开头）。
+    private func fillPbs(_ d: inout JobDetail, _ p: RemoteScript.Parsed) {
+        guard let sec = p.sections["qstat"], sec.lines.contains(where: { $0.hasPrefix("Job Id:") }) else {
+            d.error = L("qstat 查不到这个作业（可能已经结束太久）", "qstat doesn't know this job (it may have ended too long ago)")
+            return
+        }
+        let kv = Parsers.pbsKeyValues(sec.lines)
+        let states = ["Q": L("排队", "Queued"), "R": L("运行中", "Running"), "H": L("挂起（hold）", "Held"), "E": L("收尾", "Exiting"),
+                      "W": L("等待开始时间", "Waiting"), "S": L("暂停", "Suspended"), "B": L("数组运行中", "Array running"),
+                      "F": L("已结束", "Finished"), "X": L("已结束", "Finished"), "C": L("已结束", "Completed"), "T": L("转移中", "Moving")]
+        let keys: [(String, String)] = [
+            ("job_state", L("状态", "State")), ("comment", L("说明", "Comment")), ("resources_used.walltime", L("已运行", "Elapsed")),
+            ("Resource_List.walltime", L("时间上限", "Time limit")), ("qtime", L("提交时间", "Submitted")), ("stime", L("开始时间", "Started")),
+            ("queue", L("队列", "Queue")), ("exec_host", L("节点", "Nodes")), ("Resource_List.select", L("资源", "Resources")),
+            ("Resource_List.nodes", L("资源", "Resources")), ("Resource_List.ncpus", "CPU"), ("resources_used.mem", L("内存", "Memory")),
+            ("PBS_O_WORKDIR", L("工作目录", "Directory")), ("Exit_status", L("退出码", "Exit code")), ("exit_status", L("退出码", "Exit code")),
+        ]
+        var seen = Set<String>()
+        for (k, label) in keys {
+            guard var v = kv[k], !v.isEmpty, seen.insert(label).inserted else { continue }
+            if k == "job_state" { v = states[v].map { "\($0) (\(v))" } ?? v }
+            if k == "exec_host" {
+                var nodes: [String] = []
+                for part in v.split(separator: "+") { let n = String(part.split(separator: "/").first ?? ""); if !n.isEmpty && !nodes.contains(n) { nodes.append(n) } }
+                v = nodes.joined(separator: ",")
+            }
+            d.fields.append((label, v))
         }
     }
 
@@ -148,7 +180,7 @@ extension MonitorEngine {
         }
         if out.contains(RemoteScript.marker + "DONE") {
             refresh(host.id)
-            let what = job.source == .slurm ? "scancel \(job.id)" : "kill -\(force ? "KILL" : "TERM") \(job.id)"
+            let what = job.source == .slurm ? "\(host.kind.cancelCommand) \(job.id)" : "kill -\(force ? "KILL" : "TERM") \(job.id)"
             return .done(L("已执行 \(what)", "Ran \(what)"))
         }
         let err = (r.stderr + out).components(separatedBy: "\n")
@@ -203,14 +235,49 @@ extension MonitorEngine {
         sync()
     }
 
-    /// 弹出原生密码框登录，成功后立即刷新。
+    /// 弹出原生密码框登录（经跳板机时每一跳分别弹窗），成功后立即刷新。
     func login(_ host: HostConfig) async -> String? {
         loggingIn.insert(host.id)
         defer { loggingIn.remove(host.id) }
-        let err = await SSHRunner.loginWithPrompt(host: host)
-        DebugLog.log("[\(host.displayName)] 弹窗登录：\(err ?? "成功")")
-        if err == nil { refresh(host.id) }
-        return err
+        let outcome = await SSHRunner.loginWithPrompt(host: host)
+        applyRemember(outcome.remember)
+        DebugLog.log("[\(host.displayName)] 弹窗登录：\(outcome.error ?? "成功")")
+        if outcome.error == nil { refreshAfterLogin(host.id) }
+        return outcome.error
+    }
+
+    /// 后台用钥匙串里记住的密码重新登录（不弹窗）。同一台机器 10 分钟内最多试一次，避免密码错了被服务器锁定。
+    func autoRelogin(_ host: HostConfig) {
+        guard host.auth.canRemember, host.rememberPassword, !loggingIn.contains(host.id),
+              Date().timeIntervalSince(lastAutoLogin[host.id] ?? .distantPast) > 600,
+              Keychain.has(host.id) else { return }
+        lastAutoLogin[host.id] = Date()
+        loggingIn.insert(host.id)
+        Task {
+            // 主连接还在（比如是经它跳转的机器出了问题）就不用重新登录
+            if await SSHRunner.masterAlive(host: host) { loggingIn.remove(host.id); return }
+            let outcome = await SSHRunner.loginWithPrompt(host: host, silent: true)
+            loggingIn.remove(host.id)
+            DebugLog.log("[\(host.displayName)] 自动重新登录：\(outcome.error ?? "成功")")
+            if outcome.error == nil { refreshAfterLogin(host.id) }
+        }
+    }
+
+    /// 登录成功：刷新它，以及经它跳转的机器。
+    private func refreshAfterLogin(_ id: UUID) {
+        refresh(id)
+        for h in store.settings.hosts where h.enabled && h.id != id
+            && SSHHosts.jumpChain(h).contains(where: { $0.id == id }) && snapshots[h.id]?.health.isProblem == true {
+            refresh(h.id)
+        }
+    }
+
+    /// 弹窗里勾选 / 取消"记住密码"后同步到设置。
+    private func applyRemember(_ changes: [UUID: Bool]) {
+        for (id, on) in changes {
+            guard let i = store.settings.hosts.firstIndex(where: { $0.id == id }) else { continue }
+            if store.settings.hosts[i].rememberPassword != on { store.settings.hosts[i].rememberPassword = on }
+        }
     }
 
     /// 设置页"检查命令"：在当前环境（含"连接后先执行"和补全 PATH）下查找常用命令。

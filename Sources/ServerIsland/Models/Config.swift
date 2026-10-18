@@ -3,21 +3,60 @@ import Foundation
 /// 服务器类型：决定"任务"从哪里来。
 enum HostKind: String, Codable, CaseIterable, Identifiable {
     case slurm
+    case pbs
     case direct
 
     var id: String { rawValue }
-    var label: String { self == .slurm ? L("Slurm 集群", "Slurm cluster") : L("直连服务器", "Direct server") }
-    var badge: String { self == .slurm ? "SLURM" : "DIRECT" }
+    var label: String {
+        switch self {
+        case .slurm: return L("Slurm 集群", "Slurm cluster")
+        case .pbs: return L("PBS 集群", "PBS cluster")
+        case .direct: return L("直连服务器", "Direct server")
+        }
+    }
+    var badge: String {
+        switch self {
+        case .slurm: return "SLURM"
+        case .pbs: return "PBS"
+        case .direct: return "DIRECT"
+        }
+    }
+    /// 有作业调度系统（Slurm / PBS）：任务是队列里的作业，而不是进程。
+    var isScheduler: Bool { self != .direct }
+    /// 作业调度系统的名字（界面文案用）。
+    var schedulerName: String { self == .pbs ? "PBS" : "Slurm" }
+    /// 取消作业 / 终止进程用的命令（界面文案用）。
+    var cancelCommand: String {
+        switch self {
+        case .slurm: return "scancel"
+        case .pbs: return "qdel"
+        case .direct: return "kill -TERM"
+        }
+    }
 }
 
-/// 认证方式。App 从不保存密码：需要密码 / 二次验证的机器，先在终端里登录一次，
-/// App 复用这条 SSH 主连接（ControlMaster）进行后续查询。
+/// 认证方式。需要密码 / 动态口令的机器由 App 弹原生对话框登录一次，建立 SSH 主连接（ControlMaster），
+/// 之后的轮询都复用这条连接。密码默认不保存；用户勾选"记住密码"时只存进系统钥匙串（动态口令从不保存）。
+/// 原始值 `key` / `interactive` 与旧版本兼容（旧版的"密码 / 动态口令"即现在的 `interactive`）。
 enum AuthMode: String, Codable, CaseIterable, Identifiable {
     case key
+    case password
+    case keyPassword
     case interactive
 
     var id: String { rawValue }
-    var label: String { self == .key ? L("密钥 / ssh-agent", "SSH key / agent") : L("密码 / 动态口令", "Password / OTP") }
+    var label: String {
+        switch self {
+        case .key: return L("密钥 / ssh-agent", "SSH key / agent")
+        case .password: return L("密码", "Password")
+        case .keyPassword: return L("密钥 + 密码", "Key + password")
+        case .interactive: return L("动态口令 / 二次验证", "One-time code / 2FA")
+        }
+    }
+    /// 需要先弹窗登录、之后复用主连接。
+    var needsLogin: Bool { self != .key }
+    /// 可以把密码记进钥匙串（动态口令每次都不同，不能记）。
+    var canRemember: Bool { self == .password || self == .keyPassword }
 }
 
 /// 需要密码登录的机器，主连接保持多久（期间不用再输密码）。
@@ -75,6 +114,8 @@ struct CommandSet: Codable, Equatable {
     var progressGlob = "~/.serverisland/progress/*.json"
     /// 磁盘占用：df -P 输出。路径以空格分隔，默认看 home 所在分区。
     var disk = "df -P -k ~"
+    /// PBS（PBS Pro / OpenPBS / Torque）：输出自己作业的 `qstat -f` 全文，由 App 的转换脚本解析。没有作业时什么都不输出。
+    var qstat = #"SI_IDS=$(qselect -u "$(id -un)"); [ -z "$SI_IDS" ] || qstat -f -t $SI_IDS"#
 
     static let defaults = CommandSet()
 
@@ -94,12 +135,14 @@ struct CommandSet: Codable, Equatable {
         processes = try c.decodeIfPresent(String.self, forKey: .processes) ?? d.processes
         progressGlob = try c.decodeIfPresent(String.self, forKey: .progressGlob) ?? d.progressGlob
         disk = try c.decodeIfPresent(String.self, forKey: .disk) ?? d.disk
+        qstat = try c.decodeIfPresent(String.self, forKey: .qstat) ?? d.qstat
     }
 }
 
 struct HostConfig: Codable, Identifiable, Equatable {
     var id = UUID()
     /// `~/.ssh/config` 里的 Host 别名，或任意 `ssh` 能识别的目标（如 user@1.2.3.4）。
+    /// 手动填写的服务器（hostName 非空）只用它做显示和去重。
     var alias: String
     var displayName: String
     var kind: HostKind = .direct
@@ -140,6 +183,27 @@ struct HostConfig: Codable, Identifiable, Equatable {
     var slurmAlsoProcesses = false
     /// 读取 ~/.bashrc 等文件里的 PATH 设置，补全非交互 shell 缺少的路径（如装在家目录下的 Slurm）。
     var importShellPath = true
+    /// 手动填写的连接信息（不依赖 ~/.ssh/config）。hostName 为空表示用 alias 连接。
+    var hostName = ""
+    var port: Int?
+    var user = ""
+    /// 私钥文件路径（可用 ~）。空表示用 ssh 默认的密钥和 ssh-agent。
+    var identityFile = ""
+    /// 经由另一台 ServerIsland 服务器（跳板机）连接；跳板机自己也可以再有跳板机。
+    var jumpHostID: UUID?
+    /// 把密码记进系统钥匙串，主连接断开后自动重新登录（默认关闭）。
+    var rememberPassword = false
+    /// 只看这些目录下的任务（每行一个，可用 ~）。作业按工作目录、进程按当前目录判断；空表示不过滤。
+    var pathFilter = ""
+
+    /// 过滤目录列表（去掉空行）。
+    var pathPrefixes: [String] {
+        pathFilter.components(separatedBy: CharacterSet(charactersIn: "\n,;"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    /// 是否使用手动填写的连接信息。
+    var isManual: Bool { !hostName.trimmingCharacters(in: .whitespaces).isEmpty }
 
     init(alias: String, displayName: String? = nil, kind: HostKind = .direct) {
         self.alias = alias
@@ -178,6 +242,13 @@ struct HostConfig: Codable, Identifiable, Equatable {
         if appProcessNames == "gpumd|nep|gnep" { appProcessNames = Self.defaultAppProcessNames }
         slurmAlsoProcesses = try c.decodeIfPresent(Bool.self, forKey: .slurmAlsoProcesses) ?? false
         importShellPath = try c.decodeIfPresent(Bool.self, forKey: .importShellPath) ?? true
+        hostName = try c.decodeIfPresent(String.self, forKey: .hostName) ?? ""
+        port = try c.decodeIfPresent(Int.self, forKey: .port)
+        user = try c.decodeIfPresent(String.self, forKey: .user) ?? ""
+        identityFile = try c.decodeIfPresent(String.self, forKey: .identityFile) ?? ""
+        jumpHostID = try c.decodeIfPresent(UUID.self, forKey: .jumpHostID)
+        rememberPassword = try c.decodeIfPresent(Bool.self, forKey: .rememberPassword) ?? false
+        pathFilter = try c.decodeIfPresent(String.self, forKey: .pathFilter) ?? ""
     }
 }
 
@@ -212,6 +283,8 @@ struct AppSettings: Codable, Equatable {
     var language: AppLanguage = .system
     /// 自定义进度识别规则（所有服务器通用）。
     var progressRules: [ProgressRule] = []
+    /// 诊断日志保留天数（更早的行自动删除）。
+    var logRetentionDays = 7
 
     init() {}
 
@@ -230,6 +303,7 @@ struct AppSettings: Codable, Equatable {
         arrayFirstFailureAlert = try c.decodeIfPresent(Bool.self, forKey: .arrayFirstFailureAlert) ?? true
         language = try c.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .system
         progressRules = try c.decodeIfPresent([ProgressRule].self, forKey: .progressRules) ?? []
+        logRetentionDays = try c.decodeIfPresent(Int.self, forKey: .logRetentionDays) ?? 7
     }
 }
 
@@ -240,11 +314,16 @@ final class ConfigStore: ObservableObject {
         didSet {
             Lang.setting = settings.language
             ProgressRule.active = settings.progressRules
+            if settings.hosts != oldValue.hosts { SSHHosts.update(settings.hosts, write: persist) }
             if settings != oldValue { scheduleSave() }
         }
     }
 
     static let directory: URL = {
+        // 开发 / 测试用：指向另一份配置，不碰真实设置。
+        if let dir = ProcessInfo.processInfo.environment["SERVERISLAND_CONFIG_DIR"], !dir.isEmpty {
+            return URL(fileURLWithPath: dir, isDirectory: true)
+        }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return base.appendingPathComponent("ServerIsland", isDirectory: true)
     }()
@@ -264,6 +343,7 @@ final class ConfigStore: ObservableObject {
         }
         Lang.setting = settings.language
         ProgressRule.active = settings.progressRules
+        SSHHosts.update(settings.hosts, write: persist)
     }
 
     func host(_ id: UUID) -> HostConfig? {

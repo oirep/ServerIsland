@@ -129,7 +129,7 @@ struct JobDetailPage: View {
     var previewStage: CancelStage?
     var onOpenElement: (RemoteJob) -> Void = { _ in }
     /// 预览渲染用：直接给定曲线。
-    var preloadedCurve: AppCurve? = nil
+    var preloadedCurves: [AppCurve] = []
 
     enum CancelStage: Equatable {
         case idle
@@ -142,7 +142,7 @@ struct JobDetailPage: View {
     @State private var loading = false
     @State private var showStderr = false
     @State private var stage: CancelStage = .idle
-    @State private var curve: AppCurve?
+    @State private var curves: [AppCurve] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -167,7 +167,10 @@ struct JobDetailPage: View {
                 ArrayOverview(job: job, array: a, onOpen: onOpenElement)
             } else {
                 fields
-                if let curve { CurveChart(curve: curve).frame(height: 104) }
+                if !curves.isEmpty {
+                    HStack(spacing: 8) { ForEach(Array(curves.enumerated()), id: \.offset) { CurveChart(curve: $0.element, compact: curves.count > 1) } }
+                        .frame(height: 104)
+                }
                 logBox
             }
             dangerZone.frame(height: 30)
@@ -175,7 +178,7 @@ struct JobDetailPage: View {
         .onAppear {
             if let preloaded { detail = preloaded }
             if let previewStage { stage = previewStage }
-            if let preloadedCurve { curve = preloadedCurve }
+            if !preloadedCurves.isEmpty { curves = preloadedCurves }
         }
         .task(id: job.id) {
             guard preloaded == nil, job.array == nil else { return }
@@ -183,9 +186,9 @@ struct JobDetailPage: View {
             var tick = 0
             while !Task.isCancelled {
                 await load()
-                if tick % 5 == 0, let app = job.app, AppCurves.source(for: app) != nil {
-                    let c = await engine.fetchCurve(host: host, app: app)
-                    if c != curve { curve = c }
+                if tick % 5 == 0, let app = job.app, !AppCurves.sources(for: app).isEmpty {
+                    let c = await engine.fetchCurves(host: host, app: app)
+                    if c != curves { curves = c }
                 }
                 tick += 1
                 try? await Task.sleep(for: .seconds(4))
@@ -373,7 +376,7 @@ struct JobDetailPage: View {
     private var cancellable: Bool { job.source != .progressFile && job.state.isActive && stillListed }
 
     private var cancelCommand: String {
-        job.source == .slurm ? "scancel \(job.id)" : "kill -TERM \(job.id)"
+        job.source == .slurm ? "\(host.kind.cancelCommand) \(job.id)" : "kill -TERM \(job.id)"
     }
 
     private var cancelTarget: String {
