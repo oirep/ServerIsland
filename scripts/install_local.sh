@@ -19,6 +19,8 @@ for _ in $(seq 1 50); do pgrep -x ServerIsland >/dev/null || break; sleep 0.1; d
 rm -rf "$APP"
 ditto "$ROOT/build/ServerIsland.app" "$APP"
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
+# build 里的副本只是中间产物，删掉，免得启动台 / 聚焦搜索里出现两个 ServerIsland
+rm -rf "$ROOT/build/ServerIsland.app"
 
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
 echo "✓ 已安装 $APP（版本 $VERSION）"

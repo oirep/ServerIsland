@@ -135,9 +135,20 @@ public sealed class SettingsWindow : Window
             _store.Touch();
             Select(SettingsPageKind.Host, added[0].Id);
         };
+        add.Margin = new Thickness(0);
+        // 托盘图标可能被系统收起，设置窗口里也放一个退出入口
+        var quit = new Button
+        {
+            Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children = { new Icon("power", 12, _p.Secondary.B(), 2), k.Text(L("退出 ServerIsland", "Quit ServerIsland"), 12.5, c: _p.Secondary) } },
+            HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center,
+            Background = Brushes.Transparent, Padding = new Thickness(0, 4),
+        };
+        ToolTip.SetTip(quit, L("完全退出（灵动岛、桌宠和托盘图标都会消失）", "Quit completely (the island, desktop pet and tray icon go away)"));
+        quit.Click += (_, _) => (Application.Current as App)?.Quit();
+        var bottom = new StackPanel { Spacing = 6, Margin = new Thickness(12), Children = { add, quit } };
         var dock = new DockPanel();
-        DockPanel.SetDock(add, Dock.Bottom);
-        dock.Children.Add(add);
+        DockPanel.SetDock(bottom, Dock.Bottom);
+        dock.Children.Add(bottom);
         dock.Children.Add(new ScrollViewer { Content = list, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled });
         _sidebar.Background = _p.Sidebar.B();
         _sidebar.BorderBrush = _p.Separator.B();

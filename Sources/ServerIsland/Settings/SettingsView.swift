@@ -77,13 +77,24 @@ struct SettingsView: View {
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 210, ideal: 230)
             .safeAreaInset(edge: .bottom) {
-                Button { showingAdd = true } label: {
-                    Label(L("添加服务器", "Add Server"), systemImage: "plus.circle.fill")
-                        .frame(maxWidth: .infinity)
+                VStack(spacing: 6) {
+                    Button { showingAdd = true } label: {
+                        Label(L("添加服务器", "Add Server"), systemImage: "plus.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .controlSize(.large)
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color(red: 0.18, green: 0.68, blue: 0.53))
+                    // 菜单栏图标可能被隐藏或挤掉，设置窗口里也放一个退出入口
+                    Button { NSApp.terminate(nil) } label: {
+                        Label(L("退出 ServerIsland", "Quit ServerIsland"), systemImage: "power")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.plain)
+                    .help(L("完全退出（刘海和菜单栏图标都会消失）", "Quit completely (the island and menu bar icon go away)"))
                 }
-                .controlSize(.large)
-                .buttonStyle(.borderedProminent)
-                .tint(Color(red: 0.18, green: 0.68, blue: 0.53))
                 .padding(12)
             }
         } detail: {

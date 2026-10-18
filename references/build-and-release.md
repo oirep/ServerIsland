@@ -14,7 +14,7 @@ swift build                     # 调试构建：.build/debug/ServerIsland
 ./scripts/build_app.sh --run    # 构建后重启 App
 ./scripts/install_local.sh      # 构建后替换 /Applications/ServerIsland.app 并启动（DEST=目录 可改安装位置）
 ```
-`install_local.sh` 会先退出正在运行的 ServerIsland（包括在 Mac 上试用的跨平台版），只编译本机的架构，设置不受影响。
+`install_local.sh` 会先退出正在运行的 ServerIsland（包括在 Mac 上试用的跨平台版），只编译本机的架构，设置不受影响；装好后删掉 `build/ServerIsland.app`，免得启动台 / 聚焦搜索里出现两个 ServerIsland（`.metadata_never_index` 对普通文件夹不起作用）。
 
 **一次打三个平台**：`./scripts/package_all.sh` 依次运行 `make_dmg.sh`（通用二进制 DMG）、`cross/scripts/publish.sh`（win-x64 zip、linux-x64 tar.gz），再用 `install_local.sh --no-build` 把刚打好的通用版装到 /Applications，最后打印三个包的大小和 SHA-256（写进发布说明）。Info.plist 和 `cross/Directory.Build.props` 的版本号不一致时直接报错。
 `build_app.sh` 会把 Info.plist、AppIcon.icns、`Resources/Sounds/`、菜单栏 PNG 复制进 .app。
