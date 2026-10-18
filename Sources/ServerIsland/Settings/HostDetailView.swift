@@ -520,12 +520,14 @@ struct HostDetailView: View {
         Task {
             if let r = await engine.detect(h) {
                 // 写回到"发起检测的那台服务器"，即使用户已经切到别的页面。
-                // 本机就跑着 slurmd（单机 Slurm 工作站）：GPU 就在这台机器上，也顺便显示直接运行的进程。
+                // 本机就跑着 slurmd（单机 Slurm 工作站）：GPU 就在这台机器上，打开 GPU 显示。
+                // "同时显示直接运行的进程"不自动打开（有调度系统时默认只看作业），只在提示里说一声。
                 engine.setKind(h.id, r.slurm ? .slurm : r.pbs ? .pbs : .direct,
-                               showGPU: r.slurm ? (r.gpu || r.localSlurmd) : nil,
-                               alsoProcesses: r.slurm ? r.localSlurmd : nil)
+                               showGPU: r.slurm ? (r.gpu || r.localSlurmd) : nil)
                 DebugLog.log("[\(h.displayName)] 自动检测类型：\(r.slurm ? "Slurm" : r.pbs ? "PBS" : "直连") gpu=\(r.gpu) slurmd=\(r.localSlurmd)")
-                detectMessage = (r.slurm ? (r.localSlurmd ? L("检测到单机 Slurm", "Single-machine Slurm detected") : L("检测到 Slurm", "Slurm detected"))
+                detectMessage = (r.slurm ? (r.localSlurmd ? L("检测到单机 Slurm（也直接运行程序的话，可以在“显示内容”里打开“同时显示直接运行的进程”）",
+                                                                "Single-machine Slurm detected (if you also run programs directly, turn on “Also Show Direct Processes” under Display)")
+                                                              : L("检测到 Slurm", "Slurm detected"))
                                  : r.pbs ? L("检测到 PBS", "PBS detected")
                                          : L("未检测到 Slurm / PBS，设为直连", "No Slurm / PBS found; set to direct"))
                     + (r.gpu ? " · nvidia-smi" : "") + (r.info.isEmpty ? "" : " · " + r.info)

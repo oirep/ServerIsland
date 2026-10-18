@@ -34,7 +34,7 @@ SwiftUI（IslandRootView、SettingsView），通过 @ObservedObject 订阅 engin
   - 显示：`showCPU/Memory/GPU/Disk`、`watchJobs`、`readProgressFiles`、`processFilter/processExclude`、`watched`（监听的 PID）。
   - 提醒与操作：`muted`、`allowCancel`、`paused`。
   - 连接：`keepAlive`、`reuseConnection`、`importShellPath`、`commands`（`CommandSet`：shell、preamble、squeue、sacct、gpu、gpuApps、processes、progressGlob、disk）。
-  - 计算软件：`detectApps`、`appProcessNames`、`slurmAlsoProcesses`（单机 Slurm 时同时显示直接运行的进程）。
+  - 计算软件：`detectApps`、`appProcessNames`、`slurmAlsoProcesses`（单机 Slurm / PBS 时同时显示直接运行的进程；默认关，"自动检测类型"也不会打开它，只在提示里说一声——有调度系统时默认只看作业）。
 - **每个 `init(from:)` 都用 `decodeIfPresent ?? 默认值`**，旧配置文件可以平滑升级。新增字段时照这个写法来。
   - 特例：旧版的默认 squeue 格式没有 `%F|%K` 两列，读取时会自动升级。
 - `ConfigStore`：`settings` 改动后 0.5 秒防抖保存；同时更新 `Lang.setting`。

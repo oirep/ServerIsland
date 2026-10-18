@@ -146,10 +146,12 @@ public sealed class HostPage(SettingsWindow window, SettingsKit k, ConfigStore s
             var r = await engine.Detect(h);
             if (r is { } d)
             {
-                // 写回到"发起检测的那台服务器"。本机就跑着 slurmd（单机 Slurm 工作站）：GPU 就在这台机器上，也顺便显示直接运行的进程。
-                engine.SetKind(_id, d.Slurm ? HostKind.Slurm : d.Pbs ? HostKind.Pbs : HostKind.Direct, d.Slurm ? d.Gpu || d.LocalSlurmd : null, d.Slurm ? d.LocalSlurmd : null);
+                // 写回到"发起检测的那台服务器"。本机就跑着 slurmd（单机 Slurm 工作站）：GPU 就在这台机器上，打开 GPU 显示；"同时显示直接运行的进程"不自动打开，只在提示里说一声。
+                engine.SetKind(_id, d.Slurm ? HostKind.Slurm : d.Pbs ? HostKind.Pbs : HostKind.Direct, d.Slurm ? d.Gpu || d.LocalSlurmd : null, null);
                 DebugLog.Log($"[{h.DisplayName}] 自动检测类型：{(d.Slurm ? "Slurm" : d.Pbs ? "PBS" : "直连")} gpu={d.Gpu} slurmd={d.LocalSlurmd}");
-                var msg = (d.Slurm ? (d.LocalSlurmd ? L("检测到单机 Slurm", "Single-machine Slurm detected") : L("检测到 Slurm", "Slurm detected"))
+                var msg = (d.Slurm ? (d.LocalSlurmd ? L("检测到单机 Slurm（也直接运行程序的话，可以在“显示内容”里打开“同时显示直接运行的进程”）",
+                                                          "Single-machine Slurm detected (if you also run programs directly, turn on “Also Show Direct Processes” under Display)")
+                                                        : L("检测到 Slurm", "Slurm detected"))
                            : d.Pbs ? L("检测到 PBS", "PBS detected")
                                    : L("未检测到 Slurm / PBS，设为直连", "No Slurm / PBS found; set to direct"))
                           + (d.Gpu ? " · nvidia-smi" : "") + (d.Info.Length == 0 ? "" : " · " + d.Info);
