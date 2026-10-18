@@ -35,6 +35,9 @@
 
 21. 官网三个页面的页脚加了访问量统计（不蒜子 busuanzi，和 GPUMDkit 网站一样；脚本被拦截时不显示）。
 
+22. 2026-10-18 检查更新（两个版本）：设置 → 通用 有"检查更新"按钮和"自动检查更新"开关（默认开，启动 20 秒后和每 24 小时一次）。读 GitHub `releases/latest`，按数字比较版本号；有新版本时刘海提醒一次（同一版本只提醒一次），菜单栏 / 托盘菜单多一项"下载新版本"，下载按钮直接指向当前平台的安装包（.dmg / win-x64.zip / linux-x64.tar.gz）。只提示，不自动替换程序；真正的应用内更新见想法池（Sparkle / Velopack，最好先有 Developer ID 签名）。开发用 `--check-update [假装的版本]`。自检 Swift 113 项、C# 119 项（加上逐字比较 141 项）。
+- 数据目录说明：发布版的设置和日志目录从 0.1.0 起没变过（Mac `~/Library/Application Support/ServerIsland`、`~/Library/Logs/ServerIsland`；Windows `%APPDATA%\ServerIsland`；Linux `~/.config/ServerIsland`），升级不会丢设置。带 `-Avalonia` 的目录只有"在 Mac 上试用的跨平台版"会用，是为了不覆盖 Swift 版的设置。
+
 ## 尚未验证（需要用户确认或等真实任务）
 
 - 刘海的真实交互：悬停、长按取消、原生菜单（间隔菜单）、全部任务页的搜索框（能否获得键盘焦点）、ⓘ 悬停提示、切换语言。这些都没法自动截图。

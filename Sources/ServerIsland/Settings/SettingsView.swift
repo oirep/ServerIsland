@@ -210,10 +210,48 @@ enum AppLinks {
     static let issues = URL(string: "https://github.com/zhyan0603/ServerIsland/issues")!
 }
 
+extension GeneralSettingsView {
+    /// 检查更新：按钮 + 状态；有新版本时显示"下载"和更新说明。
+    var updateRow: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "arrow.down.circle.fill").foregroundStyle(.blue)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(updateTitle)
+                if case .available(let r) = updates.state, !r.notes.isEmpty {
+                    Text(r.notes).font(.caption).foregroundStyle(.secondary).lineLimit(4)
+                } else if let t = updates.lastChecked {
+                    Text(L("上次检查：", "Last checked: ") + Format.relative(t)).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            if case .available(let r) = updates.state {
+                Button(L("下载 v\(r.version)", "Download v\(r.version)")) { NSWorkspace.shared.open(r.downloadURL) }
+                    .buttonStyle(.borderedProminent)
+                Button(L("更新说明", "Release Notes")) { NSWorkspace.shared.open(r.pageURL) }
+            }
+            Button(updates.state == .checking ? L("检查中…", "Checking…") : L("检查更新", "Check for Updates")) {
+                Task { await updates.check() }
+            }
+            .disabled(updates.state == .checking)
+        }
+    }
+
+    private var updateTitle: String {
+        switch updates.state {
+        case .idle: return L("当前版本 ", "Current version ") + (UpdateChecker.currentVersion ?? "dev")
+        case .checking: return L("正在检查 GitHub 上的最新版本…", "Checking GitHub for the latest version…")
+        case .upToDate(let v): return L("已是最新版本（\(v)）", "You're up to date (\(v))")
+        case .available(let r): return L("有新版本 v\(r.version)（当前 \(UpdateChecker.currentVersion ?? "dev")）", "Version \(r.version) is available (you have \(UpdateChecker.currentVersion ?? "dev"))")
+        case .failed(let m): return L("检查失败：", "Check failed: ") + m
+        }
+    }
+}
+
 struct GeneralSettingsView: View {
     @ObservedObject var store: ConfigStore
     @ObservedObject var engine: MonitorEngine
     @State private var confirmClearLog = false
+    @ObservedObject private var updates = UpdateChecker.shared
     @State private var logCleared = false
 
     var body: some View {
@@ -255,6 +293,12 @@ struct GeneralSettingsView: View {
                     Button(L("反馈问题", "Report an Issue")) {
                         NSWorkspace.shared.open(AppLinks.issues)
                     }
+                }
+                updateRow
+                Toggle(isOn: $store.settings.autoCheckUpdates) {
+                    HelpLabel(L("自动检查更新", "Check for Updates Automatically"),
+                              help: L("启动时和之后每天一次，读取 GitHub 上最新的发布版本号（只读，不上传任何信息）。有新版本时在刘海里提醒一次。",
+                                      "At launch and once a day, reads the latest release number from GitHub (read-only; nothing is sent). You'll get one notch alert per new version."))
                 }
             }
 

@@ -109,10 +109,55 @@ public sealed class GeneralPage(SettingsWindow window, SettingsKit k, ConfigStor
         Grid.SetColumn(starButtons, 2);
         star.Children.Add(starButtons);
 
+        // 检查更新：状态 + 按钮；有新版本时显示"下载"和更新说明。状态变化时只重画这一行。
+        var updateHost = new ContentControl();
+        void FillUpdate()
+        {
+            var r = UpdateChecker.Latest;
+            var title = UpdateChecker.State switch
+            {
+                UpdateChecker.StateKind.Checking => L("正在检查 GitHub 上的最新版本…", "Checking GitHub for the latest version…"),
+                UpdateChecker.StateKind.UpToDate => L($"已是最新版本（{UpdateChecker.Message}）", $"You're up to date ({UpdateChecker.Message})"),
+                UpdateChecker.StateKind.Available => L($"有新版本 v{r!.Version}（当前 {AppInfo.Version}）", $"Version {r!.Version} is available (you have {AppInfo.Version})"),
+                UpdateChecker.StateKind.Failed => L("检查失败：", "Check failed: ") + UpdateChecker.Message,
+                _ => L("当前版本 ", "Current version ") + AppInfo.Version,
+            };
+            var sub = UpdateChecker.State == UpdateChecker.StateKind.Available && r!.Notes.Length > 0 ? r.Notes
+                : UpdateChecker.LastChecked is { } t ? L("上次检查：", "Last checked: ") + Format.Relative(t) : "";
+            var texts = new StackPanel { Spacing = 1, Children = { k.Text(title) } };
+            if (sub.Length > 0) texts.Children.Add(k.Caption(sub));
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+            if (UpdateChecker.State == UpdateChecker.StateKind.Available && r != null)
+            {
+                buttons.Children.Add(k.Button(L($"下载 v{r.Version}", $"Download v{r.Version}"), () => Shell.OpenUrl(r.DownloadUrl), accent: true));
+                buttons.Children.Add(k.Button(L("更新说明", "Release Notes"), () => Shell.OpenUrl(r.PageUrl)));
+            }
+            var checkBtn = k.Button(UpdateChecker.State == UpdateChecker.StateKind.Checking ? L("检查中…", "Checking…") : L("检查更新", "Check for Updates"),
+                () => _ = UpdateChecker.CheckAsync());
+            checkBtn.IsEnabled = UpdateChecker.State != UpdateChecker.StateKind.Checking;
+            buttons.Children.Add(checkBtn);
+            var g = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
+            g.Children.Add(new Icon("arrowDown", 16, Color.Parse("#0A84FF").B()) { VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 10, 0) });
+            Grid.SetColumn(texts, 1);
+            g.Children.Add(texts);
+            Grid.SetColumn(buttons, 2);
+            g.Children.Add(buttons);
+            updateHost.Content = g;
+        }
+        FillUpdate();
+        Action onUpdate = () => Avalonia.Threading.Dispatcher.UIThread.Post(FillUpdate);
+        UpdateChecker.Changed += onUpdate;
+        updateHost.DetachedFromVisualTree += (_, _) => UpdateChecker.Changed -= onUpdate;
+
         col.Children.Add(k.Section("", "", default, [
             hero,
             k.Row(L("语言", "Language"), null, k.Combo(Enum.GetValues<AppLanguage>().Select(l => (l, l.Label())), S.Language, v => { S.Language = v; Touch(); })),
             star,
+            updateHost,
+            k.ToggleRow(L("自动检查更新", "Check for Updates Automatically"),
+                L("启动时和之后每天一次，读取 GitHub 上最新的发布版本号（只读，不上传任何信息）。有新版本时在刘海里提醒一次。",
+                  "At launch and once a day, reads the latest release number from GitHub (read-only; nothing is sent). You'll get one alert per new version."),
+                S.AutoCheckUpdates, v => { S.AutoCheckUpdates = v; Touch(); }),
         ]));
 
         // 显示方式（Windows / Linux 上没有硬件刘海，可以选择灵动岛或桌面小章鱼）

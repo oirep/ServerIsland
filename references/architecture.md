@@ -100,6 +100,12 @@ SwiftUI（IslandRootView、SettingsView），通过 @ObservedObject 订阅 engin
 - `canBecomeKey` 只在"全部任务"页返回 true（那里有搜索框），平时不抢键盘焦点。
 - 收起时页面回到 `.list`，并取消固定。
 
+## 检查更新（`Shared/UpdateChecker.swift`，C# 版 `UpdateChecker.cs`）
+
+- `GET https://api.github.com/repos/zhyan0603/ServerIsland/releases/latest`（不含草稿和预发布），`tag_name` 去掉 v 后按数字逐段比较；安装包按后缀选（Mac `.dmg`、Windows `win-x64.zip`、Linux `linux-x64.tar.gz`），找不到就打开 Release 页面。更新说明取正文里的列表项（跳过 HTML 和标题），最多 4 行。
+- 自动检查：`autoCheckUpdates`（默认开），启动 20 秒后一次、之后每 24 小时一次；同一个新版本只在刘海提醒一次（Mac 记在 UserDefaults 的 `notifiedUpdateVersion`，C# 记在设置的 `notifiedUpdateVersion`）。调试构建没有版本号，不检查。
+- 只提示下载，不自动替换程序。Release 的安装包文件名要保持 `ServerIsland-<版本>.dmg` / `-win-x64.zip` / `-linux-x64.tar.gz`。
+
 ## SSH 与登录（`SSH/`）
 
 - 连接复用：`ControlPath=/tmp/serverisland-<uid>/%C`（unix socket 路径有 104 字节上限，所以放在短路径下）。

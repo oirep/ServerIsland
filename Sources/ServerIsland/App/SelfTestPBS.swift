@@ -168,6 +168,19 @@ enum SelfTestPBS {
         check(AppCurves.sources(for: { var a = AppProgress(kind: .vasp, dir: "/d"); a.vaspMode = .relax; return a }()).count == 2,
               "VASP：结构优化有能量和最大力两张图")
 
+        // —— 检查更新 ——
+        check(UpdateChecker.compare("0.10.0", "0.9.1") == 1 && UpdateChecker.compare("0.2", "0.2.0") == 0
+              && UpdateChecker.compare("0.2.0", "0.2.1") == -1 && UpdateChecker.compare("1.0.0-beta", "1.0.0") == 0,
+              "更新：版本号按数字逐段比较")
+        let rel = ###"{"tag_name":"v0.3.0","html_url":"https://github.com/zhyan0603/ServerIsland/releases/tag/v0.3.0","body":"## What's new\r\n\r\n- PBS\r\n- Folder filter","assets":[{"name":"ServerIsland-0.3.0-win-x64.zip","browser_download_url":"https://example.org/w.zip"},{"name":"ServerIsland-0.3.0.dmg","browser_download_url":"https://example.org/m.dmg"}]}"###
+        let parsed = UpdateChecker.parse(Data(rel.utf8), assetSuffix: ".dmg")
+        check(parsed?.version == "0.3.0" && parsed?.downloadURL.absoluteString == "https://example.org/m.dmg" && parsed?.notes == "- PBS\n- Folder filter",
+              "更新：解析 GitHub Release（去掉 v、选对安装包、说明跳过标题）")
+        check(UpdateChecker.parse(Data(#"{"tag_name":"v1","html_url":"https://x.org/r","assets":[]}"#.utf8), assetSuffix: ".dmg")?.downloadURL.absoluteString == "https://x.org/r",
+              "更新：没有对应安装包时打开 Release 页面")
+        check(UpdateChecker.summary("<p align=\"center\">\n<img src=\"x\">\n</p>\n<h1>v1</h1>\nIntro line\n- **A**: one\n- B") == "- **A**: one\n- B",
+              "更新：说明摘要跳过 HTML，优先取列表项")
+
         // —— 日志清理 ——
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss"; f.locale = Locale(identifier: "en_US_POSIX")
         let now = f.date(from: "2026-10-17 12:00:00")!

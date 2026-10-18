@@ -17,6 +17,24 @@ if let i = arguments.firstIndex(of: "--render-preview"), i + 1 < arguments.count
     exit(0)
 }
 
+// 开发用：检查 GitHub 上的最新版本。  ServerIsland --check-update [假装的当前版本]
+if let i = arguments.firstIndex(of: "--check-update") {
+    if i + 1 < arguments.count { UpdateChecker.versionOverride = arguments[i + 1] }
+    let sem = DispatchSemaphore(value: 0)
+    Task { @MainActor in
+        _ = await UpdateChecker.shared.check()
+        switch UpdateChecker.shared.state {
+        case .available(let r): print("有新版本 \(r.version)\n  下载：\(r.downloadURL)\n  页面：\(r.pageURL)\n  说明：\(r.notes)")
+        case .upToDate(let v): print("已是最新（GitHub 最新 \(v)）")
+        case .failed(let m): print("失败：\(m)")
+        default: print(UpdateChecker.shared.state)
+        }
+        sem.signal()
+    }
+    while sem.wait(timeout: .now()) == .timedOut { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+    exit(0)
+}
+
 // 开发用：导出远端脚本，和 Windows / Linux 版逐字比较（见 references/cross-platform.md）。
 if let i = arguments.firstIndex(of: "--dump-scripts"), i + 1 < arguments.count {
     let dir = URL(fileURLWithPath: arguments[i + 1])

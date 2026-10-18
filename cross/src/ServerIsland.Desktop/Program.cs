@@ -19,7 +19,7 @@ static class Program
             return AskPassApp.Run(args);
         }
 
-        bool cli = args.Any(a => a is "--selftest" or "--render-preview" or "--diagnose" or "--dump-scripts" or "--version" or "--help" or "--ui-smoke");
+        bool cli = args.Any(a => a is "--selftest" or "--render-preview" or "--diagnose" or "--dump-scripts" or "--check-update" or "--version" or "--help" or "--ui-smoke");
         AppDomain.CurrentDomain.UnhandledException += (_, e) => DebugLog.Log("未处理的异常：" + e.ExceptionObject);
         TaskScheduler.UnobservedTaskException += (_, e) => { DebugLog.Log("后台任务异常：" + e.Exception); e.SetObserved(); };
         if (cli) AttachConsoleIfAny();
@@ -43,6 +43,16 @@ static class Program
         {
             DebugLog.Enabled = false;
             return SelfTest.Run() ? 0 : 1;
+        }
+
+        // 开发用：检查 GitHub 上的最新版本。  --check-update [假装的当前版本]
+        if (Index(args, "--check-update") is { } cu)
+        {
+            UpdateChecker.CurrentVersion = cu + 1 < args.Length ? args[cu + 1] : AppInfo.Version;
+            var rel = UpdateChecker.CheckAsync().GetAwaiter().GetResult();
+            Console.WriteLine(rel != null ? $"有新版本 {rel.Version}\n  下载：{rel.DownloadUrl}\n  页面：{rel.PageUrl}\n  说明：{rel.Notes}"
+                : UpdateChecker.State == UpdateChecker.StateKind.UpToDate ? $"已是最新（GitHub 最新 {UpdateChecker.Message}）" : "失败：" + UpdateChecker.Message);
+            return 0;
         }
 
         if (Index(args, "--dump-scripts") is { } di && di + 1 < args.Length)

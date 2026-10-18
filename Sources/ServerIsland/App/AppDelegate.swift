@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var store: ConfigStore!
     private var engine: MonitorEngine!
     private var logPruneTimer: Timer?
+    private var updateTimer: Timer?
     private var island: IslandController!
     private var settings: SettingsWindowController!
     private var statusItem: NSStatusItem!
@@ -27,6 +28,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         DebugLog.prune(days: store.settings.logRetentionDays)
         logPruneTimer = Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { if let self { DebugLog.prune(days: self.store.settings.logRetentionDays) } }
+        }
+        // 自动检查更新：启动 20 秒后一次，之后每 24 小时一次（演示模式不检查）。
+        if !demo {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in self?.autoCheckForUpdates() }
+            updateTimer = Timer.scheduledTimer(withTimeInterval: 24 * 3600, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.autoCheckForUpdates() }
+            }
         }
 
         setupStatusItem()
@@ -92,6 +100,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(item)
         }
         menu.addItem(.separator())
+        if case .available(let r) = UpdateChecker.shared.state {
+            menu.addItem(item(L("下载新版本 v\(r.version)…", "Download v\(r.version)…"), #selector(downloadUpdate), ""))
+            menu.addItem(.separator())
+        }
         menu.addItem(item(L("立即刷新", "Refresh Now"), #selector(refresh), "r"))
         menu.addItem(item(L("设置…", "Settings…"), #selector(openSettings), ","))
         menu.addItem(.separator())
@@ -105,6 +117,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func refresh() { engine.refreshAll() }
+    @objc private func downloadUpdate() {
+        if case .available(let r) = UpdateChecker.shared.state { NSWorkspace.shared.open(r.downloadURL) }
+    }
+
+    /// 后台检查更新：有新版本时在刘海里提醒一次（同一个版本只提醒一次），菜单里多一项"下载新版本"。
+    private func autoCheckForUpdates() {
+        guard store.settings.autoCheckUpdates else { return }
+        Task { @MainActor in
+            guard let r = await UpdateChecker.shared.check() else { return }
+            let key = "notifiedUpdateVersion"
+            guard UserDefaults.standard.string(forKey: key) != r.version else { return }
+            UserDefaults.standard.set(r.version, forKey: key)
+            engine.emit(.init(kind: .info, title: L("ServerIsland 有新版本 v\(r.version)", "ServerIsland v\(r.version) is available"),
+                              subtitle: L("在菜单栏图标或 设置 → 通用 里下载", "Download it from the menu bar icon or Settings → General"),
+                              hostName: "ServerIsland"))
+        }
+    }
     @objc private func openSettings() { settings.show() }
     @objc private func quit() { NSApp.terminate(nil) }
 

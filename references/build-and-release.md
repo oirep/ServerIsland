@@ -58,3 +58,7 @@ cross/scripts/build_mac_preview.sh --run # 在 Mac 上试用跨平台版（不�
 - **提交、推送都要等用户确认。** 提交信息结尾要带上 `Co-Authored-By` 行（见会话里的提示）。
 - `.gitignore` 里忽略了：`.build/`、`build/`、`promo/node_modules/`、`promo/out/`、`cross/**/bin/`、`cross/**/obj/`、`references/private/`。
 - 编译产物（DMG、zip、tar.gz）**不进 git**，发布时作为 GitHub Release 的附件上传。
+
+## 发布新版本与"检查更新"
+
+App 里的"检查更新"读 GitHub 的 `releases/latest`：发布时 **tag 写成 `v<版本号>`**（和 `Info.plist`、`cross/Directory.Build.props` 的版本一致），**不要勾"预发布"**（预发布不会被检查到），附件保持 `ServerIsland-<版本>.dmg`、`ServerIsland-<版本>-win-x64.zip`、`ServerIsland-<版本>-linux-x64.tar.gz` 这三个名字。正文里用 `- ` 开头的列表写主要变化，App 会取前 4 条显示。

@@ -177,6 +177,17 @@ public static class SelfTestPBS
         }
         check(AppCurves.SourcesFor(new AppProgress { Kind = AppKind.Vasp, Dir = "/d", Vasp = VaspMode.Relax }).Count == 2, "VASP：结构优化有能量和最大力两张图");
 
+        // —— 检查更新 ——
+        check(UpdateChecker.Compare("0.10.0", "0.9.1") == 1 && UpdateChecker.Compare("0.2", "0.2.0") == 0
+              && UpdateChecker.Compare("0.2.0", "0.2.1") == -1 && UpdateChecker.Compare("1.0.0-beta", "1.0.0") == 0, "更新：版本号按数字逐段比较");
+        const string rel = """{"tag_name":"v0.3.0","html_url":"https://github.com/zhyan0603/ServerIsland/releases/tag/v0.3.0","body":"## What's new\r\n\r\n- PBS\r\n- Folder filter","assets":[{"name":"ServerIsland-0.3.0-win-x64.zip","browser_download_url":"https://example.org/w.zip"},{"name":"ServerIsland-0.3.0.dmg","browser_download_url":"https://example.org/m.dmg"}]}""";
+        var parsed = UpdateChecker.Parse(rel, ".dmg");
+        check(parsed?.Version == "0.3.0" && parsed.DownloadUrl == "https://example.org/m.dmg" && parsed.Notes == "- PBS\n- Folder filter"
+              && UpdateChecker.Parse(rel, "win-x64.zip")?.DownloadUrl == "https://example.org/w.zip", "更新：解析 GitHub Release（去掉 v、选对安装包、说明跳过标题）");
+        check(UpdateChecker.Parse("""{"tag_name":"v1","html_url":"https://x.org/r","assets":[]}""", ".dmg")?.DownloadUrl == "https://x.org/r", "更新：没有对应安装包时打开 Release 页面");
+        check(UpdateChecker.Summary("<p align=\"center\">\n<img src=\"x\">\n</p>\n<h1>v1</h1>\nIntro line\n- **A**: one\n- B") == "- **A**: one\n- B",
+              "更新：说明摘要跳过 HTML，优先取列表项");
+
         // —— 日志清理 ——
         var now = new DateTime(2026, 10, 17, 12, 0, 0);
         var text = "2026-10-01 10:00:00  old\n  continuation of old\n10-16 09:00:00  old format, recent\n2026-10-17 10:00:00  new\n  continuation of new\n";

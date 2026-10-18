@@ -285,6 +285,8 @@ struct AppSettings: Codable, Equatable {
     var progressRules: [ProgressRule] = []
     /// 诊断日志保留天数（更早的行自动删除）。
     var logRetentionDays = 7
+    /// 启动时和之后每天检查一次 GitHub 上有没有新版本。
+    var autoCheckUpdates = true
 
     init() {}
 
@@ -304,6 +306,7 @@ struct AppSettings: Codable, Equatable {
         language = try c.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .system
         progressRules = try c.decodeIfPresent([ProgressRule].self, forKey: .progressRules) ?? []
         logRetentionDays = try c.decodeIfPresent(Int.self, forKey: .logRetentionDays) ?? 7
+        autoCheckUpdates = try c.decodeIfPresent(Bool.self, forKey: .autoCheckUpdates) ?? true
     }
 }
 

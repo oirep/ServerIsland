@@ -9,6 +9,7 @@
 - **Only these folders**: limit a server to jobs and processes under given directories
 - **VASP relaxations**: max-force curve next to the energy curve, with the EDIFFG target as a dashed line
 - **Diagnostic log retention** (7 days by default) and a Clear Log button
+- **Check for Updates** in Settings → General, plus an optional daily check that tells you when a new release is on GitHub
 
 ## v0.1.0 — 2026-10-17
 

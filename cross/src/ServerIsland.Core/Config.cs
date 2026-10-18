@@ -227,6 +227,10 @@ public sealed class AppSettings
     public List<ProgressRule> ProgressRules { get; set; } = [];
     /// 诊断日志保留天数（更早的行自动删除；0 表示永久保留）。
     public int LogRetentionDays { get; set; } = 7;
+    /// 启动时和之后每天检查一次 GitHub 上有没有新版本。
+    public bool AutoCheckUpdates { get; set; } = true;
+    /// 已经在刘海里提醒过的新版本（同一个版本只提醒一次）。
+    public string NotifiedUpdateVersion { get; set; } = "";
 
     // —— 只有 Windows / Linux 版用到的设置 ——
     public DisplayMode DisplayMode { get; set; } = DisplayMode.Island;

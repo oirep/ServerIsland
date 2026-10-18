@@ -36,7 +36,8 @@ public static class SelfTest
         using var p = Process.Start(psi)!;
         var outTask = p.StandardOutput.ReadToEndAsync();
         var errTask = p.StandardError.ReadToEndAsync();
-        p.StandardInput.Write(script);
+        // 和两种 SSH 传输一样，发出去之前统一换成 \n（Windows 上源文件可能是 CRLF）。
+        p.StandardInput.Write(script.Replace("\r\n", "\n"));
         p.StandardInput.Close();
         p.WaitForExit();
         return outTask.Result + (args.Contains("-n") ? errTask.Result : "");
@@ -48,7 +49,7 @@ public static class SelfTest
         psi.ArgumentList.Add("-n");
         using var p = Process.Start(psi)!;
         var errTask = p.StandardError.ReadToEndAsync();
-        p.StandardInput.Write(script);
+        p.StandardInput.Write(script.Replace("\r\n", "\n"));
         p.StandardInput.Close();
         p.WaitForExit();
         return (p.ExitCode, errTask.Result);

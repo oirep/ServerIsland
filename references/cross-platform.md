@@ -45,6 +45,7 @@ cross/scripts/publish.sh                       # → build/ServerIsland-<版本>
 
 ## 和 Swift 版保持一致的约定
 
+- **换行一律 LF**（`.gitattributes` 里 `* text=auto eol=lf`）：C# 原始字符串会原样保留源文件的换行，Windows 默认 `core.autocrlf=true` 时内嵌的 bash 脚本会带 `\r`。2026-10-18 第一次在 Windows CI 上跑自检时就因此失败了 39 项（在 Mac 上把源码转成 CRLF 可以复现）。两种 SSH 传输和自检里的 bash 调用都会再把 `\r\n` 换成 `\n`，作为第二道保险。
 - **远端脚本逐字一致**：所有脚本用 C# 原始字符串字面量（`"""…"""`）书写，`\0`、`\n` 保持字面。验证方法：`.build/debug/ServerIsland --dump-scripts <目录>`（列表在 `Sources/ServerIsland/App/ReferenceScripts.swift`，和 C# 的 `SelfTest.ReferenceScripts()` 一一对应），再运行 `SERVERISLAND_SCRIPT_REF=<目录> dotnet run -- --selftest`，22 个脚本应全部"和 Swift 版脚本一致"。新增脚本时两边的列表一起加。**改 Swift 版的远端脚本时，两边要一起改。**
 - 尺寸常量（`IslandLayout`）、配色（`Hue`）、Tako 网格（`PetSprite`）、文案（`L(zh, en)`）都照搬 Swift 版；用来匹配服务器输出的字符串不翻译。
 - 引擎在界面线程上运行，`await` 之后回到界面线程（对应 Swift 的 `@MainActor`）。

@@ -82,6 +82,25 @@ public sealed class App : Application
         // 按设置的天数清理诊断日志：启动时一次，之后每 6 小时一次。
         DebugLog.Prune(_store.Settings.LogRetentionDays);
         DispatcherTimer.Run(() => { DebugLog.Prune(_store.Settings.LogRetentionDays); return true; }, TimeSpan.FromHours(6));
+        // 自动检查更新：启动 20 秒后一次，之后每 24 小时一次（演示模式、界面走查不检查）。
+        UpdateChecker.CurrentVersion = AppInfo.Version;
+        UpdateChecker.Changed += () => Dispatcher.UIThread.Post(() => _tray?.Update());
+        if (!demo && Preview.UiSmoke.Directory == null)
+        {
+            DispatcherTimer.RunOnce(AutoCheckForUpdates, TimeSpan.FromSeconds(20));
+            DispatcherTimer.Run(() => { AutoCheckForUpdates(); return true; }, TimeSpan.FromHours(24));
+        }
+    }
+
+    /// 后台检查更新：有新版本时在刘海里提醒一次（同一个版本只提醒一次），托盘菜单里多一项"下载新版本"。
+    async void AutoCheckForUpdates()
+    {
+        if (!_store.Settings.AutoCheckUpdates) return;
+        if (await UpdateChecker.CheckAsync() is not { } r || _store.Settings.NotifiedUpdateVersion == r.Version) return;
+        _store.Settings.NotifiedUpdateVersion = r.Version;
+        _store.Touch();
+        _engine.Emit(new IslandEvent(EventKind.Info, L($"ServerIsland 有新版本 v{r.Version}", $"ServerIsland v{r.Version} is available"),
+            L("在托盘图标或 设置 → 通用 里下载", "Download it from the tray icon or Settings → General"), "ServerIsland"));
     }
 
     bool _refreshQueued;
@@ -225,6 +244,11 @@ public sealed class TrayController
             menu.Items.Add(new NativeMenuItem($"{dot}  {host.DisplayName} — {status}") { IsEnabled = false });
         }
         menu.Items.Add(new NativeMenuItemSeparator());
+        if (UpdateChecker.State == UpdateChecker.StateKind.Available && UpdateChecker.Latest is { } r)
+        {
+            menu.Items.Add(Item(L($"下载新版本 v{r.Version}…", $"Download v{r.Version}…"), () => Shell.OpenUrl(r.DownloadUrl)));
+            menu.Items.Add(new NativeMenuItemSeparator());
+        }
         menu.Items.Add(Item(L("打开面板", "Open Panel"), _app.TogglePanel));
         menu.Items.Add(Item(L("立即刷新", "Refresh Now"), _engine.RefreshAll));
         var mode = new NativeMenuItem(L("显示方式", "Display")) { Menu = new NativeMenu() };

@@ -1,0 +1,19 @@
+# 所有文本文件一律用 LF（包括在 Windows 上 checkout 时）。
+# C# 的原始字符串字面量会原样保留源文件的换行；Windows 上默认 core.autocrlf=true 时，
+# 代码里内嵌的 bash 脚本会带上 \r，在服务器上跑不起来（2026-10-18 Windows CI 的自检就是因此失败）。
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.wav binary
+*.mp3 binary
+*.mp4 binary
+*.dmg binary
+*.zip binary
+*.gz binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
