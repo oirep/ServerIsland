@@ -12,7 +12,11 @@
 swift build                     # 调试构建：.build/debug/ServerIsland
 ./scripts/build_app.sh          # release 构建 → build/ServerIsland.app（ad-hoc 签名）
 ./scripts/build_app.sh --run    # 构建后重启 App
+./scripts/install_local.sh      # 构建后替换 /Applications/ServerIsland.app 并启动（DEST=目录 可改安装位置）
 ```
+`install_local.sh` 会先退出正在运行的 ServerIsland（包括在 Mac 上试用的跨平台版），只编译本机的架构，设置不受影响。
+
+**一次打三个平台**：`./scripts/package_all.sh` 依次运行 `make_dmg.sh`（通用二进制 DMG）、`cross/scripts/publish.sh`（win-x64 zip、linux-x64 tar.gz），再用 `install_local.sh --no-build` 把刚打好的通用版装到 /Applications，最后打印三个包的大小和 SHA-256（写进发布说明）。Info.plist 和 `cross/Directory.Build.props` 的版本号不一致时直接报错。
 `build_app.sh` 会把 Info.plist、AppIcon.icns、`Resources/Sounds/`、菜单栏 PNG 复制进 .app。
 App 是非沙盒的，因为要读 `~/.ssh`、调用 ssh，所以**上不了 Mac App Store**。`Info.plist` 里设置了 `LSUIElement=true`，App 不在 Dock 里显示。
 
@@ -54,7 +58,7 @@ cross/scripts/build_mac_preview.sh --run # 在 Mac 上试用跨平台版（不�
 
 ## git
 
-- 远程：`git@github.com:zhyan0603/ServerIsland.git`（公开仓库）。`main` 是 Mac 版的发布分支；`avalonia` 分支开发 Windows / Linux 版，测好后合并进 `main`。
+- 远程：`git@github.com:zhyan0603/ServerIsland.git`（公开仓库）。`main` 是发布分支；**日常改动（两个版本）都在 `dev` 分支上做**，测好后合并进 `main`（2026-10-18 起，原来的 `avalonia` 分支改名为 `dev`）。
 - **提交、推送都要等用户确认。** 提交信息结尾要带上 `Co-Authored-By` 行（见会话里的提示）。
 - `.gitignore` 里忽略了：`.build/`、`build/`、`promo/node_modules/`、`promo/out/`、`cross/**/bin/`、`cross/**/obj/`、`references/private/`。
 - 编译产物（DMG、zip、tar.gz）**不进 git**，发布时作为 GitHub Release 的附件上传。

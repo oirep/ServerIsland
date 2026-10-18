@@ -210,6 +210,20 @@ public static class SelfTest
               && PendingReason.Explain("AssocGrpBillingRunMinutes")?.Short == "组计费额度已满"
               && PendingReason.Explain("Job's QOS not permitted to use this partition (CPU-MISC allows rush-cpu)")?.NeedsAction == true,
               "排队原因翻译");
+        // sinfo -N -O 的 Gres / GresUsed：NVIDIA 的 gpu、曙光（海光）的 dcu；"dcu:0,gpu:0" 不算一种卡
+        var parts = Partitions.Parse(RemoteScript.Parse(string.Join("\n",
+            "@@SI:SEC nodes",
+            "c01  cpu*  mix    29/3/0/32  (null)              dcu:0,gpu:0",
+            "d01  dcu   alloc  32/0/0/32  dcu:Hygon:4(S:0-3)  dcu:Hygon:4(IDX:0-3)",
+            "d02  dcu   mix    8/24/0/32  dcu:Hygon:4(S:0-3)  dcu:Hygon:1(IDX:0)",
+            "g01  gpu   idle   0/64/0/64  gpu:a100:8(S:0-1)   gpu:0",
+            "@@SI:RC 0"))) ?? [];
+        var dcuP = parts.FirstOrDefault(p => p.Name == "dcu"); var cpuP = parts.FirstOrDefault(p => p.Name == "cpu"); var gpuP = parts.FirstOrDefault(p => p.Name == "gpu");
+        Check(dcuP?.GpuTotal == 8 && dcuP.GpuIdle == 3 && dcuP.GpuLabel == "DCU" && dcuP.GpuModels.SetEquals(["Hygon"])
+              && cpuP?.GpuTotal == 0 && cpuP.GpuLabel == "GPU" && cpuP.CpuIdle == 3 && cpuP.IsDefault
+              && gpuP?.GpuIdle == 8 && gpuP.GpuLabel == "GPU"
+              && Partitions.GpuCount("gpu:v100:2,dcu:Hygon:4").Count == 6
+              && PartitionStat.Label(["gpu", "dcu"]) == "DCU/GPU", "分区资源：GPU 和 DCU（Gres）");
 
         var cancelS = RemoteScript.CancelScript(slurm, sj, null, false)!;
         Check(cancelS.Contains("squeue -h -j 4821337") && cancelS.Contains("scancel 4821337"), "取消前先核对作业");

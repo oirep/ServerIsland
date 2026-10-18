@@ -82,6 +82,7 @@ squeue 的解析是**从两端按位置取列**，所以作业名里有 `|` 也�
 - `Partitions.script`：
   - `sinfo -h -o '%P|%a|%l'`：分区汇总；
   - `sinfo -N -h -O 'NodeList,Partition,StateCompact,CPUsState,Gres,GresUsed'`：逐个节点，按空白切分。
+  - Gres / GresUsed 里的加速卡认 `gpu`、`dcu`（曙光 / 海光，如 `dcu:Hygon:4(S:0-3)`）、`npu`、`mlu`，空闲 = 总数 − 已用；数量为 0 的（`dcu:0,gpu:0`）不算一种卡。界面上的名字跟着种类走（GPU / DCU，混在一起是 DCU/GPU）。
 
 ## 计算软件识别（`Monitor/AppDetectors.swift`）
 

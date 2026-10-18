@@ -65,7 +65,7 @@ public static class SshCommon
         if (JumpProblem(err, host) is { } hop) return hop;
         if (lower.Contains("permission denied") || lower.Contains("too many authentication")
             || lower.Contains("keyboard-interactive") || (lower.Contains("control socket") && host.Auth.NeedsLogin()))
-            return HostHealth.NeedsLogin(host.Auth.NeedsLogin() ? L("需要登录", "Login required") : KeyFailureHint(lower));
+            return HostHealth.NeedsLogin(host.Auth.NeedsLogin() ? L("需要登录", "Login required") : KeyPermissionHint(err) ?? KeyFailureHint(lower));
         if (host.Auth.NeedsLogin() && (lower.Contains("no such file") || lower.Length == 0))
             return HostHealth.NeedsLogin(L("需要登录", "Login required"));
         if (lower.Contains("could not resolve")) return HostHealth.Error(L("无法解析主机名", "Cannot resolve host name"));
@@ -74,6 +74,20 @@ public static class SshCommon
         if (lower.Contains("no route") || lower.Contains("network is unreachable")) return HostHealth.Error(L("网络不可达", "Network unreachable"));
         var lines = err.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
         return HostHealth.Error(lines.Count > 0 ? lines[^1] : L("ssh 连接失败", "ssh connection failed"));
+    }
+
+    /// 私钥文件别人也能读（比如 0755）时 ssh 会直接忽略它（"Load key …: bad permissions"），再退到别的认证方式，
+    /// 最后报的 Permission denied 容易被误认成密钥不对，所以单独指出来。Windows 上没有 chmod，要在文件属性里改。
+    public static string? KeyPermissionHint(string err)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(err, "Load key \"([^\"]+)\": bad permissions");
+        if (!m.Success) return null;
+        var path = AppPaths.Tilde(m.Groups[1].Value);
+        return OperatingSystem.IsWindows()
+            ? L($"私钥文件权限太宽，ssh 不肯用：在 {path} 的“属性 → 安全”里只保留你自己的访问权限",
+                $"The private key is readable by others, so ssh ignores it: in {path} → Properties → Security, leave access for your account only")
+            : L($"私钥文件权限太宽，ssh 不肯用：在终端运行 chmod 600 {path}",
+                $"The private key is readable by others, so ssh ignores it: run chmod 600 {path} in a terminal");
     }
 
     /// 密钥登录被拒时，根据服务器列出的认证方式给出建议。

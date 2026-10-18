@@ -79,6 +79,11 @@ public static class SelfTestConnection
         check(SshCommon.KeyFailureHint("alice@x: permission denied (password).").Contains("密钥 + 密码"), "错误：密钥通过但还要密码 → 建议“密钥 + 密码”");
         check(SshCommon.KeyFailureHint("alice@x: permission denied (publickey,password).").Contains("密码"), "错误：密钥被拒但服务器接受密码");
         check(SshCommon.KeyFailureHint("alice@x: permission denied (publickey).") == "密钥登录失败", "错误：只接受密钥");
+        const string badPerm = "Permissions 0755 for '/home/alice/.ssh/id_demo' are too open.\nLoad key \"/home/alice/.ssh/id_demo\": bad permissions\nalice@x: Permission denied (publickey,password).";
+        check(SshCommon.KeyPermissionHint(badPerm)?.Contains("id_demo") == true
+              && SshCommon.KeyPermissionHint("alice@x: Permission denied (publickey).") == null
+              && SshCommon.Classify(SshResult.Failure(badPerm), new HostConfig("x", "x"))?.Message == SshCommon.KeyPermissionHint(badPerm),
+              "错误：私钥权限太宽 → 提示改权限");
 
         SshHosts.Update(all, write: false);
         var hopLogin = SshCommon.JumpProblem("bob@jump.example.org: Permission denied (publickey,password).\nConnection closed by UNKNOWN port 65535", aliasHost);

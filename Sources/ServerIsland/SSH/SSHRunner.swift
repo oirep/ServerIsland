@@ -162,7 +162,7 @@ enum SSHRunner {
         if lower.contains("permission denied") || lower.contains("too many authentication")
             || lower.contains("keyboard-interactive") || lower.contains("control socket") && host.auth.needsLogin {
             if host.auth.needsLogin { return .needsLogin(L("需要登录", "Login required")) }
-            return .needsLogin(keyFailureHint(lower))
+            return .needsLogin(keyPermissionHint(err) ?? keyFailureHint(lower))
         }
         if host.auth.needsLogin && (lower.contains("no such file") || lower.isEmpty) {
             return .needsLogin(L("需要登录", "Login required"))
@@ -173,6 +173,15 @@ enum SSHRunner {
         if lower.contains("no route") || lower.contains("network is unreachable") { return .error(L("网络不可达", "Network unreachable")) }
         let firstLine = err.components(separatedBy: .newlines).last { !$0.isEmpty } ?? L("ssh 连接失败", "ssh connection failed")
         return .error(firstLine)
+    }
+
+    /// 私钥文件别人也能读（比如 0755）时 ssh 会直接忽略它（"Load key …: bad permissions"），再退到别的认证方式，
+    /// 最后报的 Permission denied 容易被误认成密钥不对，所以单独指出来。
+    static func keyPermissionHint(_ err: String) -> String? {
+        guard let r = err.range(of: #"Load key "[^"]+": bad permissions"#, options: .regularExpression) else { return nil }
+        let path = (String(err[r].dropFirst("Load key \"".count).prefix { $0 != "\"" }) as NSString).abbreviatingWithTildeInPath
+        return L("私钥文件权限太宽，ssh 不肯用：在终端运行 chmod 600 \(path)",
+                 "The private key is readable by others, so ssh ignores it: run chmod 600 \(path) in Terminal")
     }
 
     /// 密钥登录被拒时，根据服务器列出的认证方式给出建议。

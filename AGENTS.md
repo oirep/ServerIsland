@@ -18,13 +18,14 @@ ServerIsland 是一个菜单栏 / 刘海（灵动岛风格）App：通过 SSH �
 
 | | Mac 版（正式发布） | Windows / Linux 版 |
 |---|---|---|
-| 代码 | `Sources/`（Swift） | `cross/`（C# + Avalonia），在 `avalonia` 分支开发，测好后合并进 `main` |
+| 代码 | `Sources/`（Swift） | `cross/`（C# + Avalonia） |
 | 显示 | 贴着硬件刘海的灵动岛 | 屏幕顶部正中的虚拟灵动岛，或桌面小章鱼；都有托盘图标 |
 | 文档 | 本文件 + `references/` 各专题 | `references/cross-platform.md` |
 
 - **Mac 版保持 Swift，功能和显示不要改成 C#。** 跨平台版可以打包成 `ServerIsland Preview.app` 在 Mac 上试用，但它不是 Mac 的发布版本（体积约 110MB、空闲 CPU 偏高、菜单和通知不是原生的）。什么时候考虑合并成一套代码，见 `cross-platform.md` 的"决策记录"。
 - 两个版本**共用**：远端脚本（逐字一致，有自检保证）、配置文件格式、识别和提醒逻辑、界面风格（`references/design-guide.md`）、文案。
 - **改核心逻辑（远端脚本、解析、识别、提醒判断）时两边一起改**；只改界面时各改各的，但风格要一致。
+- **分支**：日常改动（两个版本）都在 `dev` 分支上做，测好后合并进 `main` 发布（`main` 是默认分支和发布分支）。
 
 ## 技术栈
 
@@ -55,7 +56,7 @@ Sources/ServerIsland/
   Shared/     Localization（L()、HelpLabel）、Pet（Tako 精灵）、Theme、Components、Format、SoundPlayer、DebugLog
 Resources/    Info.plist、AppIcon.icns、Sounds/*.wav
 Branding/     logo.svg、menubar.svg（由 scripts/gen_branding.py 生成）及导出的 PNG
-scripts/      build_app.sh、make_dmg.sh、site_shots.sh（官网截图）、readme_assets.sh（README 素材）、gen_branding.py、gen_sounds.py、render_svg.swift
+scripts/      build_app.sh、install_local.sh（更新本机安装的 App）、package_all.sh（三平台安装包 + 更新本机）、make_dmg.sh、site_shots.sh（官网截图）、readme_assets.sh（README 素材）、gen_branding.py、gen_sounds.py、render_svg.swift
 remote/       si-progress（放到服务器上的进度上报小工具）
 promo/        发布视频源码（见 references/promo-video.md）
 site/         官网（纯静态，GitHub Pages；见 references/website.md）
@@ -74,6 +75,8 @@ references/   专题文档（见下）
 swift build                                          # 调试构建（会打印 "xcrun: error: PlatformPath" 两行，属于无害噪音）
 .build/debug/ServerIsland --selftest                 # 解析 / 脚本自检（目前 109 项，应全部 ✓；其中计算软件识别会用本机 bash 跑假文件，连接部分会调用本机 ssh -G）
 ./scripts/build_app.sh --run                         # release 构建 + 打包 + 重启 App
+./scripts/install_local.sh                           # release 构建并替换本机的 /Applications/ServerIsland.app，然后启动
+./scripts/package_all.sh                             # 三个平台的安装包（DMG / win-x64.zip / linux-x64.tar.gz）+ 替换本机 Mac 版，最后打印 SHA-256
 ./scripts/make_dmg.sh                                # → build/ServerIsland-<版本>.dmg
 .build/debug/ServerIsland --render-preview <目录> [zh|en]  # 把刘海 / 页面 / 设置窗口渲染成 PNG（演示数据）
 ./scripts/site_shots.sh                              # 重新生成官网截图
@@ -106,7 +109,7 @@ cross/scripts/build_mac_preview.sh --run              # 打包并在 Mac 上试�
 4. **用 Python 改 Swift 源码时，小心 `\0`、`\n` 被转义成真字符**，出过 NUL 字节事故。优先用 Edit 工具，或者用 raw string。
 5. **远端命令一律经过 `SSHRunner.run`**：它会自动在脚本前加上 PATH 补全（`pathPrelude`）；"连接后先执行"（`commands.preamble`）由各脚本自己加。
 6. **会写到服务器上、或改变服务器状态的操作，先征得用户同意**。测试用的作业要短、只占 CPU、跑完自己清理。不能在用户的服务器上执行取消 / kill。
-7. **不要擅自 git commit / push**，等维护者确认。
+7. **不要擅自 git commit / push**，等维护者确认。默认在 `dev` 分支上改。
 8. **仓库是公开的：代码、文档、截图、视频、官网里都不能出现真实的用户名、主机别名、路径、分区名**，演示数据一律用 `DemoData.swift` 里的虚构信息（例外：README 等处维护者主动公开的联系邮箱）（见 `references/website.md`）。维护者自己的环境信息只写在 `references/private/`（被 git 忽略）。
 9. **用户的真实配置在 `~/Library/Application Support/ServerIsland/config.json`**。改它之前先退出 App，否则会被 App 覆盖。
 10. **不改用户的 `~/.ssh/config`**：手动填写的服务器和跳板机只写进 App 私有的 ssh 配置（`ssh -F`）。**密码默认不保存**，用户勾选“记住密码”时只存系统钥匙串 / 凭据库，绝不写进配置文件或日志；动态口令从不保存。跨平台版在 Mac 上用的是另一个目录（`ServerIsland-Avalonia`），不会碰 Swift 版的配置。

@@ -91,7 +91,7 @@ if let i = arguments.firstIndex(of: "--partitions"), i + 1 < arguments.count {
         if let e = r.error { print("error:", e) }
         for p in r.stats ?? [] {
             print(p.name, p.isDefault ? "*" : "", p.available ? "up" : "DOWN", p.timeLimit,
-                  "GPU \(p.gpuIdle)/\(p.gpuTotal)", "CPU \(p.cpuIdle)/\(p.cpuTotal)",
+                  "\(p.gpuLabel) \(p.gpuIdle)/\(p.gpuTotal)", "CPU \(p.cpuIdle)/\(p.cpuTotal)",
                   "nodes idle \(p.idleNodes) mix \(p.mixNodes) alloc \(p.allocNodes) down \(p.downNodes)/\(p.nodes)", p.gpuModels.sorted())
         }
         sem.signal()

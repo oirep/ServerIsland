@@ -8,10 +8,19 @@ struct PartitionStat: Identifiable, Equatable {
     var timeLimit = ""
     var nodes = 0, idleNodes = 0, mixNodes = 0, allocNodes = 0, downNodes = 0
     var cpuIdle = 0, cpuTotal = 0
+    /// 加速卡（GPU，或曙光的 DCU 等）合在一起算；gpuKinds 记下出现过的种类，界面按它显示"GPU" / "DCU"。
     var gpuIdle = 0, gpuTotal = 0
     var gpuModels: Set<String> = []
+    var gpuKinds: Set<String> = []
 
     var id: String { name }
+
+    /// 加速卡的名字：只有一种时就是它（DCU），混在一起时用"/"连起来，没有时是 GPU。
+    var gpuLabel: String { Self.label(gpuKinds) }
+
+    static func label(_ kinds: Set<String>) -> String {
+        kinds.isEmpty ? "GPU" : kinds.map { $0.uppercased() }.sorted().joined(separator: "/")
+    }
 }
 
 enum Partitions {
@@ -27,19 +36,24 @@ enum Partitions {
         return s
     }
 
-    private static let gpuRegex = try! NSRegularExpression(pattern: #"gpu(?::([^:(,\s]+))?:(\d+)"#)
+    /// 认作加速卡的 Gres 名字：NVIDIA / AMD 的 gpu，曙光（海光）的 dcu，昇腾的 npu，寒武纪的 mlu。
+    private static let gpuRegex = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_])(gpu|dcu|npu|mlu)(?::([^:(,\s]+))?:(\d+)"#)
 
-    /// "gpu:V100-SXM2:4(S:0-1)" -> (4, ["V100-SXM2"])；"gpu:a100:2(IDX:0-1),gpu:v100:1" 会相加。
-    static func gpuCount(_ s: String) -> (Int, Set<String>) {
-        guard s != "(null)" else { return (0, []) }
+    /// "gpu:V100-SXM2:4(S:0-1)" -> (4, ["V100-SXM2"], ["gpu"])；"gpu:a100:2(IDX:0-1),gpu:v100:1" 会相加；
+    /// 曙光的 "dcu:Hygon:4(S:0-3)" -> (4, ["Hygon"], ["dcu"])。数量为 0 的种类（GresUsed 里的 "dcu:0,gpu:0"）不算。
+    static func gpuCount(_ s: String) -> (count: Int, models: Set<String>, kinds: Set<String>) {
+        guard s != "(null)" else { return (0, [], []) }
         var n = 0
-        var models: Set<String> = []
+        var models: Set<String> = [], kinds: Set<String> = []
         let ns = s as NSString
         for m in gpuRegex.matches(in: s, range: NSRange(location: 0, length: ns.length)) {
-            n += Int(ns.substring(with: m.range(at: 2))) ?? 0
-            if m.range(at: 1).location != NSNotFound { models.insert(ns.substring(with: m.range(at: 1))) }
+            let k = Int(ns.substring(with: m.range(at: 3))) ?? 0
+            guard k > 0 else { continue }
+            n += k
+            kinds.insert(ns.substring(with: m.range(at: 1)))
+            if m.range(at: 2).location != NSNotFound { models.insert(ns.substring(with: m.range(at: 2))) }
         }
-        return (n, models)
+        return (n, models, kinds)
     }
 
     static func parse(_ parsed: RemoteScript.Parsed) -> [PartitionStat]? {
@@ -88,10 +102,11 @@ enum Partitions {
                 if usable { p.cpuIdle += cpu[1] }
             }
             if f.count >= 5 {
-                let (total, models) = gpuCount(f[4])
-                let used = f.count >= 6 ? gpuCount(f[5]).0 : 0
+                let (total, models, kinds) = gpuCount(f[4])
+                let used = f.count >= 6 ? gpuCount(f[5]).count : 0
                 p.gpuTotal += total
                 p.gpuModels.formUnion(models)
+                p.gpuKinds.formUnion(kinds)
                 if usable { p.gpuIdle += max(0, total - used) }
             }
             map[name] = p

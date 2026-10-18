@@ -577,9 +577,11 @@ public sealed class IslandPages(MonitorEngine engine, IslandState st)
     {
         var s = st.StateFor(() => new PartitionsState());
         if (!s.Started && !PreviewMode) { s.Started = true; _ = LoadPartitions(host, s, false); }
+        // 整个集群的加速卡名字（GPU / DCU / DCU/GPU）
+        var gpuLabel = PartitionStat.Label((s.Stats ?? []).SelectMany(p => p.GpuKinds));
         var subtitle = s.Loading && s.Stats == null ? L("查询中…", "Querying…")
             : s.Stats == null ? L("按需查询，不参与轮询", "On demand, not polled")
-            : L($"查询于 {Format.Relative(s.At)} · 按空闲 GPU 排序", $"queried {Format.Relative(s.At)} · sorted by idle GPUs");
+            : L($"查询于 {Format.Relative(s.At)} · 按空闲 {gpuLabel} 排序", $"queried {Format.Relative(s.At)} · sorted by idle {gpuLabel}s");
         var header = PageHeader(L("分区空闲资源", "Free Partition Resources"), host.DisplayName + " · " + subtitle, Back,
             IconButton("refresh", L("重新查询（sinfo）", "Query again (sinfo)"), () => _ = LoadPartitions(host, s, true), spinning: s.Loading));
         Control totals = new Control();
@@ -587,7 +589,7 @@ public sealed class IslandPages(MonitorEngine engine, IslandState st)
         {
             Control Total(string label, int idle, int all, Color c) => H(5, T(label, 10.5, color: Hue.Tertiary),
                 T($"{idle}", 14, FontWeight.SemiBold, idle > 0 ? c : Hue.Tertiary), T($"/ {all}", 10.5, color: Hue.Tertiary));
-            totals = Row(16, Total(L("空闲 GPU", "Idle GPU"), stats.Sum(p => p.GpuIdle), stats.Sum(p => p.GpuTotal), Hue.Cyan),
+            totals = Row(16, Total(L($"空闲 {gpuLabel}", $"Idle {gpuLabel}"), stats.Sum(p => p.GpuIdle), stats.Sum(p => p.GpuTotal), Hue.Cyan),
                 Total(L("空闲 CPU", "Idle CPU"), stats.Sum(p => p.CpuIdle), stats.Sum(p => p.CpuTotal), Hue.Mint), Spacer,
                 T(L("同一节点可能属于多个分区，合计会重复计算", "Nodes in several partitions are counted more than once"), 9.5, color: Hue.Tertiary));
         }
@@ -622,12 +624,12 @@ public sealed class IslandPages(MonitorEngine engine, IslandState st)
         {
             var t = T(L($"空闲 {idle}/{total}", $"idle {idle}/{total}"), 10.5, FontWeight.Medium, idle > 0 ? Hue.Secondary : Hue.Tertiary).W(92);
             t.TextAlignment = TextAlignment.Right;
-            return Row(6, T(label, 9.5, FontWeight.SemiBold, Hue.Tertiary).W(26), Fill(new SlimBar { Fraction = total > 0 ? (double)idle / total : 0, Fill = c.B(), BarHeight = 5 }), t);
+            return Row(6, T(label, 9.5, FontWeight.SemiBold, Hue.Tertiary).MinW(26), Fill(new SlimBar { Fraction = total > 0 ? (double)idle / total : 0, Fill = c.B(), BarHeight = 5 }), t);
         }
         var meters = new Grid { ColumnDefinitions = new ColumnDefinitions(p.GpuTotal > 0 ? "*,14,*" : "*") };
         if (p.GpuTotal > 0)
         {
-            meters.Children.Add(Meter("GPU", p.GpuIdle, p.GpuTotal, Hue.Cyan));
+            meters.Children.Add(Meter(p.GpuLabel, p.GpuIdle, p.GpuTotal, Hue.Cyan));
             var cpu = Meter("CPU", p.CpuIdle, p.CpuTotal, Hue.Mint);
             Grid.SetColumn(cpu, 2);
             meters.Children.Add(cpu);

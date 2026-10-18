@@ -4,7 +4,7 @@ name: Cross-platform build
 
 on:
   push:
-    branches: [main, avalonia]
+    branches: [main, dev]
     paths: ["cross/**", ".github/workflows/cross.yml"]
   pull_request:
     paths: ["cross/**"]

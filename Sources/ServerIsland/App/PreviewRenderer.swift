@@ -181,6 +181,12 @@ enum PreviewRenderer {
                           cpuIdle: 384, cpuTotal: 512),
             PartitionStat(name: "debug", available: true, timeLimit: "00:30:00", nodes: 2, idleNodes: 2, cpuIdle: 128, cpuTotal: 128),
         ]))
+        page("partitions-dcu", PartitionsPage(host: slurmHost, engine: engine, onBack: {}, preloaded: [
+            PartitionStat(name: "dcu", isDefault: true, available: true, timeLimit: "7-00:00:00", nodes: 64, idleNodes: 4, mixNodes: 10,
+                          allocNodes: 50, cpuIdle: 420, cpuTotal: 2_048, gpuIdle: 38, gpuTotal: 256, gpuModels: ["Hygon"], gpuKinds: ["dcu"]),
+            PartitionStat(name: "cpu", available: true, timeLimit: "7-00:00:00", nodes: 40, idleNodes: 6, mixNodes: 8, allocNodes: 26,
+                          cpuIdle: 310, cpuTotal: 1_280),
+        ]))
         // 打开"允许取消"：否则底部的"去设置"链接按钮在离屏渲染里画不出来（显示成黄色方块）
         var nepHost = store.settings.hosts[1]; nepHost.allowCancel = true
         if let nepJob = engine.snapshots[nepHost.id]?.jobs.first {

@@ -205,6 +205,20 @@ public static class PreviewRenderer
         };
         Save(IslandScene(IslandMode.Expanded, st), "page-partitions");
 
+        // 分区：曙光的 DCU
+        st = new IslandState { Hovering = true };
+        st.Page = new IslandPage(PageKind.Partitions, hpc.Id);
+        st.PageState = new PartitionsState
+        {
+            Started = true,
+            Stats =
+            [
+                new PartitionStat { Name = "dcu", IsDefault = true, TimeLimit = "7-00:00:00", Nodes = 64, IdleNodes = 4, MixNodes = 10, AllocNodes = 50, CpuIdle = 420, CpuTotal = 2_048, GpuIdle = 38, GpuTotal = 256, GpuModels = ["Hygon"], GpuKinds = ["dcu"] },
+                new PartitionStat { Name = "cpu", TimeLimit = "7-00:00:00", Nodes = 40, IdleNodes = 6, MixNodes = 8, AllocNodes = 26, CpuIdle = 310, CpuTotal = 1_280 },
+            ],
+        };
+        Save(IslandScene(IslandMode.Expanded, st), "page-partitions-dcu");
+
         // 监听进程
         st = new IslandState { Hovering = true };
         st.Page = new IslandPage(PageKind.Picker, box.Id);

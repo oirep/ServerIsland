@@ -850,7 +850,7 @@ struct PartitionsPage: View {
             if let stats {
                 let gIdle = stats.reduce(0) { $0 + $1.gpuIdle }, gTotal = stats.reduce(0) { $0 + $1.gpuTotal }
                 HStack(spacing: 16) {
-                    total(L("空闲 GPU", "Idle GPU"), gIdle, gTotal, Theme.cyan)
+                    total(L("空闲 \(gpuLabel)", "Idle \(gpuLabel)"), gIdle, gTotal, Theme.cyan)
                     total(L("空闲 CPU", "Idle CPU"), stats.reduce(0) { $0 + $1.cpuIdle }, stats.reduce(0) { $0 + $1.cpuTotal }, Theme.mint)
                     Spacer()
                     Text(L("同一节点可能属于多个分区，合计会重复计算", "Nodes in several partitions are counted more than once")).font(Theme.rounded(9.5)).foregroundStyle(Theme.tertiary)
@@ -876,8 +876,11 @@ struct PartitionsPage: View {
 
     private var subtitle: String {
         if loading && stats == nil { return L("查询中…", "Querying…") }
-        return stats == nil ? L("按需查询，不参与轮询", "On demand, not polled") : L("查询于 \(Format.relative(at)) · 按空闲 GPU 排序", "queried \(Format.relative(at)) · sorted by idle GPUs")
+        return stats == nil ? L("按需查询，不参与轮询", "On demand, not polled") : L("查询于 \(Format.relative(at)) · 按空闲 \(gpuLabel) 排序", "queried \(Format.relative(at)) · sorted by idle \(gpuLabel)s")
     }
+
+    /// 整个集群的加速卡名字（GPU / DCU / GPU/DCU）。
+    private var gpuLabel: String { PartitionStat.label((stats ?? []).reduce(into: Set<String>()) { $0.formUnion($1.gpuKinds) }) }
 
     private func load(force: Bool) async {
         loading = true
@@ -917,7 +920,7 @@ struct PartitionsPage: View {
                 }
             }
             HStack(spacing: 14) {
-                if p.gpuTotal > 0 { meter("GPU", p.gpuIdle, p.gpuTotal, Theme.cyan) }
+                if p.gpuTotal > 0 { meter(p.gpuLabel, p.gpuIdle, p.gpuTotal, Theme.cyan) }
                 meter("CPU", p.cpuIdle, p.cpuTotal, Theme.mint)
             }
         }
@@ -934,7 +937,7 @@ struct PartitionsPage: View {
 
     private func meter(_ label: String, _ idle: Int, _ total: Int, _ c: Color) -> some View {
         HStack(spacing: 6) {
-            Text(label).font(Theme.rounded(9.5, .semibold)).foregroundStyle(Theme.tertiary).frame(width: 26, alignment: .leading)
+            Text(label).font(Theme.rounded(9.5, .semibold)).foregroundStyle(Theme.tertiary).fixedSize().frame(minWidth: 26, alignment: .leading)
             SlimBar(fraction: total > 0 ? Double(idle) / Double(total) : 0, fill: AnyShapeStyle(c), height: 5)
             Text(L("空闲 \(idle)/\(total)", "idle \(idle)/\(total)")).font(Theme.rounded(10.5, .medium).monospacedDigit())
                 .foregroundStyle(idle > 0 ? Theme.secondary : Theme.tertiary)

@@ -11,8 +11,19 @@ public sealed class PartitionStat
     public string TimeLimit = "";
     public int Nodes, IdleNodes, MixNodes, AllocNodes, DownNodes;
     public int CpuIdle, CpuTotal;
+    /// 加速卡（GPU，或曙光的 DCU 等）合在一起算；GpuKinds 记下出现过的种类，界面按它显示"GPU" / "DCU"。
     public int GpuIdle, GpuTotal;
     public SortedSet<string> GpuModels = [];
+    public SortedSet<string> GpuKinds = [];
+
+    /// 加速卡的名字：只有一种时就是它（DCU），混在一起时用"/"连起来，没有时是 GPU。
+    public string GpuLabel => Label(GpuKinds);
+
+    public static string Label(IEnumerable<string> kinds)
+    {
+        var k = kinds.Select(x => x.ToUpperInvariant()).Distinct().Order(StringComparer.Ordinal).ToList();
+        return k.Count == 0 ? "GPU" : string.Join("/", k);
+    }
 }
 
 public static class Partitions
@@ -29,20 +40,25 @@ public static class Partitions
         return s;
     }
 
-    static readonly Regex GpuRegex = new(@"gpu(?::([^:(,\s]+))?:(\d+)");
+    /// 认作加速卡的 Gres 名字：NVIDIA / AMD 的 gpu，曙光（海光）的 dcu，昇腾的 npu，寒武纪的 mlu。
+    static readonly Regex GpuRegex = new(@"(?<![A-Za-z0-9_])(gpu|dcu|npu|mlu)(?::([^:(,\s]+))?:(\d+)");
 
-    /// "gpu:V100-SXM2:4(S:0-1)" -> (4, ["V100-SXM2"])；"gpu:a100:2(IDX:0-1),gpu:v100:1" 会相加。
-    public static (int Count, HashSet<string> Models) GpuCount(string s)
+    /// "gpu:V100-SXM2:4(S:0-1)" -> (4, ["V100-SXM2"], ["gpu"])；"gpu:a100:2(IDX:0-1),gpu:v100:1" 会相加；
+    /// 曙光的 "dcu:Hygon:4(S:0-3)" -> (4, ["Hygon"], ["dcu"])。数量为 0 的种类（GresUsed 里的 "dcu:0,gpu:0"）不算。
+    public static (int Count, HashSet<string> Models, HashSet<string> Kinds) GpuCount(string s)
     {
-        if (s == "(null)") return (0, []);
+        if (s == "(null)") return (0, [], []);
         int n = 0;
-        var models = new HashSet<string>();
+        HashSet<string> models = [], kinds = [];
         foreach (Match m in GpuRegex.Matches(s))
         {
-            n += Text.Int(m.Groups[2].Value) ?? 0;
-            if (m.Groups[1].Success) models.Add(m.Groups[1].Value);
+            int k = Text.Int(m.Groups[3].Value) ?? 0;
+            if (k <= 0) continue;
+            n += k;
+            kinds.Add(m.Groups[1].Value);
+            if (m.Groups[2].Success) models.Add(m.Groups[2].Value);
         }
-        return (n, models);
+        return (n, models, kinds);
     }
 
     public static List<PartitionStat>? Parse(RemoteScript.Parsed parsed)
@@ -92,10 +108,11 @@ public static class Partitions
             }
             if (f.Count >= 5)
             {
-                var (total, models) = GpuCount(f[4]);
+                var (total, models, kinds) = GpuCount(f[4]);
                 int used = f.Count >= 6 ? GpuCount(f[5]).Count : 0;
                 p.GpuTotal += total;
                 p.GpuModels.UnionWith(models);
+                p.GpuKinds.UnionWith(kinds);
                 if (usable) p.GpuIdle += Math.Max(0, total - used);
             }
         }

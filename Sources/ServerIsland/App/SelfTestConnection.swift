@@ -70,6 +70,11 @@ enum SelfTestConnection {
         check(SSHRunner.keyFailureHint("alice@x: permission denied (publickey,password).").contains("密码"),
               "错误：密钥被拒但服务器接受密码")
         check(SSHRunner.keyFailureHint("alice@x: permission denied (publickey).") == "密钥登录失败", "错误：只接受密钥")
+        let badPerm = "Permissions 0755 for '/home/alice/.ssh/id_demo' are too open.\nLoad key \"/home/alice/.ssh/id_demo\": bad permissions\nalice@x: Permission denied (publickey,password)."
+        check(SSHRunner.keyPermissionHint(badPerm)?.contains("chmod 600 /home/alice/.ssh/id_demo") == true
+              && SSHRunner.keyPermissionHint("alice@x: Permission denied (publickey).") == nil
+              && SSHRunner.classify(SSHResult(stdout: "", stderr: badPerm, status: 255, duration: 0, timedOut: false), host: HostConfig(alias: "x", kind: .direct)) == .needsLogin(SSHRunner.keyPermissionHint(badPerm)!),
+              "错误：私钥权限太宽 → 提示 chmod 600")
 
         SSHHosts.update(all, write: false)
         let hopLogin = SSHRunner.jumpProblem("bob@jump.example.org: Permission denied (publickey,password).\nConnection closed by UNKNOWN port 65535", host: aliasHost)

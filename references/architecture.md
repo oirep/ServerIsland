@@ -86,7 +86,7 @@ SwiftUI（IslandRootView、SettingsView），通过 @ObservedObject 订阅 engin
   - Slurm：作业名一致、属于自己；
   - 进程：属于自己，且已运行时长与预期相差 20 秒以内。
 - `fetchHistory`：Slurm 优先用 `sacct -S now-24hours`（数组元素合并成一条）；失败一次就记入 `sacctUnsupported`，之后改用本机的 `HistoryStore`（`history.json`，保留 24 小时）。
-- `fetchPartitions`（`Partitions.swift`）：`sinfo` 按节点逐个汇总到分区，统计空闲 GPU 和 CPU；结果缓存 60 秒。
+- `fetchPartitions`（`Partitions.swift`）：`sinfo` 按节点逐个汇总到分区，统计空闲加速卡（GPU / DCU 等）和 CPU；结果缓存 60 秒。
 - `topProcesses`、`watch/unwatch`、`toggleMute`、`setPaused`、`setHostInterval`、`setGlobalInterval`、`setAutoRefresh`、`setKind`、`login`、`checkEnvironment`。
 
 ## 刘海窗口（`Notch/IslandController.swift`）

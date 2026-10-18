@@ -28,7 +28,7 @@
 15. 改为开源（GPL-3.0，版权 Zihan Yan 和贡献者；README 重写成热门开源项目的样子，顶部是真实界面拼成的动图 `docs/demo-{en,zh}.gif`，由 `scripts/readme_assets.sh` 生成）：放弃收费方案；README 改成英文 + `README.zh-CN.md`，加 LICENSE、CONTRIBUTING；官网加 GitHub 链接和开源分区；私有文档挪到被忽略的 `references/private/`，公开文档里的真实主机名、路径都改成通用说法。
 16. README 改成 GPUMDkit 的版式（logo + 链接行 + 徽章 + 简介）；原理图改成自己画的 SVG（中英文、深浅两版）；截图改成只有面板本身、透明背景（`SI_BARE=1 --render-preview`），整宽显示。
 17. 准备发布 v0.1.0：设置 → 通用加了"点个 Star / 反馈问题"按钮；DMG 安装说明补上 macOS 15 的步骤；CHANGELOG.md。
-18. Windows / Linux 版（`cross/`，avalonia 分支，C# + Avalonia）：逐文件移植核心逻辑（远端脚本和 Swift 版逐字一致），虚拟刘海 + 桌面小章鱼 + 托盘，内置 SSH（SSH.NET，Windows 默认）；自检 71 项、`--render-preview`、`--ui-smoke`；CI 工作流 `cross.yml` 在 GitHub 的 Windows / Linux 机器上跑自检和界面走查并打包。用户已在 Windows 真机上试用，修了"桌宠切回灵动岛位置不对"。还可以打包成 `ServerIsland Preview.app` 在 Mac 上试用（`cross/scripts/build_mac_preview.sh`）。详见 `references/cross-platform.md`。
+18. Windows / Linux 版（`cross/`，当时在 avalonia 分支，现在是 dev，C# + Avalonia）：逐文件移植核心逻辑（远端脚本和 Swift 版逐字一致），虚拟刘海 + 桌面小章鱼 + 托盘，内置 SSH（SSH.NET，Windows 默认）；自检 71 项、`--render-preview`、`--ui-smoke`；CI 工作流 `cross.yml` 在 GitHub 的 Windows / Linux 机器上跑自检和界面走查并打包。用户已在 Windows 真机上试用，修了"桌宠切回灵动岛位置不对"。还可以打包成 `ServerIsland Preview.app` 在 Mac 上试用（`cross/scripts/build_mac_preview.sh`）。详见 `references/cross-platform.md`。
 19. 连接方式（两个版本都做了）：认证方式分成"密钥 / 密码 / 密钥 + 密码 / 动态口令"（旧配置的 `interactive` 读成"动态口令"）；不写 `~/.ssh/config` 也能手动填地址、用户名、端口、私钥；跳板机（选另一台 ServerIsland 服务器，可多级，每一跳分别询问、分别报错，已登录的跳板机直接复用）；"记住密码"（默认关，只存系统钥匙串 / Windows 凭据管理器 / Linux Secret Service，断线后自动重新登录，10 分钟内最多一次）。系统 ssh 用 App 私有的 ssh 配置（`ssh -F`，不改 `~/.ssh/config`）。修了内置 SSH"只要密码"重试时丢掉密钥的问题。自检 Swift 88 项、C# 94 项；本机用户级 sshd 测过多级跳板、密钥通过后还要密码的提示、每一跳的报错归属和弹窗归属。
 
 20. 2026-10-18（两个版本都做了）：PBS 集群（PBS Pro / OpenPBS / Torque，远端把 `qstat -f` 转换成 squeue 格式，复用 Slurm 的全部逻辑；qdel 取消、qstat -x 查结束状态、PBS_JOBID 映射进程）；每台服务器"只看这些目录"（按作业工作目录 / 进程当前目录过滤）；VASP 结构优化详情页加"最大力"曲线（OUTCAR 的 TOTAL-FORCE，虚线是 |EDIFFG|），和能量曲线并排；诊断日志保留天数（默认 7 天，启动时和每 6 小时清理）和"清除日志"按钮。Swift 版加了 `--dump-scripts`，两边 22 个脚本逐字一致。自检 Swift 109 项、C# 137 项。
@@ -39,6 +39,8 @@
 - 数据目录说明：发布版的设置和日志目录从 0.1.0 起没变过（Mac `~/Library/Application Support/ServerIsland`、`~/Library/Logs/ServerIsland`；Windows `%APPDATA%\ServerIsland`；Linux `~/.config/ServerIsland`），升级不会丢设置。带 `-Avalonia` 的目录只有"在 Mac 上试用的跨平台版"会用，是为了不覆盖 Swift 版的设置。
 
 23. 2026-10-18 VASP 力和 NEB（两个版本）：最大力优先用 VTST 的 `FORCES: max atom, RMS` 行，没有时按 POSCAR 的 Selective dynamics 去掉固定方向再算；EDIFFG 先从 OUTCAR 读，≥ 0 时显示"按能量收敛"；加了淡色"最低"线（CG 的试探步会让力上下跳）；C# 版图例重叠修好，并加了 `--curve`。NEB 识别（INCAR 的 IMAGES + 01/OSZICAR）：能垒图（能量曲线 + 每个像点的力柱 + EDIFFG 虚线）和能垒随离子步的变化，在真实算例上和 nebef.pl 一致（算例放在本地 `test/`，不进仓库；`SI_NEB_CASE=<目录>` 让自检打印真实结果）。自检 Swift 122 项、C# 151 项（23 个脚本逐字一致）。
+
+24. 2026-10-18（两个版本）：分区页认出曙光的 DCU（Gres 里的 `dcu`，以及 `npu` / `mlu`），按种类显示"空闲 DCU"；私钥文件权限太宽（ssh 报 `bad permissions` 后忽略密钥）时直接提示 `chmod 600 <文件>`（Windows 提示改文件属性 → 安全），不再误报成"密钥登录失败，服务器也接受密码"。直连服务器的 DCU（`hy-smi` / `rocm-smi`）还没做。自检 Swift 124 项、C# 153 项。
 
 ## 尚未验证（需要用户确认或等真实任务）
 

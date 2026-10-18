@@ -1,4 +1,4 @@
-# Windows / Linux 版（`cross/`，avalonia 分支）
+# Windows / Linux 版（`cross/`）
 
 > 设计风格、文案、代码规范见 `design-guide.md`（两个版本共用，含 Swift ↔ C# 文件对照）。
 
@@ -78,7 +78,7 @@ cross/scripts/publish.sh                       # → build/ServerIsland-<版本>
 
 ## 开发流程
 
-1. **分支**：在 `avalonia` 分支上开发 Windows / Linux 版；在 Windows 真机上测好（加上 CI 通过）之后合并进 `main`。Mac 版的改动照常在 `main` 上做。
+1. **分支**：两个版本的日常改动都在 `dev` 分支上做（原来叫 `avalonia`，2026-10-18 改名）；测好（加上 CI 通过）之后合并进 `main`。
 2. **改核心逻辑**（远端脚本、解析、识别规则、提醒判断）时两边一起改：先改 Swift 版，再照着改 `cross/src/ServerIsland.Core/` 里同名的文件，最后跑两边的自检，并做一次脚本逐字比对（见上文）。
 3. **改界面**：`dotnet run -- --render-preview <目录> zh` 看预览图，`dotnet run -- --ui-smoke <目录>` 在真实窗口上走一遍。和 Mac 版一样，悬停、长按、菜单这些真机交互要请用户确认。
 4. **提交前**：`dotnet build` 没有警告、`--selftest` 全部通过；推送后看 GitHub Actions 的 `Cross-platform build`（Windows / Linux 的自检、界面走查截图、安装包都在 Artifacts 里）。

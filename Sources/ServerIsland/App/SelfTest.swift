@@ -173,6 +173,21 @@ enum SelfTest {
               && PendingReason.explain("AssocGrpBillingRunMinutes")?.short == "组计费额度已满"
               && PendingReason.explain("Job's QOS not permitted to use this partition (CPU-MISC allows rush-cpu)")?.needsAction == true,
               "排队原因翻译")
+        // sinfo -N -O 的 Gres / GresUsed：NVIDIA 的 gpu、曙光（海光）的 dcu；"dcu:0,gpu:0" 不算一种卡
+        let parts = Partitions.parse(RemoteScript.parse([
+            "@@SI:SEC nodes",
+            "c01  cpu*  mix    29/3/0/32  (null)              dcu:0,gpu:0",
+            "d01  dcu   alloc  32/0/0/32  dcu:Hygon:4(S:0-3)  dcu:Hygon:4(IDX:0-3)",
+            "d02  dcu   mix    8/24/0/32  dcu:Hygon:4(S:0-3)  dcu:Hygon:1(IDX:0)",
+            "g01  gpu   idle   0/64/0/64  gpu:a100:8(S:0-1)   gpu:0",
+            "@@SI:RC 0",
+        ].joined(separator: "\n"))) ?? []
+        let dcuP = parts.first { $0.name == "dcu" }, cpuP = parts.first { $0.name == "cpu" }, gpuP = parts.first { $0.name == "gpu" }
+        check(dcuP?.gpuTotal == 8 && dcuP?.gpuIdle == 3 && dcuP?.gpuLabel == "DCU" && dcuP?.gpuModels == ["Hygon"]
+              && cpuP?.gpuTotal == 0 && cpuP?.gpuLabel == "GPU" && cpuP?.cpuIdle == 3 && cpuP?.isDefault == true
+              && gpuP?.gpuIdle == 8 && gpuP?.gpuLabel == "GPU"
+              && Partitions.gpuCount("gpu:v100:2,dcu:Hygon:4").count == 6
+              && PartitionStat.label(["gpu", "dcu"]) == "DCU/GPU", "分区资源：GPU 和 DCU（Gres）")
 
         let cancelS = RemoteScript.cancelScript(host: slurm, job: sj, expectedElapsed: nil, force: false)!
         check(cancelS.contains("squeue -h -j 4821337") && cancelS.contains("scancel 4821337"), "取消前先核对作业")
