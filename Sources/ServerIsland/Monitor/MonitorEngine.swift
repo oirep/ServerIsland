@@ -20,7 +20,7 @@ final class MonitorEngine: ObservableObject {
     private var eventQueue: [IslandEvent] = []
     private var eventDismissTask: Task<Void, Never>?
     private var diskAlerted: [UUID: Set<String>] = [:]
-    let history = HistoryStore()
+    let history: HistoryStore
     /// 数组作业的累计进度（key: 主机|主编号）。
     struct ArrayTrack {
         var done = 0, failed = 0, total = 0
@@ -52,6 +52,7 @@ final class MonitorEngine: ObservableObject {
     init(store: ConfigStore, demo: Bool = false) {
         self.store = store
         self.demo = demo
+        history = HistoryStore(persist: store.persist && !demo)
     }
 
     // MARK: - 生命周期
@@ -275,7 +276,53 @@ final class MonitorEngine: ObservableObject {
         DebugLog.log("[\(host.displayName)] 轮询成功 \(String(format: "%.2fs", result.duration))：运行 \(snap.runningCount) 排队 \(snap.pendingCount)"
                      + (snap.jobs.isEmpty ? "" : " · " + snap.jobs.prefix(8).map { "\($0.id)(\($0.name.prefix(24)),\(Int($0.elapsed ?? -1))s)" }.joined(separator: " ")))
         await detectEvents(host: host, old: previous, new: snap)
+        // 任务列表读全了才更新"上次看到的任务"（squeue 出错时列表是空的，不能当成全部结束）
+        if host.watchJobs, !demo, jobsListed(host: host, parsed: parsed) {
+            if previous.lastUpdate == nil { await recordEndedWhileAway(host: host, now: snap) }
+            history.setActive(id, snap.jobs)
+        }
         await initializeArrays(host: host)
+    }
+
+    /// 这次采样的任务列表是否完整（作业队列 / 进程列表的命令都成功了）。
+    private func jobsListed(host: HostConfig, parsed: RemoteScript.Parsed) -> Bool {
+        var names: [String] = []
+        switch host.kind {
+        case .slurm: names = ["squeue"] + (host.slurmAlsoProcesses ? ["procs"] : [])
+        case .pbs: names = ["qstat"] + (host.slurmAlsoProcesses ? ["procs"] : [])
+        case .direct: names = ["procs"]
+        }
+        return names.allSatisfy { parsed.sections[$0]?.exitCode == 0 }
+    }
+
+    /// 启动后第一次连上服务器：上次退出时还在运行 / 排队、现在不在了的任务，补记到历史里（不弹提醒）。
+    /// Slurm 作业用 sacct 查结果；查不到时记成"已结束"（不知道成功与否），结束时间按上次看到它的时间。
+    private func recordEndedWhileAway(host: HostConfig, now: HostSnapshot) async {
+        let current = Set(now.jobs.map(\.id))
+        let gone = history.activeJobs(for: host.id).filter { !current.contains($0.id) }
+        guard !gone.isEmpty else { return }
+        var finals: [String: (state: JobState, raw: String, elapsed: TimeInterval?, exit: String)] = [:]
+        let slurmIDs = gone.filter(\.slurm).map(\.id).filter { !$0.contains("[") }
+        if !slurmIDs.isEmpty, !sacctUnsupported.contains(host.id) {
+            let r = await SSHRunner.run(host: host, remoteCommand: host.commands.shell,
+                                        script: RemoteScript.sacctScript(for: host, jobIDs: slurmIDs), timeout: 20)
+            if let sec = RemoteScript.parse(r.stdout).sections["sacct"] { finals = Parsers.sacct(sec.lines) }
+        }
+        for j in gone.reversed() {
+            let f = finals[j.id]
+            // 数组的主编号在 sacct 里没有单独一行，按元素统计
+            let elems = finals.filter { $0.key.hasPrefix(j.id + "_") }
+            var state = f.map { $0.state.isActive ? HistoryEntry.endedUnknown : $0.raw } ?? HistoryEntry.endedUnknown
+            var note = L("ServerIsland 未运行时结束", "ended while ServerIsland wasn't running")
+            if f == nil, !elems.isEmpty {
+                let bad = elems.values.filter { [.failed, .timeout, .cancelled].contains($0.state) }.count
+                state = bad > 0 ? "FAILED" : "COMPLETED"
+                note = L("数组 ", "array ") + "\(elems.count - bad)✓ \(bad)✗ · " + note
+            }
+            history.record(host.id, HistoryEntry(id: j.id, name: j.name, state: state, elapsed: f?.elapsed ?? j.elapsed,
+                                                 endedAt: j.seenAt, exitCode: f?.exit, note: note, dir: j.dir))
+        }
+        DebugLog.log("[\(host.displayName)] 补记 ServerIsland 未运行时结束的任务：\(gone.map(\.id).joined(separator: " "))")
     }
 
     private func build(host: HostConfig, parsed: RemoteScript.Parsed, previous: HostSnapshot) -> HostSnapshot {
@@ -357,9 +404,9 @@ final class MonitorEngine: ObservableObject {
                 }
             }
         }
-        // 只看指定目录：按工作目录过滤作业和进程（手动监听的进程不受影响）。
-        if !host.pathPrefixes.isEmpty {
-            jobs = applyPathFilter(host: host, jobs: jobs, section: parsed.sections["workdirs"])
+        // 工作目录：记到每个任务上（写进历史记录）；设了"只看这些目录"时再按目录过滤（手动监听的进程不受影响）。
+        if host.watchJobs {
+            jobs = applyWorkdirs(host: host, jobs: jobs, section: parsed.sections["workdirs"])
         }
         if host.showDisk, let sec = parsed.sections["disk"], sec.exitCode == 0 {
             snap.disks = Parsers.disks(sec.lines)
@@ -412,9 +459,9 @@ final class MonitorEngine: ObservableObject {
         return snap
     }
 
-    /// 目录过滤。工作目录按任务号缓存：某一次没查到（网络抖动、刚提交的作业）时沿用上次的结果，
-    /// 不会让任务忽隐忽现、误发"已结束"的提醒。查不到目录的任务不显示。
-    private func applyPathFilter(host: HostConfig, jobs: [RemoteJob], section: RemoteScript.Section?) -> [RemoteJob] {
+    /// 工作目录和目录过滤。工作目录按任务号缓存：某一次没查到（网络抖动、刚提交的作业）时沿用上次的结果，
+    /// 不会让任务忽隐忽现、误发"已结束"的提醒。设了目录过滤时，查不到目录的任务不显示。
+    private func applyWorkdirs(host: HostConfig, jobs: [RemoteJob], section: RemoteScript.Section?) -> [RemoteJob] {
         var cache = workdirCache[host.id] ?? WorkdirCache()
         if let section {
             let r = Parsers.workdirs(section.lines)
@@ -425,6 +472,9 @@ final class MonitorEngine: ObservableObject {
         let ids = Set(jobs.map(\.id))
         cache.dirs = cache.dirs.filter { ids.contains($0.key) }
         workdirCache[host.id] = cache
+        var jobs = jobs
+        for i in jobs.indices where jobs[i].workdir == nil { jobs[i].workdir = cache.dirs[jobs[i].id] }
+        guard !host.pathPrefixes.isEmpty else { return jobs }
         return jobs.filter { job in
             if job.source == .progressFile || job.watched { return true }
             guard let dir = cache.dirs[job.id] else { return false }
@@ -587,7 +637,8 @@ final class MonitorEngine: ObservableObject {
                     let posText = final.total == nil ? "\(pos) \(final.unit)" : "\(pos)/\(tot) \(final.unit)"
                     history.record(host.id, HistoryEntry(id: job.id, name: job.name, state: done ? "COMPLETED" : "FAILED",
                                                          elapsed: job.elapsed, endedAt: Date(), exitCode: nil,
-                                                         note: L("按 \(final.title) 输出判断：\(posText)", "from \(final.title) output: \(posText)")))
+                                                         note: L("按 \(final.title) 输出判断：\(posText)", "from \(final.title) output: \(posText)"),
+                                                         dir: job.workdir ?? app.dir))
                     batch.append(.init(kind: done ? .finished : (final.canJudge ? .failed : .info),
                                        title: "\(job.name) " + (done ? L("已完成", "finished") : (final.canJudge ? L("提前结束", "ended early") : L("已离开队列", "left the queue"))),
                                        subtitle: "\(final.title) \(posText) · #\(job.id)",
@@ -598,7 +649,8 @@ final class MonitorEngine: ObservableObject {
                 if state.isActive { state = .completed }
                 history.record(host.id, HistoryEntry(id: job.id, name: job.name, state: f?.raw ?? state.rawValue,
                                                      elapsed: f?.elapsed ?? job.elapsed, endedAt: Date(),
-                                                     exitCode: f?.exit, note: f == nil ? L("sacct 不可用，按离开队列记录", "no sacct; recorded when it left the queue") : nil))
+                                                     exitCode: f?.exit, note: f == nil ? L("sacct 不可用，按离开队列记录", "no sacct; recorded when it left the queue") : nil,
+                                                     dir: job.workdir ?? job.app?.dir))
                 let elapsed = f?.elapsed ?? job.elapsed
                 let time = elapsed.map { L("用时 ", "took ") + Format.duration($0) } ?? ""
                 switch state {
@@ -619,7 +671,8 @@ final class MonitorEngine: ObservableObject {
             case .process:
                 history.record(host.id, HistoryEntry(id: job.id, name: job.name, state: JobState.completed.rawValue,
                                                      elapsed: job.elapsed, endedAt: Date(), exitCode: nil,
-                                                     note: job.watched ? L("监听的进程", "watched process") : nil))
+                                                     note: job.watched ? L("监听的进程", "watched process") : nil,
+                                                     dir: job.workdir ?? job.app?.dir))
                 if job.watched { unwatch(hostID: host.id, pid: job.id) }
                 var finalApp = job.app
                 if let app = job.app {
@@ -695,7 +748,7 @@ final class MonitorEngine: ObservableObject {
             history.record(host.id, HistoryEntry(id: a.baseID, name: job.name,
                                                  state: t.failed > 0 ? "FAILED" : "COMPLETED", elapsed: job.elapsed,
                                                  endedAt: Date(), exitCode: nil,
-                                                 note: L("数组 ", "array ") + "\(t.done)✓ \(t.failed)✗"))
+                                                 note: L("数组 ", "array ") + "\(t.done)✓ \(t.failed)✗", dir: job.workdir))
             batch.append(.init(kind: t.failed > 0 ? .failed : (t.accurate ? .finished : .info),
                                title: L("\(job.name) 数组已全部结束", "\(job.name): array finished"),
                                subtitle: L("\(t.done) 个成功", "\(t.done) done") + (t.failed > 0 ? L(" · \(t.failed) 个失败", " · \(t.failed) failed") : "") + L(" / 共 \(total) 个", " / \(total) total")

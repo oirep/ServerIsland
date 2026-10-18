@@ -84,6 +84,13 @@ final class IslandController {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self?.handleMouse() }
             }
         })
+        // 设置里换了显示的屏幕
+        store.$settings.map(\.islandScreen).removeDuplicates().dropFirst().receive(on: DispatchQueue.main).sink { [weak self] v in
+            MainActor.assumeIsolated {
+                NSScreen.islandPreference = v
+                self?.reposition()
+            }
+        }.store(in: &cancellables)
         // 事件提示出现时，刘海区域变大，也要能悬停展开。
         engine.$currentEvent.sink { [weak self] _ in
             DispatchQueue.main.async { self?.handleMouse() }

@@ -262,8 +262,22 @@ struct GeneralSettingsView: View {
     @ObservedObject var store: ConfigStore
     @ObservedObject var engine: MonitorEngine
     @State private var confirmClearLog = false
+    @State private var confirmClearHistory = false
+    @State private var historyCleared = false
     @ObservedObject private var updates = UpdateChecker.shared
     @State private var logCleared = false
+
+    /// "显示在"的选项：自动、主屏幕、每块已连接的屏幕；选过但现在没连接的屏幕也列出来（标"未连接"）。
+    private var screenChoices: [(value: String, label: String)] {
+        var r: [(value: String, label: String)] = [("", L("自动", "Automatic")), ("primary", L("主屏幕（菜单栏所在）", "Main Screen (with menu bar)"))]
+        let names = NSScreen.screens.map(\.localizedName)
+        r += names.map { ($0, $0) }
+        let saved = store.settings.islandScreen
+        if !saved.isEmpty, saved != "primary", !names.contains(saved) {
+            r.append((saved, saved + L("（未连接）", " (not connected)")))
+        }
+        return r
+    }
 
     var body: some View {
         Form {
@@ -328,6 +342,13 @@ struct GeneralSettingsView: View {
             Section {
                 Picker(L("收起时", "When Collapsed"), selection: $store.settings.collapsedStyle) {
                     ForEach(CollapsedStyle.allCases) { Text($0.label).tag($0) }
+                }
+                Picker(selection: $store.settings.islandScreen) {
+                    ForEach(screenChoices, id: \.value) { Text($0.label).tag($0.value) }
+                } label: {
+                    HelpLabel(L("显示在", "Show On"),
+                              help: L("灵动岛放在哪块屏幕上。自动：有刘海的屏幕优先，其次是内建屏幕，再其次是主屏幕（菜单栏所在的那块）。选了某块显示器但它没连接时，按自动处理。",
+                                      "Which screen the island lives on. Automatic: the screen with a notch, then the built-in screen, then the main screen (the one with the menu bar). If the chosen display isn't connected, Automatic is used."))
                 }
                 Toggle(isOn: $store.settings.foldIdleHosts) {
                     HelpLabel(L("合并空闲的服务器", "Group Idle Servers"),
@@ -425,6 +446,17 @@ struct GeneralSettingsView: View {
                             Text(L("当前 \(Format.bytes(Double(DebugLog.size)))。不影响设置和任务历史。", "Currently \(Format.bytes(Double(DebugLog.size))). Settings and job history are kept."))
                         }
                     if logCleared { Text(L("已清除", "Cleared")).font(.caption).foregroundStyle(.secondary) }
+                    Button(L("清除历史记录…", "Clear History…")) { confirmClearHistory = true }
+                        .confirmationDialog(L("清除全部历史记录？", "Clear all job history?"), isPresented: $confirmClearHistory) {
+                            Button(L("清除", "Clear"), role: .destructive) {
+                                engine.history.clear()
+                                historyCleared = true
+                            }
+                        } message: {
+                            Text(L("本机记下的 \(engine.history.count) 条已结束任务（最多保留 7 天）都会删除。不影响设置和日志；集群上 sacct 的记录不受影响。",
+                                   "All \(engine.history.count) finished jobs recorded on this Mac (kept up to 7 days) will be deleted. Settings and logs are kept; sacct records on the cluster are not affected."))
+                        }
+                    if historyCleared { Text(L("已清除", "Cleared")).font(.caption).foregroundStyle(.secondary) }
                     Spacer()
                     Button(L("立即刷新全部", "Refresh All")) { engine.refreshAll() }
                 }

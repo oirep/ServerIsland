@@ -60,7 +60,11 @@ public static class Kit
 
     public static T Tip<T>(this T c, string? tip) where T : Control
     {
-        if (!string.IsNullOrEmpty(tip)) ToolTip.SetTip(c, tip);
+        if (!string.IsNullOrEmpty(tip))
+        {
+            ToolTip.SetTip(c, tip);
+            ToolTip.SetShowDelay(c, 250);   // 悬停说明 0.25 秒出来，和 Mac 版一致（默认 0.4 秒）
+        }
         return c;
     }
 
@@ -476,7 +480,9 @@ public sealed class ArrayBar : Control
     /// 悬停说明：进度条每种颜色代表什么。
     public static string Legend(ArrayInfo a) =>
         L($"绿色 完成 {a.Done} · 红色 失败 {a.Failed} · 蓝色 运行中 {a.Running.Count} · 灰色 排队 {a.Pending}",
-          $"Green done {a.Done} · Red failed {a.Failed} · Blue running {a.Running.Count} · Gray pending {a.Pending}");
+          $"Green done {a.Done} · Red failed {a.Failed} · Blue running {a.Running.Count} · Gray pending {a.Pending}")
+        + (a.Accurate ? "" : L("\n完成数只包括 ServerIsland 运行期间看到结束的元素（sacct 不可用），可能偏少。",
+                               "\nOnly elements seen finishing while ServerIsland was running are counted (no sacct), so this may be low."));
 }
 
 /// 让子控件匀速旋转（刷新中）。

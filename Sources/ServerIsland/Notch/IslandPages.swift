@@ -470,7 +470,7 @@ struct JobDetailPage: View {
     }
 }
 
-// MARK: - 最近 24 小时
+// MARK: - 历史记录
 
 struct HistoryPage: View {
     var host: HostConfig
@@ -482,7 +482,7 @@ struct HistoryPage: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            PageHeader(title: L("最近 24 小时", "Last 24 Hours"), subtitle: host.displayName + " · " + sourceText, onBack: onBack) {
+            PageHeader(title: L("历史记录", "History"), subtitle: host.displayName + " · " + sourceText, onBack: onBack) {
                 if let e = entries {
                     let failed = e.filter { [.failed, .timeout].contains($0.jobState) }.count
                     let done = e.filter { $0.jobState == .completed }.count
@@ -497,7 +497,7 @@ struct HistoryPage: View {
                 VStack(spacing: 4) {
                     if let entries {
                         if entries.isEmpty {
-                            Text(L("最近 24 小时没有结束的任务", "Nothing finished in the last 24 hours")).font(Theme.rounded(11.5)).foregroundStyle(Theme.tertiary)
+                            Text(L("还没有结束的任务", "No finished jobs yet")).font(Theme.rounded(11.5)).foregroundStyle(Theme.tertiary)
                                 .frame(maxWidth: .infinity).padding(.top, 40)
                         }
                         ForEach(entries) { row($0) }
@@ -519,21 +519,44 @@ struct HistoryPage: View {
 
     private var sourceText: String {
         guard entries != nil else { return L("读取中…", "Loading…") }
-        return fromServer ? L("来自 sacct", "from sacct") : L("本机记录（ServerIsland 运行期间观察到的）", "local record (seen while ServerIsland was running)")
+        return fromServer ? L("最近 24 小时来自 sacct，更早的是本机记录（保留 7 天）", "last 24 h from sacct, older from the local record (kept 7 days)")
+            : L("本机记录（保留 7 天）", "local record (kept 7 days)")
     }
 
     private func row(_ e: HistoryEntry) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            rowTop(e)
+            if let dir = e.dir {
+                HStack(spacing: 6) {
+                    Image(systemName: "folder").font(.system(size: 8.5)).foregroundStyle(Theme.tertiary)
+                    Text(dir).font(Theme.mono(9.5)).foregroundStyle(Theme.tertiary)
+                        .lineLimit(1).truncationMode(.head).help(dir)
+                    Spacer(minLength: 6)
+                    CopyButton(value: dir, help: L("复制目录", "Copy directory"))
+                    SmallIconButton(systemName: "terminal", help: L("在终端中打开（ssh 到这个目录）", "Open in Terminal (ssh to this directory)")) {
+                        SSHRunner.openShellInTerminal(host: host, directory: dir)
+                    }
+                }
+                .padding(.leading, 30)
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.card))
+    }
+
+    private func rowTop(_ e: HistoryEntry) -> some View {
         let state = e.jobState
-        let c = Theme.color(for: state)
+        let unknown = e.state == HistoryEntry.endedUnknown
+        let c = unknown ? Theme.secondary : Theme.color(for: state)
         return HStack(spacing: 10) {
-            Image(systemName: [.failed, .timeout].contains(state) ? "xmark" : state == .cancelled ? "minus" : "checkmark")
+            Image(systemName: unknown ? "questionmark" : [.failed, .timeout].contains(state) ? "xmark" : state == .cancelled ? "minus" : "checkmark")
                 .font(.system(size: 9, weight: .bold)).foregroundStyle(c)
                 .frame(width: 20, height: 20).background(Circle().fill(c.opacity(0.15)))
             Text(e.name).font(Theme.rounded(12, .medium)).foregroundStyle(Theme.text).lineLimit(1)
             Text(e.id).font(Theme.mono(9.5)).foregroundStyle(Theme.tertiary)
             if let note = e.note { Text(note).font(Theme.rounded(9.5)).foregroundStyle(Theme.tertiary).lineLimit(1) }
             Spacer(minLength: 6)
-            Text(state == .other ? e.state : state.label).font(Theme.rounded(10.5, .medium)).foregroundStyle(c)
+            Text(e.stateLabel).font(Theme.rounded(10.5, .medium)).foregroundStyle(c)
             if let x = e.exitCode, !x.isEmpty, x != "0:0" {
                 Text("exit \(x)").font(Theme.mono(9.5)).foregroundStyle(Theme.tertiary)
             }
@@ -541,9 +564,8 @@ struct HistoryPage: View {
                 .foregroundStyle(Theme.secondary).frame(width: 64, alignment: .trailing)
             Text(Format.relative(e.endedAt)).font(Theme.rounded(10.5)).foregroundStyle(Theme.tertiary)
                 .frame(width: 58, alignment: .trailing)
+                .help(e.endedAt.formatted(date: .abbreviated, time: .shortened))
         }
-        .padding(.horizontal, 10).padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.card))
     }
 }
 
@@ -711,6 +733,8 @@ struct ArrayBar: View {
     static func legend(_ a: ArrayInfo) -> String {
         L("绿色 完成 \(a.done) · 红色 失败 \(a.failed) · 蓝色 运行中 \(a.running.count) · 灰色 排队 \(a.pending)",
           "Green done \(a.done) · Red failed \(a.failed) · Blue running \(a.running.count) · Gray pending \(a.pending)")
+        + (a.accurate ? "" : L("\n完成数只包括 ServerIsland 运行期间看到结束的元素（sacct 不可用），可能偏少。",
+                               "\nOnly elements seen finishing while ServerIsland was running are counted (no sacct), so this may be low."))
     }
 }
 

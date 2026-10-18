@@ -53,7 +53,7 @@ enum RemoteScript {
             case .direct: section("procs", c.processes)
             }
         }
-        if !host.pathPrefixes.isEmpty && host.watchJobs {
+        if host.watchJobs {
             section("workdirs", workdirScript(host: host))
         }
         if host.detectApps && host.watchJobs {
@@ -202,7 +202,8 @@ enum RemoteScript {
 
     /// 最近 24 小时的作业（需要集群开启 accounting；不支持时返回非 0）。
     static func historyScript(host: HostConfig) -> String {
-        wrap(host, [("history", #"sacct -n -X -P -S now-24hours -u "$(id -un)" -o JobID,JobName,State,Elapsed,End,ExitCode"#)])
+        // WorkDir 列是后来才有的，老版本 sacct 不认识这一列时去掉它再查一次
+        wrap(host, [("history", #"sacct -n -X -P -S now-24hours -u "$(id -un)" -o JobID,JobName,State,Elapsed,End,ExitCode,WorkDir 2>/dev/null || sacct -n -X -P -S now-24hours -u "$(id -un)" -o JobID,JobName,State,Elapsed,End,ExitCode"#)])
     }
 
     /// 高负载进程（给用户挑选要监听的 PID）。
@@ -222,7 +223,7 @@ enum RemoteScript {
     uname -sr
     """
 
-    /// 每个任务的工作目录（目录过滤用）：作业用调度系统记录的工作目录，进程用当前目录。输出 `id|目录`，另有一行 `@@SI:HOME 家目录`。
+    /// 每个任务的工作目录（写进历史记录，也用于目录过滤）：作业用调度系统记录的工作目录，进程用当前目录。输出 `id|目录`，另有一行 `@@SI:HOME 家目录`。
     static func workdirScript(host: HostConfig) -> String {
         let me = "\"$(id -un)\""
         var s = "printf '\(marker)HOME %s\\n' \"$HOME\"\n"

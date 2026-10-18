@@ -131,11 +131,15 @@ enum PreviewRenderer {
                                              onBack: {}, openSettings: {}, preloaded: detail, previewStage: .confirm(force: false)))
         let now = Date()
         page("history", HistoryPage(host: slurmHost, engine: engine, onBack: {}, preloaded: [
-            HistoryEntry(id: "8811990", name: "relax_Li3PS4_pbe", state: "COMPLETED", elapsed: 7_412, endedAt: now.addingTimeInterval(-1_800), exitCode: "0:0"),
-            HistoryEntry(id: "8811987", name: "phonon_LiCoO2_222", state: "OUT_OF_MEMORY", elapsed: 2_538, endedAt: now.addingTimeInterval(-5_400), exitCode: "0:125"),
+            HistoryEntry(id: "8811990", name: "relax_Li3PS4_pbe", state: "COMPLETED", elapsed: 7_412, endedAt: now.addingTimeInterval(-1_800), exitCode: "0:0",
+                         dir: "/home/demo/projects/Li3PS4/relax"),
+            HistoryEntry(id: "8811987", name: "phonon_LiCoO2_222", state: "OUT_OF_MEMORY", elapsed: 2_538, endedAt: now.addingTimeInterval(-5_400), exitCode: "0:125",
+                         dir: "/home/demo/projects/LiCoO2/phonon_222"),
             HistoryEntry(id: "8811950", name: "scf_LiCoO2_kmesh", state: "COMPLETED", elapsed: 3_301, endedAt: now.addingTimeInterval(-14_000), exitCode: "0:0"),
             HistoryEntry(id: "8811901", name: "neb_Li_vacancy", state: "CANCELLED by 1000", elapsed: 412, endedAt: now.addingTimeInterval(-30_000), exitCode: "0:15"),
             HistoryEntry(id: "8811877", name: "aimd_LGPS_1200K", state: "TIMEOUT", elapsed: 172_800, endedAt: now.addingTimeInterval(-60_000), exitCode: "0:0"),
+            HistoryEntry(id: "8810412", name: "nep_train_LiF", state: HistoryEntry.endedUnknown, elapsed: 86_400, endedAt: now.addingTimeInterval(-3 * 86_400),
+                         note: L("ServerIsland 未运行时结束", "ended while ServerIsland wasn't running"), dir: "/home/demo/nep/LiF"),
         ]))
 
         // 设置窗口（离屏窗口 + cacheDisplay，不需要屏幕录制权限）

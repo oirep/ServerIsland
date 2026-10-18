@@ -287,6 +287,8 @@ struct AppSettings: Codable, Equatable {
     var logRetentionDays = 7
     /// 启动时和之后每天检查一次 GitHub 上有没有新版本。
     var autoCheckUpdates = true
+    /// 灵动岛显示在哪块屏幕：""=自动（有刘海的屏幕 → 内建屏幕 → 主屏幕），"primary"=主屏幕，其它=屏幕名称。
+    var islandScreen = ""
 
     init() {}
 
@@ -307,6 +309,7 @@ struct AppSettings: Codable, Equatable {
         progressRules = try c.decodeIfPresent([ProgressRule].self, forKey: .progressRules) ?? []
         logRetentionDays = try c.decodeIfPresent(Int.self, forKey: .logRetentionDays) ?? 7
         autoCheckUpdates = try c.decodeIfPresent(Bool.self, forKey: .autoCheckUpdates) ?? true
+        islandScreen = try c.decodeIfPresent(String.self, forKey: .islandScreen) ?? ""
     }
 }
 
@@ -333,7 +336,7 @@ final class ConfigStore: ObservableObject {
     static let fileURL = directory.appendingPathComponent("config.json")
 
     private var saveWork: DispatchWorkItem?
-    private let persist: Bool
+    let persist: Bool
 
     init(persist: Bool = true) {
         self.persist = persist

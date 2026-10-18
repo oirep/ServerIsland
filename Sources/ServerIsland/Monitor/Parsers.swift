@@ -185,6 +185,16 @@ enum Parsers {
         return max(n, 1)
     }
 
+    /// 一行排队的数组记录代表几个元素。范围以编号里的 "123_[7-99%10]" 为准（总是带方括号）；
+    /// %K 列在不同 Slurm 版本里可能不带方括号（"7-99%10"），以前只认带括号的，排队数被算成 1，进度条就偏满了。
+    static func pendingTaskCount(_ job: RemoteJob) -> Int {
+        if let l = job.id.range(of: "_["), job.id.hasSuffix("]") {
+            return arrayTaskCount(String(job.id[l.upperBound...]))
+        }
+        guard let task = job.arrayTask, task.contains(where: { "-,[".contains($0) }) else { return 1 }
+        return arrayTaskCount(task)
+    }
+
     /// 把同一个数组的元素合并成一行。done / failed / total 由引擎补充。
     static func groupArrays(_ jobs: [RemoteJob]) -> [RemoteJob] {
         var out: [RemoteJob] = []
@@ -199,13 +209,13 @@ enum Parsers {
                 g.arrayJobID = base
                 g.array = ArrayInfo(baseID: base)
                 g.limit = job.limit
+                g.workdir = job.workdir
                 out.append(g)
                 i = out.count - 1
                 groups[base] = i
             }
-            let isRange = job.arrayTask?.hasPrefix("[") ?? false
             if job.state == .pending {
-                out[i].array!.pending += isRange ? arrayTaskCount(job.arrayTask ?? "") : 1
+                out[i].array!.pending += pendingTaskCount(job)
                 if out[i].detail.isEmpty { out[i].detail = job.detail }
                 if out[i].reason == nil { out[i].reason = job.reason }
             } else {
@@ -346,8 +356,10 @@ enum Parsers {
             guard f.count >= 5, !f[0].isEmpty else { continue }
             let state = JobState(slurm: f[2])
             guard !state.isActive else { continue }   // 还在跑的不算历史
+            let dir = f.count > 6 ? f[6...].joined(separator: "|") : ""
             entries.append(HistoryEntry(id: f[0], name: f[1], state: f[2], elapsed: slurmDuration(f[3]),
-                                        endedAt: iso.date(from: f[4]) ?? Date(), exitCode: f.count > 5 ? f[5] : nil))
+                                        endedAt: iso.date(from: f[4]) ?? Date(), exitCode: f.count > 5 ? f[5] : nil,
+                                        dir: dir.isEmpty ? nil : dir))
         }
         entries.sort { $0.endedAt > $1.endedAt }
 
@@ -367,7 +379,7 @@ enum Parsers {
                 out[i].note = L("数组 ", "array ") + "\(c.ok)✓ \(c.bad)✗"
             } else {
                 out.append(HistoryEntry(id: base, name: e.name, state: e.state, elapsed: e.elapsed, endedAt: e.endedAt,
-                                        exitCode: nil, note: L("数组 ", "array ") + "\(c.ok)✓ \(c.bad)✗"))
+                                        exitCode: nil, note: L("数组 ", "array ") + "\(c.ok)✓ \(c.bad)✗", dir: e.dir))
             }
         }
         return out

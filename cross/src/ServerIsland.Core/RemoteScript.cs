@@ -56,7 +56,7 @@ public static class RemoteScript
             }
             else Sec("procs", c.Processes);
         }
-        if (host.PathPrefixes.Count > 0 && host.WatchJobs) Sec("workdirs", WorkdirScript(host));
+        if (host.WatchJobs) Sec("workdirs", WorkdirScript(host));
         if (host.DetectApps && host.WatchJobs) Sec("apps", AppDetectors.Script(host));
         if (host.Kind == HostKind.Direct && host.Watched.Count > 0)
         {
@@ -204,7 +204,8 @@ public static class RemoteScript
 
     /// 最近 24 小时的作业（需要集群开启 accounting；不支持时返回非 0）。
     public static string HistoryScript(HostConfig host) =>
-        Wrap(host, [("history", """sacct -n -X -P -S now-24hours -u "$(id -un)" -o JobID,JobName,State,Elapsed,End,ExitCode""")]);
+        // WorkDir 列是后来才有的，老版本 sacct 不认识这一列时去掉它再查一次
+        Wrap(host, [("history", """sacct -n -X -P -S now-24hours -u "$(id -un)" -o JobID,JobName,State,Elapsed,End,ExitCode,WorkDir 2>/dev/null || sacct -n -X -P -S now-24hours -u "$(id -un)" -o JobID,JobName,State,Elapsed,End,ExitCode""")]);
 
     /// 高负载进程（给用户挑选要监听的 PID）。
     public static string TopProcessesScript(HostConfig host) => Wrap(host, [
@@ -221,7 +222,7 @@ public static class RemoteScript
         uname -sr
         """;
 
-    /// 每个任务的工作目录（目录过滤用）：作业用调度系统记录的工作目录，进程用当前目录。输出 `id|目录`，另有一行 `@@SI:HOME 家目录`。
+    /// 每个任务的工作目录（写进历史记录，也用于目录过滤）：作业用调度系统记录的工作目录，进程用当前目录。输出 `id|目录`，另有一行 `@@SI:HOME 家目录`。
     public static string WorkdirScript(HostConfig host)
     {
         const string me = "\"$(id -un)\"";

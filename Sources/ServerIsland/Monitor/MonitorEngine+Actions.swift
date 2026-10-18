@@ -188,9 +188,10 @@ extension MonitorEngine {
         return .aborted(err)
     }
 
-    // MARK: - 最近 24 小时
+    // MARK: - 历史记录
 
-    /// Slurm 优先用 sacct（服务器上的完整记录）；不支持时退回到本机观察到的记录。
+    /// 本机记录（保留 7 天）为主；Slurm 再用 sacct 补上最近 24 小时的完整记录（包括 ServerIsland 没看到的作业），
+    /// 同一个作业以 sacct 的结果为准，目录取两边有的那个。
     func fetchHistory(host: HostConfig) async -> (entries: [HistoryEntry], fromServer: Bool) {
         let local = history.entries(for: host.id)
         guard host.kind == .slurm, !sacctUnsupported.contains(host.id) else { return (local, false) }
@@ -200,7 +201,20 @@ extension MonitorEngine {
             if r.status != 255 { sacctUnsupported.insert(host.id) }   // 命令本身不可用：本次运行内不再尝试
             return (local, false)
         }
-        return (Parsers.history(sec.lines), true)
+        return (Self.mergeHistory(server: Parsers.history(sec.lines), local: local), true)
+    }
+
+    nonisolated static func mergeHistory(server: [HistoryEntry], local: [HistoryEntry]) -> [HistoryEntry] {
+        let byID = Dictionary(local.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var out = server.map { e -> HistoryEntry in
+            var e = e
+            if e.dir == nil { e.dir = byID[e.id]?.dir }
+            if e.note == nil { e.note = byID[e.id]?.note }
+            return e
+        }
+        let ids = Set(server.map(\.id))
+        out += local.filter { !ids.contains($0.id) }
+        return out.sorted { $0.endedAt > $1.endedAt }
     }
 
     // MARK: - 监听进程

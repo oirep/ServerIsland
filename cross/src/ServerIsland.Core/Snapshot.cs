@@ -89,6 +89,8 @@ public sealed class RemoteJob
     public double? Eta;
     /// 排队原因（原始值，不含括号）。
     public string? Reason;
+    /// 工作目录（作业：调度系统记录的；进程：当前目录）。写进历史记录，之后可以直接打开。
+    public string? Workdir;
 
     public RemoteJob() { }
 
@@ -242,6 +244,12 @@ public sealed class HistoryEntry
     public DateTime EndedAt { get; set; }
     public string? ExitCode { get; set; }
     public string? Note { get; set; }
+    /// 工作目录（历史页上可以直接在终端打开）。
+    public string? Dir { get; set; }
+
+    /// ServerIsland 没在运行时结束的任务，不知道结果（State 写这个值）。
+    public const string EndedUnknown = "ENDED";
 
     public JobState JobState => JobStates.FromRaw(State) ?? JobStates.FromSlurm(State);
+    public string StateLabel => State == EndedUnknown ? Lang.L("已结束", "Ended") : JobState == JobState.Other ? State : JobState.Label();
 }

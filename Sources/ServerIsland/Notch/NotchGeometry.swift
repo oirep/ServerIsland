@@ -14,9 +14,18 @@ extension NSScreen {
         return NSRect(x: l.maxX, y: frame.maxY - safeAreaInsets.top, width: r.minX - l.maxX, height: safeAreaInsets.top)
     }
 
-    /// 优先使用带刘海的内建屏幕。
+    /// 设置里选的屏幕（AppSettings.islandScreen）：""=自动，"primary"=主屏幕，其它=屏幕名称。
+    static var islandPreference = ""
+
+    /// 灵动岛所在的屏幕。选的屏幕没连接时按"自动"：带刘海的 → 内建的 → 主屏幕（菜单栏所在，screens.first）。
+    /// 以前最后一步用的是 NSScreen.main，它跟着当前聚焦的窗口变，没有内建屏幕的 Mac 接两台显示器时灵动岛会来回跳。
     static var islandScreen: NSScreen? {
-        screens.first { $0.hasNotch } ?? screens.first { CGDisplayIsBuiltin($0.displayID) != 0 } ?? main
+        switch islandPreference {
+        case "": break
+        case "primary": if let s = screens.first { return s }
+        default: if let s = screens.first(where: { $0.localizedName == islandPreference }) { return s }
+        }
+        return screens.first { $0.hasNotch } ?? screens.first { CGDisplayIsBuiltin($0.displayID) != 0 } ?? screens.first
     }
 }
 

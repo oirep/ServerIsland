@@ -2,49 +2,132 @@ using System.Text.Json;
 
 namespace ServerIsland.Core;
 
-/// 本机记录的已结束任务（最近 24 小时）。集群没开 accounting、或者是直连服务器时，"最近 24 小时"就用这里的记录。
+/// 本机记录的已结束任务（保留 7 天，每台服务器最多 500 条），存在 history.json，重启后还在。
+/// 历史页把它和 sacct 查到的最近 24 小时合并显示；本机记录多了工作目录，可以直接在终端打开。
+///
+/// 另外在 active-jobs.json 里记住每台服务器上次看到的运行 / 排队任务：ServerIsland 退出期间结束的任务，
+/// 下次启动、第一次连上服务器时补记到历史里（不弹提醒）。
 public sealed class HistoryStore
 {
-    readonly Dictionary<Guid, List<HistoryEntry>> _entries = [];
-    readonly string _path = Path.Combine(AppPaths.ConfigDirectory, "history.json");
-    readonly bool _persist;
-    static readonly TimeSpan Window = TimeSpan.FromHours(24);
+    /// 上次看到还在运行 / 排队的任务。
+    public sealed class ActiveJob
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public bool Slurm { get; set; }
+        public string? Dir { get; set; }
+        public double? Elapsed { get; set; }
+        public DateTime SeenAt { get; set; }
+    }
 
-    public HistoryStore(bool persist = true)
+    public static readonly TimeSpan Retention = TimeSpan.FromDays(7);
+    public const int MaxPerHost = 500;
+
+    readonly Dictionary<Guid, List<HistoryEntry>> _entries = [];
+    readonly Dictionary<Guid, List<ActiveJob>> _active = [];
+    readonly string _path, _activePath;
+    /// false：演示模式、自检、--diagnose 等临时引擎，只在内存里记，不碰真实的文件。
+    readonly bool _persist;
+    readonly object _lock = new();
+
+    public HistoryStore(bool persist = true, string? directory = null)
     {
         _persist = persist;
-        if (persist && File.Exists(_path))
+        var dir = directory ?? AppPaths.ConfigDirectory;
+        _path = Path.Combine(dir, "history.json");
+        _activePath = Path.Combine(dir, "active-jobs.json");
+        if (!persist) return;
+        try
         {
-            try
-            {
-                var decoded = JsonSerializer.Deserialize<Dictionary<string, List<HistoryEntry>>>(File.ReadAllText(_path), Json.Options);
-                foreach (var (k, v) in decoded ?? [])
+            if (File.Exists(_path))
+                foreach (var (k, v) in JsonSerializer.Deserialize<Dictionary<string, List<HistoryEntry>>>(File.ReadAllText(_path), Json.Options) ?? [])
                     if (Guid.TryParse(k, out var id)) _entries[id] = v;
-            }
-            catch { }
         }
+        catch { }
+        try
+        {
+            if (File.Exists(_activePath))
+                foreach (var (k, v) in JsonSerializer.Deserialize<Dictionary<string, List<ActiveJob>>>(File.ReadAllText(_activePath), Json.Options) ?? [])
+                    if (Guid.TryParse(k, out var id)) _active[id] = v;
+        }
+        catch { }
         Prune();
     }
 
     public void Record(Guid host, HistoryEntry entry)
     {
-        var list = _entries.GetValueOrDefault(host) ?? [];
-        list.RemoveAll(e => e.Id == entry.Id);
-        list.Insert(0, entry);
-        _entries[host] = list.Take(200).ToList();
-        Prune();
-        Save();
+        lock (_lock)
+        {
+            var list = _entries.GetValueOrDefault(host) ?? [];
+            // 同一个编号再记一次时（比如数组先记元素、后记整体）保留已知的目录
+            entry.Dir ??= list.FirstOrDefault(e => e.Id == entry.Id)?.Dir;
+            list.RemoveAll(e => e.Id == entry.Id);
+            list.Insert(0, entry);
+            _entries[host] = list.Take(MaxPerHost).ToList();
+            Prune();
+            Save();
+        }
     }
 
     public List<HistoryEntry> Entries(Guid host)
     {
-        var cutoff = DateTime.Now - Window;
-        return (_entries.GetValueOrDefault(host) ?? []).Where(e => e.EndedAt > cutoff).ToList();
+        var cutoff = DateTime.Now - Retention;
+        lock (_lock) return (_entries.GetValueOrDefault(host) ?? []).Where(e => e.EndedAt > cutoff).ToList();
+    }
+
+    /// 设置里的"清除历史记录"：删掉全部已结束任务的记录（上次看到的运行中任务照常保留，用来补记退出期间结束的任务）。
+    public void Clear()
+    {
+        lock (_lock)
+        {
+            _entries.Clear();
+            Save();
+        }
+    }
+
+    public int Count { get { lock (_lock) return _entries.Values.Sum(l => l.Count); } }
+
+    /// 上次记住的运行 / 排队任务。
+    public List<ActiveJob> ActiveJobs(Guid host)
+    {
+        lock (_lock) return [.. _active.GetValueOrDefault(host) ?? []];
+    }
+
+    /// 每次成功采样后调用；任务列表（编号、目录）没变时不写文件。
+    public void SetActive(Guid host, IEnumerable<RemoteJob> jobs)
+    {
+        var now = DateTime.Now;
+        var list = jobs.Where(j => j.State.IsActive() && j.Source != JobSource.ProgressFile)
+            .Select(j => new ActiveJob { Id = j.Id, Name = j.Name, Slurm = j.Source == JobSource.Slurm, Dir = j.Workdir ?? j.App?.Dir, Elapsed = j.Elapsed, SeenAt = now })
+            .ToList();
+        lock (_lock)
+        {
+            var old = _active.GetValueOrDefault(host) ?? [];
+            bool changed = !old.Select(a => $"{a.Id}|{a.Dir}").SequenceEqual(list.Select(a => $"{a.Id}|{a.Dir}"));
+            // 列表没变时也隔 10 分钟更新一次时间，"大约什么时候结束"不会差太多
+            if (!changed && !(old.Count > 0 && (now - old[0].SeenAt).TotalSeconds > 600)) return;
+            _active[host] = list;
+            SaveActive();
+        }
+    }
+
+    /// 历史页：sacct 的最近 24 小时为准，补上本机记录的目录和备注，再加上更早的本机记录。
+    public static List<HistoryEntry> Merge(List<HistoryEntry> server, List<HistoryEntry> local)
+    {
+        var byId = new Dictionary<string, HistoryEntry>();
+        foreach (var e in local) byId.TryAdd(e.Id, e);
+        var ids = server.Select(e => e.Id).ToHashSet();
+        foreach (var e in server)
+        {
+            e.Dir ??= byId.GetValueOrDefault(e.Id)?.Dir;
+            e.Note ??= byId.GetValueOrDefault(e.Id)?.Note;
+        }
+        return server.Concat(local.Where(e => !ids.Contains(e.Id))).OrderByDescending(e => e.EndedAt).ToList();
     }
 
     void Prune()
     {
-        var cutoff = DateTime.Now - Window;
+        var cutoff = DateTime.Now - Retention;
         foreach (var k in _entries.Keys.ToList()) _entries[k] = _entries[k].Where(e => e.EndedAt > cutoff).ToList();
     }
 
@@ -53,9 +136,21 @@ public sealed class HistoryStore
         if (!_persist) return;
         try
         {
-            Directory.CreateDirectory(AppPaths.ConfigDirectory);
+            Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
             var dict = _entries.ToDictionary(kv => kv.Key.ToString("D").ToUpperInvariant(), kv => kv.Value);
             File.WriteAllText(_path, JsonSerializer.Serialize(dict, Json.Options));
+        }
+        catch { }
+    }
+
+    void SaveActive()
+    {
+        if (!_persist) return;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(_activePath)!);
+            var dict = _active.ToDictionary(kv => kv.Key.ToString("D").ToUpperInvariant(), kv => kv.Value);
+            File.WriteAllText(_activePath, JsonSerializer.Serialize(dict, Json.Options));
         }
         catch { }
     }

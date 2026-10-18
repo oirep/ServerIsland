@@ -208,7 +208,7 @@ public sealed partial class MonitorEngine
             if (r.Status != 255) SacctUnsupported.Add(host.Id);   // 命令本身不可用：本次运行内不再尝试
             return (local, false);
         }
-        return (Parsers.History(sec.Lines), true);
+        return (HistoryStore.Merge(Parsers.History(sec.Lines), local), true);
     }
 
     // MARK: - 监听进程

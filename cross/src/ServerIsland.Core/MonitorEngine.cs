@@ -49,9 +49,9 @@ public sealed partial class MonitorEngine
     sealed class WorkdirCache { public string? Home; public Dictionary<string, string> Dirs = []; }
     readonly Dictionary<Guid, WorkdirCache> _workdirs = [];
 
-    /// 目录过滤。工作目录按任务号缓存：某一次没查到（网络抖动、刚提交的作业）时沿用上次的结果，
-    /// 不会让任务忽隐忽现、误发"已结束"的提醒。查不到目录的任务不显示。
-    List<RemoteJob> ApplyPathFilter(HostConfig host, List<RemoteJob> jobs, RemoteScript.Section? section)
+    /// 工作目录和目录过滤。工作目录按任务号缓存：某一次没查到（网络抖动、刚提交的作业）时沿用上次的结果，
+    /// 不会让任务忽隐忽现、误发"已结束"的提醒。设了目录过滤时，查不到目录的任务不显示。
+    List<RemoteJob> ApplyWorkdirs(HostConfig host, List<RemoteJob> jobs, RemoteScript.Section? section)
     {
         var cache = _workdirs.GetValueOrDefault(host.Id) ?? new WorkdirCache();
         if (section != null)
@@ -64,7 +64,9 @@ public sealed partial class MonitorEngine
         var ids = jobs.Select(j => j.Id).ToHashSet();
         cache.Dirs = cache.Dirs.Where(kv => ids.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
         _workdirs[host.Id] = cache;
+        foreach (var j in jobs) j.Workdir ??= cache.Dirs.GetValueOrDefault(j.Id);
         var prefixes = host.PathPrefixes;
+        if (prefixes.Count == 0) return jobs;
         return jobs.Where(j => j.Source == JobSource.ProgressFile || j.Watched
                                || (cache.Dirs.TryGetValue(j.Id, out var d) && Parsers.PathMatches(d, prefixes, cache.Home))).ToList();
     }
@@ -79,7 +81,7 @@ public sealed partial class MonitorEngine
         Store = store;
         Demo = demo;
         Ssh = ssh ?? SshCommon.Create(store.Settings.SshBackend);
-        History = history ?? new HistoryStore(persist: !demo);
+        History = history ?? new HistoryStore(persist: !demo && store.Persist);
         _context = SynchronizationContext.Current;
         Store.Changed += Sync;
     }
@@ -344,7 +346,61 @@ public sealed partial class MonitorEngine
         DebugLog.Log($"[{host.DisplayName}] 轮询成功 {result.Duration:0.00}s：运行 {snap.RunningCount} 排队 {snap.PendingCount}"
                      + (snap.Jobs.Count == 0 ? "" : " · " + string.Join(" ", snap.Jobs.Take(8).Select(j => $"{j.Id}({j.Name.Prefix(24)},{(int)(j.Elapsed ?? -1)}s)"))));
         await DetectEvents(host, previous, snap);
+        // 任务列表读全了才更新"上次看到的任务"（squeue 出错时列表是空的，不能当成全部结束）
+        if (host.WatchJobs && !Demo && JobsListed(host, parsed))
+        {
+            if (previous.LastUpdate == null) await RecordEndedWhileAway(host, snap);
+            History.SetActive(id, snap.Jobs);
+        }
         await InitializeArrays(host);
+    }
+
+    /// 这次采样的任务列表是否完整（作业队列 / 进程列表的命令都成功了）。
+    static bool JobsListed(HostConfig host, RemoteScript.Parsed parsed)
+    {
+        var names = host.Kind switch
+        {
+            HostKind.Slurm => host.SlurmAlsoProcesses ? new[] { "squeue", "procs" } : ["squeue"],
+            HostKind.Pbs => host.SlurmAlsoProcesses ? new[] { "qstat", "procs" } : ["qstat"],
+            _ => ["procs"],
+        };
+        return names.All(n => parsed.Get(n)?.ExitCode == 0);
+    }
+
+    /// 启动后第一次连上服务器：上次退出时还在运行 / 排队、现在不在了的任务，补记到历史里（不弹提醒）。
+    /// Slurm 作业用 sacct 查结果；查不到时记成"已结束"（不知道成功与否），结束时间按上次看到它的时间。
+    async Task RecordEndedWhileAway(HostConfig host, HostSnapshot now)
+    {
+        var current = now.Jobs.Select(j => j.Id).ToHashSet();
+        var gone = History.ActiveJobs(host.Id).Where(j => !current.Contains(j.Id)).ToList();
+        if (gone.Count == 0) return;
+        var finals = new Dictionary<string, SacctFinal>();
+        var slurmIds = gone.Where(j => j.Slurm && !j.Id.Contains('[')).Select(j => j.Id).ToList();
+        if (slurmIds.Count > 0 && !SacctUnsupported.Contains(host.Id))
+        {
+            var r = await Run(host, RemoteScript.SacctScript(host, slurmIds), 20);
+            if (RemoteScript.Parse(r.Stdout).Get("sacct") is { } sec) finals = Parsers.Sacct(sec.Lines);
+        }
+        foreach (var j in Enumerable.Reverse(gone))
+        {
+            var f = finals.GetValueOrDefault(j.Id);
+            // 数组的主编号在 sacct 里没有单独一行，按元素统计
+            var elems = finals.Where(kv => kv.Key.StartsWith(j.Id + "_", StringComparison.Ordinal)).Select(kv => kv.Value).ToList();
+            var state = f == null ? HistoryEntry.EndedUnknown : f.State.IsActive() ? HistoryEntry.EndedUnknown : f.Raw;
+            var note = L("ServerIsland 未运行时结束", "ended while ServerIsland wasn't running");
+            if (f == null && elems.Count > 0)
+            {
+                int bad = elems.Count(e => e.State is JobState.Failed or JobState.Timeout or JobState.Cancelled);
+                state = bad > 0 ? "FAILED" : "COMPLETED";
+                note = L("数组 ", "array ") + $"{elems.Count - bad}✓ {bad}✗ · " + note;
+            }
+            History.Record(host.Id, new HistoryEntry
+            {
+                Id = j.Id, Name = j.Name, State = state, Elapsed = f?.Elapsed ?? j.Elapsed, EndedAt = j.SeenAt,
+                ExitCode = f?.Exit, Note = note, Dir = j.Dir,
+            });
+        }
+        DebugLog.Log($"[{host.DisplayName}] 补记 ServerIsland 未运行时结束的任务：{string.Join(" ", gone.Select(j => j.Id))}");
     }
 
     HostSnapshot Build(HostConfig host, RemoteScript.Parsed parsed)
@@ -427,7 +483,8 @@ public sealed partial class MonitorEngine
             }
         }
         // 只看指定目录：按工作目录过滤作业和进程（手动监听的进程不受影响）。
-        if (host.PathPrefixes.Count > 0) jobs = ApplyPathFilter(host, jobs, parsed.Get("workdirs"));
+        // 工作目录：记到每个任务上（写进历史记录）；设了"只看这些目录"时再按目录过滤
+        if (host.WatchJobs) jobs = ApplyWorkdirs(host, jobs, parsed.Get("workdirs"));
         if (host.ShowDisk && parsed.Get("disk") is { ExitCode: 0 } diskSec) snap.Disks = Parsers.Disks(diskSec.Lines);
 
         if (parsed.Get("progress") is { } progSec)
@@ -659,6 +716,7 @@ public sealed partial class MonitorEngine
                             {
                                 Id = job.Id, Name = job.Name, State = done ? "COMPLETED" : "FAILED", Elapsed = job.Elapsed, EndedAt = DateTime.Now,
                                 Note = L($"按 {final.Title} 输出判断：{posText}", $"from {final.Title} output: {posText}"),
+                                Dir = job.Workdir ?? app.Dir,
                             });
                             batch.Add(new IslandEvent(done ? EventKind.Finished : final.CanJudge ? EventKind.Failed : EventKind.Info,
                                 $"{job.Name} " + (done ? L("已完成", "finished") : final.CanJudge ? L("提前结束", "ended early") : L("已离开队列", "left the queue")),
@@ -671,6 +729,7 @@ public sealed partial class MonitorEngine
                         {
                             Id = job.Id, Name = job.Name, State = f?.Raw ?? state.Raw(), Elapsed = f?.Elapsed ?? job.Elapsed, EndedAt = DateTime.Now,
                             ExitCode = f?.Exit, Note = f == null ? L("sacct 不可用，按离开队列记录", "no sacct; recorded when it left the queue") : null,
+                            Dir = job.Workdir ?? job.App?.Dir,
                         });
                         var elapsed = f?.Elapsed ?? job.Elapsed;
                         var time = elapsed is { } el ? L("用时 ", "took ") + Format.Duration(el) : "";
@@ -697,6 +756,7 @@ public sealed partial class MonitorEngine
                         {
                             Id = job.Id, Name = job.Name, State = JobState.Completed.Raw(), Elapsed = job.Elapsed, EndedAt = DateTime.Now,
                             Note = job.Watched ? L("监听的进程", "watched process") : null,
+                            Dir = job.Workdir ?? job.App?.Dir,
                         });
                         if (job.Watched) Unwatch(host.Id, job.Id);
                         var finalApp = job.App;
@@ -796,6 +856,7 @@ public sealed partial class MonitorEngine
             {
                 Id = a.BaseID, Name = job.Name, State = t.Failed > 0 ? "FAILED" : "COMPLETED", Elapsed = job.Elapsed, EndedAt = DateTime.Now,
                 Note = L("数组 ", "array ") + $"{t.Done}✓ {t.Failed}✗",
+                Dir = job.Workdir,
             });
             batch.Add(new IslandEvent(t.Failed > 0 ? EventKind.Failed : t.Accurate ? EventKind.Finished : EventKind.Info,
                 L($"{job.Name} 数组已全部结束", $"{job.Name}: array finished"),

@@ -221,6 +221,16 @@ public static class Parsers
         return Math.Max(n, 1);
     }
 
+    /// 一行排队的数组记录代表几个元素。范围以编号里的 "123_[7-99%10]" 为准（总是带方括号）；
+    /// %K 列在不同 Slurm 版本里可能不带方括号（"7-99%10"），以前只认带括号的，排队数被算成 1，进度条就偏满了。
+    public static int PendingTaskCount(RemoteJob job)
+    {
+        int l = job.Id.IndexOf("_[", StringComparison.Ordinal);
+        if (l >= 0 && job.Id.EndsWith(']')) return ArrayTaskCount(job.Id[(l + 2)..]);
+        if (job.ArrayTask is not { } task || !task.Any(c => c is '-' or ',' or '[')) return 1;
+        return ArrayTaskCount(task);
+    }
+
     /// 把同一个数组的元素合并成一行。done / failed / total 由引擎补充。
     public static List<RemoteJob> GroupArrays(List<RemoteJob> jobs)
     {
@@ -236,16 +246,16 @@ public static class Parsers
                     ArrayJobID = bas,
                     Array = new ArrayInfo { BaseID = bas },
                     Limit = job.Limit,
+                    Workdir = job.Workdir,
                 };
                 outList.Add(g);
                 i = outList.Count - 1;
                 groups[bas] = i;
             }
             var grp = outList[i];
-            bool isRange = job.ArrayTask?.StartsWith('[') ?? false;
             if (job.State == JobState.Pending)
             {
-                grp.Array!.Pending += isRange ? ArrayTaskCount(job.ArrayTask ?? "") : 1;
+                grp.Array!.Pending += PendingTaskCount(job);
                 if (grp.Detail.Length == 0) grp.Detail = job.Detail;
                 grp.Reason ??= job.Reason;
             }
@@ -397,7 +407,9 @@ public static class Parsers
             var state = JobStates.FromSlurm(f[2]);
             if (state.IsActive()) continue;   // 还在跑的不算历史
             var ended = DateTime.TryParseExact(f[4], "yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var d) ? d : DateTime.Now;
-            entries.Add(new HistoryEntry { Id = f[0], Name = f[1], State = f[2], Elapsed = SlurmDuration(f[3]), EndedAt = ended, ExitCode = f.Length > 5 ? f[5] : null });
+            var dir = f.Length > 6 ? string.Join("|", f[6..]) : "";
+            entries.Add(new HistoryEntry { Id = f[0], Name = f[1], State = f[2], Elapsed = SlurmDuration(f[3]), EndedAt = ended, ExitCode = f.Length > 5 ? f[5] : null,
+                                           Dir = dir.Length > 0 ? dir : null });
         }
         entries = entries.OrderByDescending(e => e.EndedAt).ToList();
 
@@ -423,7 +435,7 @@ public static class Parsers
             }
             else
             {
-                outList.Add(new HistoryEntry { Id = bas, Name = e.Name, State = e.State, Elapsed = e.Elapsed, EndedAt = e.EndedAt, Note = note });
+                outList.Add(new HistoryEntry { Id = bas, Name = e.Name, State = e.State, Elapsed = e.Elapsed, EndedAt = e.EndedAt, Note = note, Dir = e.Dir });
             }
         }
         return outList;

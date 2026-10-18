@@ -68,6 +68,8 @@ struct RemoteJob: Identifiable, Equatable {
     var eta: TimeInterval?
     /// 排队原因（原始值，不含括号）。
     var reason: String?
+    /// 工作目录（作业：调度系统记录的；进程：当前目录）。写进历史记录，之后可以直接打开。
+    var workdir: String?
 
     /// 用于进度条的比例：数组用"已结束 / 总数"，其次真实进度，再其次"已运行 / 时间上限"。
     var fraction: Double? {
@@ -185,7 +187,7 @@ struct IslandEvent: Identifiable, Equatable {
     }
 }
 
-/// 已结束任务的记录（用于"最近 24 小时"）。
+/// 已结束任务的记录（历史页）。
 struct HistoryEntry: Codable, Identifiable, Equatable {
     var id: String
     var name: String
@@ -194,6 +196,16 @@ struct HistoryEntry: Codable, Identifiable, Equatable {
     var endedAt: Date
     var exitCode: String?
     var note: String?
+    /// 工作目录（历史页上可以直接在终端打开）。
+    var dir: String?
+
+    /// ServerIsland 没在运行时结束的任务，不知道结果（state 写这个值）。
+    static let endedUnknown = "ENDED"
 
     var jobState: JobState { JobState(rawValue: state) ?? JobState(slurm: state) }
+    var stateLabel: String {
+        if state == Self.endedUnknown { return L("已结束", "Ended") }
+        let s = jobState
+        return s == .other ? state : s.label
+    }
 }

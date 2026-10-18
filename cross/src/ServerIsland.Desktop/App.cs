@@ -129,8 +129,14 @@ public sealed class App : Application
             _engine.SetSshBackend(_backend);
         }
         ApplyDisplayMode();
+        if (_store.Settings.IslandScreen != _islandScreen)
+        {
+            _islandScreen = _store.Settings.IslandScreen;
+            if (_displayMode == DisplayMode.Island) Dispatcher.UIThread.Post(_island.Reposition);
+        }
         OnEngineChanged();
     }
+    string? _islandScreen;
 
     void ApplyDisplayMode()
     {

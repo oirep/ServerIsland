@@ -211,7 +211,7 @@ public static class HostCardView
                 : host.Kind == HostKind.Slurm
                     ? SmallIconButton("grid", L("分区空闲资源（按需查询 sinfo）", "Free partition resources (sinfo, on demand)"), a.Partitions, size: 10)
                     : null,
-            SmallIconButton("history", L("最近 24 小时结束的任务", "Finished in the last 24 h"), a.History),
+            SmallIconButton("history", L("历史记录：结束的任务、目录", "History: finished jobs and their folders"), a.History),
             IntervalMenu(host, a, state),
             SmallIconButton(host.Paused ? "play" : "pause",
                 host.Paused ? L("恢复自动刷新", "Resume auto refresh") : L("暂停自动刷新（知道这台机器没有任务时用；仍可手动刷新）", "Pause auto refresh (manual refresh still works)"),

@@ -386,7 +386,7 @@ public sealed class IslandPages(MonitorEngine engine, IslandState st)
         return RoundedCard(g, 12, Hue.W(0.03), 12);
     }
 
-    // MARK: - 最近 24 小时
+    // MARK: - 历史记录
 
     public Control History(HostConfig host)
     {
@@ -397,7 +397,8 @@ public sealed class IslandPages(MonitorEngine engine, IslandState st)
             _ = LoadHistory(host, s);
         }
         var source = s.Entries == null ? L("读取中…", "Loading…")
-            : s.FromServer ? L("来自 sacct", "from sacct") : L("本机记录（ServerIsland 运行期间观察到的）", "local record (seen while ServerIsland was running)");
+            : s.FromServer ? L("最近 24 小时来自 sacct，更早的是本机记录（保留 7 天）", "last 24 h from sacct, older from the local record (kept 7 days)")
+            : L("本机记录（保留 7 天）", "local record (kept 7 days)");
         Control? trailing = null;
         if (s.Entries is { } es)
         {
@@ -409,11 +410,11 @@ public sealed class IslandPages(MonitorEngine engine, IslandState st)
         var list = V(4);
         if (s.Entries is { } entries)
         {
-            if (entries.Count == 0) list.Children.Add(Centered(L("最近 24 小时没有结束的任务", "Nothing finished in the last 24 hours")));
-            foreach (var e in entries) list.Children.Add(HistoryRow(e));
+            if (entries.Count == 0) list.Children.Add(Centered(L("还没有结束的任务", "No finished jobs yet")));
+            foreach (var e in entries) list.Children.Add(HistoryRow(host, e));
         }
         else list.Children.Add(Loading());
-        return Rows("Auto,10,*", PageHeader(L("最近 24 小时", "Last 24 Hours"), host.DisplayName + " · " + source, Back, trailing), Scroll(list));
+        return Rows("Auto,10,*", PageHeader(L("历史记录", "History"), host.DisplayName + " · " + source, Back, trailing), Scroll(list));
     }
 
     async Task LoadHistory(HostConfig host, HistoryState s)
@@ -425,27 +426,41 @@ public sealed class IslandPages(MonitorEngine engine, IslandState st)
         st.RequestRebuild();
     }
 
-    static Control HistoryRow(HistoryEntry e)
+    static Control HistoryRow(HostConfig host, HistoryEntry e)
     {
         var state = e.JobState;
-        var c = Hue.For(state);
+        bool unknown = e.State == HistoryEntry.EndedUnknown;
+        var c = unknown ? Hue.Secondary : Hue.For(state);
         var icon = new Border
         {
             Width = 20, Height = 20, CornerRadius = new CornerRadius(10), Background = c.WithAlpha(0.15).B(),
-            Child = new Icon(state is JobState.Failed or JobState.Timeout ? "xmark" : state == JobState.Cancelled ? "minus" : "check", 9.5, c.B(), 3)
+            Child = unknown ? T("?", 10, FontWeight.Bold, c).HA(HorizontalAlignment.Center)
+                : new Icon(state is JobState.Failed or JobState.Timeout ? "xmark" : state == JobState.Cancelled ? "minus" : "check", 9.5, c.B(), 3)
             { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
         };
         var left = new ShrinkRow(10, 1, icon, T(e.Name, 12, FontWeight.Medium), T(e.Id, 9.5, color: Hue.Tertiary, mono: true),
             e.Note != null ? T(e.Note, 9.5, color: Hue.Tertiary) : null);
-        var right = H(10, T(state == JobState.Other ? e.State : state.Label(), 10.5, FontWeight.Medium, c));
+        var right = H(10, T(e.StateLabel, 10.5, FontWeight.Medium, c));
         if (e.ExitCode is { Length: > 0 } x && x != "0:0") right.Children.Add(T($"exit {x}", 9.5, color: Hue.Tertiary, mono: true));
         var el = T(e.Elapsed is { } d ? Format.Duration(d) : "—", 10.5, color: Hue.Secondary).W(64);
         el.TextAlignment = TextAlignment.Right;
-        var when = T(Format.Relative(e.EndedAt), 10.5, color: Hue.Tertiary).W(58);
+        var when = T(Format.Relative(e.EndedAt), 10.5, color: Hue.Tertiary).W(58).Tip(e.EndedAt.ToString("g"));
         when.TextAlignment = TextAlignment.Right;
         right.Children.Add(el);
         right.Children.Add(when);
-        return RoundedCard(Row(6, Fill(left), right), 10, Hue.Card, 0).Margin(0, 0, 0, 0).WithPadding(10, 6);
+        Control top = Row(6, Fill(left), right);
+        if (e.Dir is not { Length: > 0 } dir) return RoundedCard(top, 10, Hue.Card, 0).WithPadding(10, 6);
+        // 工作目录：复制，或在终端里 ssh 到这个目录
+        var path = new TextBlock
+        {
+            Text = dir, FontSize = 9.5, FontFamily = Hue.Mono, Foreground = Hue.Tertiary.B(),
+            TextTrimming = TextTrimming.PrefixCharacterEllipsis, TextWrapping = TextWrapping.NoWrap, VerticalAlignment = VerticalAlignment.Center,
+        }.Tip(dir);
+        var dirRow = Row(6, new Icon("folder", 9, Hue.Tertiary.B(), 1.8), Fill(path),
+            CopyButton(dir, L("复制目录", "Copy directory")),
+            SmallIconButton("terminal", L("在终端中打开（ssh 到这个目录）", "Open in Terminal (ssh to this directory)"), () => Shell.OpenShellInTerminal(host, dir)));
+        dirRow.Margin = new Thickness(30, 0, 0, 0);
+        return RoundedCard(V(3, top, dirRow), 10, Hue.Card, 0).WithPadding(10, 6);
     }
 
     // MARK: - 选择要监听的进程

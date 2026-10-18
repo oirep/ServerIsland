@@ -18,8 +18,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // ⓘ 和按钮的悬停说明：系统默认要停一秒多才出来，改成 0.25 秒（只影响本 App）
+        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 250])
         store = ConfigStore(persist: !demo)
         if demo { store.settings = DemoData.settings() }
+        NSScreen.islandPreference = store.settings.islandScreen
         engine = MonitorEngine(store: store, demo: demo)
         settings = SettingsWindowController(store: store, engine: engine)
         island = IslandController(engine: engine, store: store) { [weak self] in self?.settings.show() }

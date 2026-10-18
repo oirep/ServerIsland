@@ -229,6 +229,8 @@ public sealed class AppSettings
     public int LogRetentionDays { get; set; } = 7;
     /// 启动时和之后每天检查一次 GitHub 上有没有新版本。
     public bool AutoCheckUpdates { get; set; } = true;
+    /// 灵动岛显示在哪块屏幕：""=自动（Windows / Linux 上是主屏幕），"primary"=主屏幕，其它=屏幕名称。
+    public string IslandScreen { get; set; } = "";
     /// 已经在刘海里提醒过的新版本（同一个版本只提醒一次）。
     public string NotifiedUpdateVersion { get; set; } = "";
 
@@ -344,6 +346,7 @@ public sealed class ConfigStore
 {
     public AppSettings Settings { get; private set; }
     readonly bool _persist;
+    public bool Persist => _persist;
     System.Threading.Timer? _saveTimer;
     readonly object _lock = new();
 

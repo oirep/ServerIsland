@@ -144,11 +144,19 @@ public sealed class IslandWindow : Window
             _surface.InvalidateArrange();
             _surface.InvalidateVisual();
         }
-        var screen = Screens.Primary ?? Screens.All.FirstOrDefault();
+        var screen = ChosenScreen();
         if (screen == null) return;
         var scale = screen.Scaling;
         var w = (int)Math.Round(Width * scale);
         Position = new PixelPoint(screen.Bounds.X + (screen.Bounds.Width - w) / 2, screen.Bounds.Y);
+    }
+
+    /// 设置里选的屏幕（AppSettings.IslandScreen）；没选或没连接时用主屏幕。
+    Avalonia.Platform.Screen? ChosenScreen()
+    {
+        var pref = _store.Settings.IslandScreen;
+        var chosen = pref is "" or "primary" ? null : Screens.All.FirstOrDefault(s => s.DisplayName == pref);
+        return chosen ?? Screens.Primary ?? Screens.All.FirstOrDefault();
     }
 
     void PositionNearPet()

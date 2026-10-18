@@ -69,6 +69,7 @@ public static class CurveChart
                 Child = tag, Background = Hue.Card.WithAlpha(0.9).B(), CornerRadius = new CornerRadius(4), Padding = new Thickness(5, 1.5),
                 HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
             };
+            ToolTip.SetShowDelay(corner, 250);
             ToolTip.SetTip(corner, curve.Bars.Count > 0
                 ? L("能垒 = 最高的像点 − 初态（00），和 VTST 的 nebef.pl 一样用 energy(sigma→0)。柱子是每个中间像点的最大力（VTST），虚线是 |EDIFFG|：所有柱子都低于虚线时 NEB 收敛。",
                     "Barrier = highest image − initial state (00), using energy(sigma→0) like VTST's nebef.pl. Bars are each image's max force (VTST); the dashed line is |EDIFFG| — NEB has converged when every bar is below it.")

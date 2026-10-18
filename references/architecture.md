@@ -85,7 +85,8 @@ SwiftUI（IslandRootView、SettingsView），通过 @ObservedObject 订阅 engin
 - `cancel`：执行前在服务器上再次核对，对不上就不执行，返回 ABORT：
   - Slurm：作业名一致、属于自己；
   - 进程：属于自己，且已运行时长与预期相差 20 秒以内。
-- `fetchHistory`：Slurm 优先用 `sacct -S now-24hours`（数组元素合并成一条）；失败一次就记入 `sacctUnsupported`，之后改用本机的 `HistoryStore`（`history.json`，保留 24 小时）。
+- `fetchHistory`：本机的 `HistoryStore`（`history.json`，保留 7 天、每台最多 500 条，带工作目录）为主；Slurm 再用 `sacct -S now-24hours`（带 WorkDir 列，老版本不认识时去掉重查）补上最近 24 小时，同一作业以 sacct 为准、目录取有的那边（`mergeHistory`）。sacct 失败一次就记入 `sacctUnsupported`。
+- `active-jobs.json`：每台服务器上次看到的运行 / 排队任务（编号、名称、目录、看到的时间），任务列表读全了（squeue / 进程列表的命令都成功）才更新。启动后第一次连上时，不在了的任务补记到历史（Slurm 用 sacct 查结果，查不到记成"已结束"，结束时间按上次看到的时间；不弹提醒）。演示、自检、`--diagnose` 的引擎不读写这两个文件。
 - `fetchPartitions`（`Partitions.swift`）：`sinfo` 按节点逐个汇总到分区，统计空闲加速卡（GPU / DCU 等）和 CPU；结果缓存 60 秒。
 - `topProcesses`、`watch/unwatch`、`toggleMute`、`setPaused`、`setHostInterval`、`setGlobalInterval`、`setAutoRefresh`、`setKind`、`login`、`checkEnvironment`。
 

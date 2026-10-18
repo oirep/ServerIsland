@@ -155,7 +155,7 @@ struct HostCard: View {
                 } else if host.kind == .slurm {
                     SmallIconButton(systemName: "square.grid.3x3.fill", help: L("分区空闲资源（按需查询 sinfo）", "Free partition resources (sinfo, on demand)"), action: onPartitions)
                 }
-                SmallIconButton(systemName: "clock.arrow.circlepath", help: L("最近 24 小时结束的任务", "Finished in the last 24 h"), action: onHistory)
+                SmallIconButton(systemName: "clock.arrow.circlepath", help: L("历史记录：结束的任务、目录", "History: finished jobs and their folders"), action: onHistory)
                 IntervalMenu(current: host.interval, global: globalInterval, globalAuto: globalAuto, paused: host.paused,
                              onSet: onSetInterval)
                 SmallIconButton(systemName: host.paused ? "play.fill" : "pause.fill",

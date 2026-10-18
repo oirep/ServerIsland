@@ -61,6 +61,18 @@ public sealed class GeneralPage(SettingsWindow window, SettingsKit k, ConfigStor
 
     void Touch() => store.Touch();
 
+    /// "灵动岛显示在"的选项：主屏幕、每块已连接的屏幕；选过但现在没连接的也列出来（标"未连接"）。
+    List<(string Value, string Label)> ScreenChoices()
+    {
+        var r = new List<(string, string)> { ("", L("主屏幕（默认）", "Main Screen (default)")) };
+        var names = (window.Screens?.All ?? []).Select(s => s.DisplayName).Where(n => !string.IsNullOrEmpty(n)).Select(n => n!).Distinct().ToList();
+        r.AddRange(names.Select(n => (n, n)));
+        var saved = S.IslandScreen;
+        if (saved is not ("" or "primary") && !names.Contains(saved)) r.Add((saved, saved + L("（未连接）", " (not connected)")));
+        if (saved == "primary") r[0] = ("primary", r[0].Item2);
+        return r;
+    }
+
     public void EngineChanged()
     {
         if (_summary != null) _summary.Text = Summary();
@@ -164,6 +176,10 @@ public sealed class GeneralPage(SettingsWindow window, SettingsKit k, ConfigStor
         col.Children.Add(k.Section(L("显示方式", "Display Style"), "pet", Color.Parse("#30D158"), [
             k.Row(L("显示为", "Show as"), null, k.Segmented([(DisplayMode.Island, L("灵动岛", "Island")), (DisplayMode.Pet, L("桌面小章鱼", "Desktop Pet"))],
                 S.DisplayMode, v => { S.DisplayMode = v; Touch(); })),
+            k.Row(L("灵动岛显示在", "Island Screen"),
+                L("有多块显示器时，灵动岛放在哪块屏幕的顶部。默认是主屏幕；选了某块显示器但它没连接时，也回到主屏幕。",
+                  "With several displays, which screen's top edge the island sits on. Default is the main screen; if the chosen display isn't connected, the main screen is used."),
+                k.Combo(ScreenChoices(), S.IslandScreen, v => { S.IslandScreen = v; Touch(); }, 220)),
             k.Caption(L("灵动岛：挂在屏幕顶部正中（有刘海的 Mac 上贴着刘海），鼠标移上去展开。\n桌面小章鱼：Tako 待在桌面上，可以拖到任何地方；鼠标移上去展开面板，点一下固定。",
                         "Island: hangs from the top center of the screen (around the notch on Macs that have one) and expands on hover.\nDesktop pet: Tako sits on your desktop and can be dragged anywhere; hover to expand the panel, click to pin it.")),
         ]));
@@ -258,6 +274,16 @@ public sealed class GeneralPage(SettingsWindow window, SettingsKit k, ConfigStor
             DebugLog.Clear();
             logStatus.Text = L("已清除", "Cleared");
         });
+        var historyClear = k.Button(L("清除历史记录…", "Clear History…"), async () =>
+        {
+            var ok = await PromptDialog.Confirm(L("清除全部历史记录？", "Clear all job history?"),
+                L($"本机记下的 {engine.History.Count} 条已结束任务（最多保留 7 天）都会删除。不影响设置和日志；集群上 sacct 的记录不受影响。",
+                  $"All {engine.History.Count} finished jobs recorded on this computer (kept up to 7 days) will be deleted. Settings and logs are kept; sacct records on the cluster are not affected."),
+                L("清除", "Clear"), L("取消", "Cancel"));
+            if (!ok) return;
+            engine.History.Clear();
+            logStatus.Text = L("历史记录已清除", "History cleared");
+        });
         col.Children.Add(k.Section(L("文件与诊断", "Files & Diagnostics"), "folder", Color.Parse("#8E8E93"), [
             k.Row(L("配置文件", "Config File"), null, new SelectableTextBlock { Text = AppPaths.Tilde(AppPaths.ConfigFile), FontFamily = Hue.Mono, FontSize = 12, Foreground = k.P.Secondary.B() }),
             k.Row(L("诊断日志", "Diagnostic Log"), null, new SelectableTextBlock { Text = AppPaths.Tilde(DebugLog.Path), FontFamily = Hue.Mono, FontSize = 12, Foreground = k.P.Secondary.B() }),
@@ -271,6 +297,7 @@ public sealed class GeneralPage(SettingsWindow window, SettingsKit k, ConfigStor
                 k.Button(L("显示配置文件", "Show Config"), () => { store.SaveNow(); Shell.Reveal(AppPaths.ConfigFile); }),
                 k.Button(L("打开诊断日志", "Open Log"), () => Shell.OpenFile(DebugLog.Path)),
                 logClear,
+                historyClear,
                 k.Button(L("立即刷新全部", "Refresh All"), engine.RefreshAll),
                 logStatus,
             } },

@@ -143,6 +143,7 @@ public sealed class SettingsWindow : Window
             HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center,
             Background = Brushes.Transparent, Padding = new Thickness(0, 4),
         };
+        ToolTip.SetShowDelay(quit, 250);
         ToolTip.SetTip(quit, L("完全退出（灵动岛、桌宠和托盘图标都会消失）", "Quit completely (the island, desktop pet and tray icon go away)"));
         quit.Click += (_, _) => (Application.Current as App)?.Quit();
         var bottom = new StackPanel { Spacing = 6, Margin = new Thickness(12), Children = { add, quit } };

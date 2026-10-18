@@ -181,10 +181,12 @@ public static class PreviewRenderer
             Started = true, FromServer = true,
             Entries =
             [
-                new HistoryEntry { Id = "8811920", Name = "relax_Li3PS4_pbe", State = "COMPLETED", Elapsed = 4_210, EndedAt = DateTime.Now.AddMinutes(-35), ExitCode = "0:0" },
+                new HistoryEntry { Id = "8811920", Name = "relax_Li3PS4_pbe", State = "COMPLETED", Elapsed = 4_210, EndedAt = DateTime.Now.AddMinutes(-35), ExitCode = "0:0", Dir = "/home/demo/projects/Li3PS4/relax" },
                 new HistoryEntry { Id = "8811877", Name = "aimd_LGPS_600K", State = "TIMEOUT", Elapsed = 172_800, EndedAt = DateTime.Now.AddHours(-3), ExitCode = "0:15" },
                 new HistoryEntry { Id = "8811702", Name = "eos_scan", State = "COMPLETED", Elapsed = 1_800, EndedAt = DateTime.Now.AddHours(-6), Note = L("数组 38✓ 2✗", "array 38✓ 2✗") },
                 new HistoryEntry { Id = "8811650", Name = "phonon_Si_333", State = "FAILED", Elapsed = 210, EndedAt = DateTime.Now.AddHours(-9), ExitCode = "1:0" },
+                new HistoryEntry { Id = "8810412", Name = "nep_train_LiF", State = HistoryEntry.EndedUnknown, Elapsed = 86_400, EndedAt = DateTime.Now.AddDays(-3),
+                                   Note = L("ServerIsland 未运行时结束", "ended while ServerIsland wasn't running"), Dir = "/home/demo/nep/LiF" },
             ],
         };
         Save(IslandScene(IslandMode.Expanded, st), "page-history");

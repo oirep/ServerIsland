@@ -43,7 +43,7 @@
 | `gpu`、`gpuapps` | showGPU，或者需要列进程 | nvidia-smi（没有就输出 NA） |
 | `squeue` | Slurm 且 watchJobs | `squeue -u $(id -un) -h -o '%i\|%j\|%T\|%M\|%l\|%D\|%R\|%P\|%F\|%K'` |
 | `qstat` | PBS 且 watchJobs | `commands.qstat`（默认 `qselect -u` + `qstat -f -t`）的输出经 `si_pbs q` 转换成和 squeue 一样的行（见下文 PBS） |
-| `workdirs` | 设了"只看这些目录"且 watchJobs | `@@SI:HOME 家目录`，再加 `id\|工作目录`：Slurm 用 `squeue -o '%i\|%Z'`，PBS 用 `si_pbs d`，进程用 `readlink /proc/PID/cwd` |
+| `workdirs` | watchJobs（2026-10-18 起总是有：工作目录写进历史记录） | `@@SI:HOME 家目录`，再加 `id\|工作目录`：Slurm 用 `squeue -o '%i\|%Z'`，PBS 用 `si_pbs d`，进程用 `readlink /proc/PID/cwd` |
 | `procs` | 直连；或 Slurm / PBS 且 slurmAlsoProcesses | `ps -u … -o pid=,etimes=,pcpu=,rss=,args= --sort=-pcpu \| head -300` |
 | `slurmpids` | Slurm / PBS 且 slurmAlsoProcesses | 属于作业的进程（用 `si_jobid` 判断：`SLURM_JOB_ID` / `SLURM_ARRAY_*` / `PBS_JOBID`），这些进程不再单独列出 |
 | `apps` | detectApps 且 watchJobs | 计算软件识别（见下文） |
@@ -51,7 +51,7 @@
 | `disk` | showDisk | `df -P -k ~` |
 | `progress` | readProgressFiles | 逐个 `cat` 进度文件 `~/.serverisland/progress/*.json`（每个最多 4KB） |
 
-squeue 的解析是**从两端按位置取列**，所以作业名里有 `|` 也能正确解析；也兼容没有 `%F|%K` 两列的老格式。数组作业从 `%F`/`%K` 识别，没有这两列时从编号 `123_5` 或 `123_[7-99%10]` 里拆出来。
+squeue 的解析是**从两端按位置取列**，所以作业名里有 `|` 也能正确解析；也兼容没有 `%F|%K` 两列的老格式。数组作业从 `%F`/`%K` 识别，没有这两列时从编号 `123_5` 或 `123_[7-99%10]` 里拆出来。排队的一整段元素数量以编号里的 `_[...]` 为准（`%K` 在有的 Slurm 版本里不带方括号）。
 
 ## PBS（PBS Pro / OpenPBS / Torque，2026-10-18）
 
@@ -72,7 +72,7 @@ squeue 的解析是**从两端按位置取列**，所以作业名里有 `|` 也�
 ## 目录过滤（`HostConfig.pathFilter`，2026-10-18）
 
 - 每行一个目录（逗号、分号也行），`~` 按服务器上的家目录展开；目录本身和子目录都算，`/a/LLZO` 不会匹配 `/a/LLZO2`。
-- 只有设置了才多一个 `workdirs` 段。作业按调度系统记录的工作目录（Slurm `%Z`、PBS `PBS_O_WORKDIR`），进程按当前目录。
+- `workdirs` 段现在总是有（历史记录要用目录），只有设置了"只看这些目录"才按它过滤。作业按调度系统记录的工作目录（Slurm `%Z`、PBS `PBS_O_WORKDIR`），进程按当前目录。
 - 引擎按任务号缓存目录（`workdirCache`）：某次没查到时沿用上次的，避免任务忽隐忽现、误发"已结束"。查不到目录的任务不显示；手动监听的进程和进度文件不受过滤影响。
 
 其它脚本：

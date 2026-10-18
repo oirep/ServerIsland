@@ -145,6 +145,32 @@ public static class SelfTest
                                     "4821002|eval|FAILED|00:02:10|2026-10-16T10:00:00|1:0",
                                     "4821003|run|RUNNING|00:10:00|Unknown|0:0"]);
         Check(hist.Count == 2 && hist[0].Id == "4821002" && hist[0].JobState == JobState.Failed, "sacct 历史解析（跳过运行中）");
+        var histDir = Parsers.History(["4821004|scf|COMPLETED|00:05:00|2026-10-16T11:00:00|0:0|/home/u/a|b"]);
+        Check(histDir.FirstOrDefault()?.Dir == "/home/u/a|b" && hist[0].Dir == null, "sacct 历史：WorkDir 列（老格式没有也能解析）");
+        var merged = HistoryStore.Merge(
+            [new HistoryEntry { Id = "1", Name = "a", State = "COMPLETED", EndedAt = new DateTime(2026, 1, 1, 0, 5, 0) },
+             new HistoryEntry { Id = "2", Name = "b", State = "FAILED", EndedAt = new DateTime(2026, 1, 1, 0, 3, 0) }],
+            [new HistoryEntry { Id = "1", Name = "a", State = "ENDED", EndedAt = new DateTime(2026, 1, 1, 0, 4, 0), Dir = "/x" },
+             new HistoryEntry { Id = "0", Name = "old", State = "COMPLETED", EndedAt = new DateTime(2026, 1, 1, 0, 1, 0), Dir = "/y" }]);
+        Check(string.Join(",", merged.Select(e => e.Id)) == "1,2,0" && merged[0].State == "COMPLETED" && merged[0].Dir == "/x" && merged[2].Dir == "/y",
+              "历史：sacct 和本机记录合并（以 sacct 为准，保留目录）");
+        {
+            var tmp = Path.Combine(Path.GetTempPath(), "si-hist-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var hid = Guid.NewGuid();
+                var h1 = new HistoryStore(true, tmp);
+                var running = new RemoteJob("77", "relax", JobState.Running, JobSource.Slurm) { Workdir = "/w/relax" };
+                h1.SetActive(hid, [running, new RemoteJob("file:x", "p", JobState.Running, JobSource.ProgressFile)]);
+                h1.Record(hid, new HistoryEntry { Id = "70", Name = "old", State = "COMPLETED", EndedAt = DateTime.Now.AddDays(-3), Dir = "/w/old" });
+                h1.Record(hid, new HistoryEntry { Id = "60", Name = "older", State = "COMPLETED", EndedAt = DateTime.Now.AddDays(-10) });
+                var h2 = new HistoryStore(true, tmp);   // 模拟重启
+                Check(string.Join(",", h2.Entries(hid).Select(e => e.Id)) == "70" && h2.Entries(hid)[0].Dir == "/w/old"
+                      && string.Join(",", h2.ActiveJobs(hid).Select(a => a.Id)) == "77" && h2.ActiveJobs(hid)[0].Dir == "/w/relax",
+                      "历史：重启后还在（保留 7 天、带目录），记住上次运行中的任务");
+            }
+            finally { try { Directory.Delete(tmp, true); } catch { } }
+        }
 
         // 生成的详情 / 取消 / 历史脚本在 bash 下语法正确（只做 -n 语法检查，不执行）。
         var slurm = new HostConfig("x", kind: HostKind.Slurm) { AllowCancel = true };
@@ -185,6 +211,15 @@ public static class SelfTest
         var g = grouped.FirstOrDefault(j => j.Id == "123");
         Check(grouped.Count == 3 && g?.Array?.Running.Count == 2 && g?.Array?.Pending == 93 && g?.State == JobState.Running
               && grouped.Sum(j => j.RunningUnits) == 3 && grouped.Sum(j => j.PendingUnits) == 97, "数组合并为一行，按元素计数");
+        // %K 不带方括号（"7-99%10"）时也按范围计数；以编号里的 _[...] 为准
+        var noBracket = Parsers.GroupArrays(Parsers.Squeue([
+            "400_1|scan|RUNNING|1:00|4:00:00|1|node01|cpu|400|1",
+            "400_[2-50%4]|scan|PENDING|0:00|4:00:00|1|(JobArrayTaskLimit)|cpu|400|2-50%4",
+            "500_[1,3,5-7]|scan2|PENDING|0:00|4:00:00|1|(Priority)|cpu|500|1,3,5-7",
+        ]));
+        Check(noBracket.FirstOrDefault(j => j.Id == "400")?.Array?.Pending == 49 && noBracket.FirstOrDefault(j => j.Id == "500")?.Array?.Pending == 5
+              && Parsers.PendingTaskCount(new RemoteJob("600_[1-10]", "x", JobState.Pending, JobSource.Slurm)) == 10,
+              "数组排队数：%K 不带方括号时按范围计数");
         var ah = Parsers.History(["123_1|sweep|COMPLETED|0:10:00|2026-10-16T09:00:00|0:0",
                                   "123_2|sweep|FAILED|0:01:00|2026-10-16T09:05:00|1:0",
                                   "123_3|sweep|COMPLETED|0:09:00|2026-10-16T09:06:00|0:0"]);

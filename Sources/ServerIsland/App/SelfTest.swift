@@ -102,6 +102,29 @@ enum SelfTest {
                                     "4821002|eval|FAILED|00:02:10|2026-10-16T10:00:00|1:0",
                                     "4821003|run|RUNNING|00:10:00|Unknown|0:0"])
         check(hist.count == 2 && hist[0].id == "4821002" && hist[0].jobState == .failed, "sacct 历史解析（跳过运行中）")
+        let histDir = Parsers.history(["4821004|scf|COMPLETED|00:05:00|2026-10-16T11:00:00|0:0|/home/u/a|b"])
+        check(histDir.first?.dir == "/home/u/a|b" && hist[0].dir == nil, "sacct 历史：WorkDir 列（老格式没有也能解析）")
+        let merged = MonitorEngine.mergeHistory(
+            server: [HistoryEntry(id: "1", name: "a", state: "COMPLETED", endedAt: Date(timeIntervalSince1970: 300)),
+                     HistoryEntry(id: "2", name: "b", state: "FAILED", endedAt: Date(timeIntervalSince1970: 200))],
+            local: [HistoryEntry(id: "1", name: "a", state: "ENDED", endedAt: Date(timeIntervalSince1970: 290), dir: "/x"),
+                    HistoryEntry(id: "0", name: "old", state: "COMPLETED", endedAt: Date(timeIntervalSince1970: 100), dir: "/y")])
+        check(merged.map(\.id) == ["1", "2", "0"] && merged[0].state == "COMPLETED" && merged[0].dir == "/x" && merged[2].dir == "/y",
+              "历史：sacct 和本机记录合并（以 sacct 为准，保留目录）")
+        MainActor.assumeIsolated {
+            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("si-hist-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            let hid = UUID()
+            let h1 = HistoryStore(directory: tmp)
+            var running = RemoteJob(id: "77", name: "relax", state: .running, source: .slurm); running.workdir = "/w/relax"
+            h1.setActive(hid, [running, RemoteJob(id: "file:x", name: "p", state: .running, source: .progressFile)])
+            h1.record(hid, HistoryEntry(id: "70", name: "old", state: "COMPLETED", endedAt: Date().addingTimeInterval(-3 * 86_400), dir: "/w/old"))
+            h1.record(hid, HistoryEntry(id: "60", name: "older", state: "COMPLETED", endedAt: Date().addingTimeInterval(-10 * 86_400)))
+            let h2 = HistoryStore(directory: tmp)   // 模拟重启
+            check(h2.entries(for: hid).map(\.id) == ["70"] && h2.entries(for: hid).first?.dir == "/w/old"
+                  && h2.activeJobs(for: hid).map(\.id) == ["77"] && h2.activeJobs(for: hid).first?.dir == "/w/relax",
+                  "历史：重启后还在（保留 7 天、带目录），记住上次运行中的任务")
+        }
 
         // 生成的详情 / 取消 / 历史脚本在 bash 下语法正确（只做 -n 语法检查，不执行）。
         var slurm = HostConfig(alias: "x", kind: .slurm); slurm.allowCancel = true
@@ -148,6 +171,15 @@ enum SelfTest {
         check(grouped.count == 3 && g?.array?.running.count == 2 && g?.array?.pending == 93 && g?.state == .running
               && grouped.reduce(0, { $0 + $1.runningUnits }) == 3 && grouped.reduce(0, { $0 + $1.pendingUnits }) == 97,
               "数组合并为一行，按元素计数")
+        // %K 不带方括号（"7-99%10"）时也按范围计数；以编号里的 _[...] 为准
+        let noBracket = Parsers.groupArrays(Parsers.squeue([
+            "400_1|scan|RUNNING|1:00|4:00:00|1|node01|cpu|400|1",
+            "400_[2-50%4]|scan|PENDING|0:00|4:00:00|1|(JobArrayTaskLimit)|cpu|400|2-50%4",
+            "500_[1,3,5-7]|scan2|PENDING|0:00|4:00:00|1|(Priority)|cpu|500|1,3,5-7",
+        ]))
+        check(noBracket.first { $0.id == "400" }?.array?.pending == 49 && noBracket.first { $0.id == "500" }?.array?.pending == 5
+              && Parsers.pendingTaskCount(RemoteJob(id: "600_[1-10]", name: "x", state: .pending, source: .slurm)) == 10,
+              "数组排队数：%K 不带方括号时按范围计数")
         let ah = Parsers.history(["123_1|sweep|COMPLETED|0:10:00|2026-10-16T09:00:00|0:0",
                                   "123_2|sweep|FAILED|0:01:00|2026-10-16T09:05:00|1:0",
                                   "123_3|sweep|COMPLETED|0:09:00|2026-10-16T09:06:00|0:0"])
