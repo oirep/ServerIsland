@@ -46,3 +46,15 @@ ffmpeg -i promo/out/ServerIsland-v0.1.mp4 -vf scale=1280:-2 -c:v libx264 -preset
 ## 访问量统计
 
 三个页面的页脚都有不蒜子（busuanzi）的总访问量 / 访客数，写法参考 GPUMDkit 网站：`#busuanzi_container_site_pv/uv` 默认隐藏，脚本加载成功后才显示。本地预览时显示的是 localhost 的公共计数，不代表真实数据。
+
+## 下载按钮（2026-10-18）
+
+- 首页的下载按钮按访问者的系统推荐（`js/main.js` 的 `PLATFORMS` / `detectOS`）：Windows、Linux、macOS 各自显示"下载 X 版"；手机上默认 macOS，并在下载区提示"请在电脑上下载"，不标"推荐"。
+- 按钮右侧 ▾ 打开全部平台的菜单（当前系统标"推荐"），按钮下面一行"其他平台：…"。下载区三张卡片里，访问者的系统那张加边框和"你的系统"。
+- 文件地址：读 `api.github.com/repos/<repo>/releases/latest`，按后缀（`.dmg` / `-win-x64.zip` / `-linux-x64.tar.gz`）找附件的直接下载地址；某个平台没有附件或接口失败时打开 Release 页面。版本号也换成最新 Release 的。
+- 调试：网址后面加 `?os=windows`、`?os=linux`、`?os=mac`、`?os=mobile`。
+- 菜单要盖住下面的刘海演示：`.hero-inner` 的 `z-index` 必须高于 `.demo`。
+
+## 缓存
+
+三个页面引用 CSS / JS 时都带 `?v=日期`（例如 `style.css?v=20261018d`）。GitHub Pages 会缓存约 10 分钟，**改了 css / js 就把三个页面里的 `?v=` 一起改掉**，否则访问者可能拿到新 HTML 配旧脚本。

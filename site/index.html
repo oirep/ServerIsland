@@ -22,7 +22,7 @@
     })();
   </script>
   <link rel="icon" type="image/png" href="assets/favicon.png">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=20261018e">
 </head>
 <body>
 
@@ -65,18 +65,29 @@
       <span lang="en">Slurm jobs, GPUs and the progress of VASP, LAMMPS, GPUMD and NEP runs —<br>living in your Mac's notch. Nothing to install on the server.</span>
     </p>
     <div class="cta">
-      <a class="btn btn-primary js-download" href="#download">
-        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M16.4 12.6c0-2.6 2.1-3.8 2.2-3.9-1.2-1.8-3.1-2-3.7-2-1.6-.2-3.1.9-3.9.9-.8 0-2-.9-3.4-.9-1.7 0-3.3 1-4.2 2.6-1.8 3.1-.5 7.7 1.3 10.2.9 1.2 1.9 2.6 3.2 2.6 1.3-.1 1.8-.8 3.3-.8 1.6 0 2 .8 3.4.8 1.4 0 2.3-1.3 3.1-2.5 1-1.4 1.4-2.8 1.4-2.9 0 0-2.7-1-2.7-4.1zM13.9 5c.7-.9 1.2-2 1.1-3.2-1 0-2.3.7-3 1.6-.7.8-1.3 2-1.1 3.1 1.2.1 2.3-.6 3-1.5z"/></svg>
-        <span lang="zh">下载 macOS 版</span><span lang="en">Download for macOS</span>
-      </a>
+      <!-- 下载按钮：按访问者的系统推荐（js/main.js 的 PLATFORMS），▾ 打开全部平台。没有脚本时跳到下面的下载区。 -->
+      <div class="dl-split">
+        <a class="btn btn-primary dl-main" href="#download" data-dl-main>
+          <span class="dl-icon" data-dl-icon><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M16.4 12.6c0-2.6 2.1-3.8 2.2-3.9-1.2-1.8-3.1-2-3.7-2-1.6-.2-3.1.9-3.9.9-.8 0-2-.9-3.4-.9-1.7 0-3.3 1-4.2 2.6-1.8 3.1-.5 7.7 1.3 10.2.9 1.2 1.9 2.6 3.2 2.6 1.3-.1 1.8-.8 3.3-.8 1.6 0 2 .8 3.4.8 1.4 0 2.3-1.3 3.1-2.5 1-1.4 1.4-2.8 1.4-2.9 0 0-2.7-1-2.7-4.1zM13.9 5c.7-.9 1.2-2 1.1-3.2-1 0-2.3.7-3 1.6-.7.8-1.3 2-1.1 3.1 1.2.1 2.3-.6 3-1.5z"/></svg></span>
+          <span lang="zh" data-dl-label-zh>下载 macOS 版</span><span lang="en" data-dl-label-en>Download for macOS</span>
+        </a>
+        <button class="btn btn-primary dl-toggle" type="button" aria-haspopup="menu" aria-expanded="false" data-dl-toggle>
+          <span class="sr-only"><span lang="zh">选择其他平台</span><span lang="en">Choose another platform</span></span>
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 6l4 4 4-4"/></svg>
+        </button>
+        <div class="dl-menu" role="menu" hidden data-dl-menu></div>
+      </div>
       <a class="btn btn-ghost js-github" href="#download"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
         <span lang="zh">在 GitHub 上点个 Star</span><span lang="en">Star on GitHub</span>
         <span class="star-count js-star-count" hidden><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"/></svg><b class="js-stars"></b></span>
       </a>
     </div>
+    <p class="dl-others" data-dl-others>
+      <span lang="zh">也有 <a href="#download">Windows 和 Linux 版</a></span><span lang="en">Also on <a href="#download">Windows and Linux</a></span>
+    </p>
     <p class="fine">
-      <span lang="zh">免费开源（GPL-3.0）· macOS 14 及以上 · 也有 <a href="#download">Windows 和 Linux 版</a> · v<span class="js-version">0.2.0</span></span>
-      <span lang="en">Free & open source (GPL-3.0) · macOS 14+ · also on <a href="#download">Windows and Linux</a> · v<span class="js-version">0.2.0</span></span>
+      <span lang="zh">免费开源（GPL-3.0）· <span data-dl-req-zh>macOS 14 及以上</span> · v<span class="js-version">0.2.0</span></span>
+      <span lang="en">Free & open source (GPL-3.0) · <span data-dl-req-en>macOS 14+</span> · v<span class="js-version">0.2.0</span></span>
     </p>
   </div>
 
@@ -239,22 +250,23 @@
   <h2><span lang="zh">下载 ServerIsland</span><span lang="en">Get ServerIsland</span></h2>
   <p class="section-lead"><span lang="zh">免费、开源，GPL-3.0 许可证。</span><span lang="en">Free and open source under the GPL-3.0 license.</span></p>
   <div class="dl-grid">
-    <a class="dl-card js-github" data-path="/releases/latest" href="#download">
+    <a class="dl-card js-github" data-path="/releases/latest" data-os="mac" href="#download">
       <b><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16.4 12.6c0-2.6 2.1-3.8 2.2-3.9-1.2-1.8-3.1-2-3.7-2-1.6-.2-3.1.9-3.9.9-.8 0-2-.9-3.4-.9-1.7 0-3.3 1-4.2 2.6-1.8 3.1-.5 7.7 1.3 10.2.9 1.2 1.9 2.6 3.2 2.6 1.3-.1 1.8-.8 3.3-.8 1.6 0 2 .8 3.4.8 1.4 0 2.3-1.3 3.1-2.5 1-1.4 1.4-2.8 1.4-2.9 0 0-2.7-1-2.7-4.1zM13.9 5c.7-.9 1.2-2 1.1-3.2-1 0-2.3.7-3 1.6-.7.8-1.3 2-1.1 3.1 1.2.1 2.3-.6 3-1.5z"/></svg>macOS</b>
       <span><span lang="zh">macOS 14+ · Apple 芯片与 Intel · DMG</span><span lang="en">macOS 14+ · Apple silicon &amp; Intel · DMG</span></span>
       <em><span lang="zh">下载 →</span><span lang="en">Download →</span></em>
     </a>
-    <a class="dl-card js-github" data-path="/releases/latest" href="#download">
+    <a class="dl-card js-github" data-path="/releases/latest" data-os="win" href="#download">
       <b><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 5.4 10.4 4.4v7.1H3zM11.4 4.3 21 3v8.5h-9.6zM3 12.5h7.4v7.1L3 18.6zM11.4 12.5H21V21l-9.6-1.3z"/></svg>Windows</b>
       <span><span lang="zh">Windows 10 / 11 · 64 位 · 解压即用</span><span lang="en">Windows 10 / 11 · 64-bit · unzip and run</span></span>
       <em><span lang="zh">下载 →</span><span lang="en">Download →</span></em>
     </a>
-    <a class="dl-card js-github" data-path="/releases/latest" href="#download">
+    <a class="dl-card js-github" data-path="/releases/latest" data-os="linux" href="#download">
       <b><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 17l6-6-6-6M12 19h8"/></svg>Linux</b>
       <span><span lang="zh">x64 · X11 / XWayland · tar.gz</span><span lang="en">x64 · X11 / XWayland · tar.gz</span></span>
       <em><span lang="zh">下载 →</span><span lang="en">Download →</span></em>
     </a>
   </div>
+  <p class="fine dl-mobile" hidden data-dl-mobile><span lang="zh">ServerIsland 是电脑上的软件：请在 Mac、Windows 或 Linux 电脑上打开这个页面下载。</span><span lang="en">ServerIsland is a desktop app — open this page on your Mac, Windows or Linux computer to download it.</span></p>
   <p class="fine"><span lang="zh">安装步骤、第一次打开被系统拦住怎么办，见 <a href="manual.html#install">使用手册</a>。</span>
      <span lang="en">Installation steps and what to do if your system blocks the first launch: see the <a href="manual.html#install">guide</a>.</span></p>
   <div class="star-cta">
@@ -289,9 +301,9 @@
   </span>
 </footer>
 
-<script src="js/config.js"></script>
-<script src="js/tako.js"></script>
-<script src="js/main.js"></script>
+<script src="js/config.js?v=20261018e"></script>
+<script src="js/tako.js?v=20261018e"></script>
+<script src="js/main.js?v=20261018e"></script>
 <script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
 </body>
 </html>

@@ -75,6 +75,109 @@
     });
   });
 
+  // ------------------------------------------------------------ 下载：按系统推荐，▾ 选择其他平台
+  // 图标从下载区的卡片里拷贝（data-os），文件地址从 GitHub 最新 Release 的附件里找，找不到就打开 Release 页面。
+  // 调试：?os=windows / linux / mac / mobile
+  const PLATFORMS = {
+    mac: { name: "macOS", suffix: ".dmg",
+           zh: "macOS 14+ · Apple 芯片与 Intel · DMG", en: "macOS 14+ · Apple silicon & Intel · DMG",
+           reqZh: "macOS 14 及以上", reqEn: "macOS 14+" },
+    win: { name: "Windows", suffix: "-win-x64.zip",
+           zh: "Windows 10 / 11 · 64 位 · 解压即用", en: "Windows 10 / 11 · 64-bit · unzip and run",
+           reqZh: "Windows 10 / 11", reqEn: "Windows 10 / 11" },
+    linux: { name: "Linux", suffix: "-linux-x64.tar.gz",
+             zh: "x64 · X11 / XWayland · tar.gz", en: "x64 · X11 / XWayland · tar.gz",
+             reqZh: "Linux x64", reqEn: "Linux x64" },
+  };
+  function detectOS() {
+    const q = (new URLSearchParams(location.search).get("os") || "").toLowerCase();
+    if (q) return q.startsWith("win") ? { os: "win" } : q.startsWith("lin") ? { os: "linux" } : q === "mobile" ? { os: "mac", mobile: true } : { os: "mac" };
+    const ua = navigator.userAgent || "";
+    const plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+    // iPad 会冒充 Mac：用触摸点数区分
+    if (/android|iphone|ipad|ipod|mobile/i.test(ua) || (/mac/i.test(plat) && navigator.maxTouchPoints > 1)) return { os: "mac", mobile: true };
+    if (/win/i.test(plat) || /windows/i.test(ua)) return { os: "win" };
+    if (/linux|x11|cros/i.test(plat + " " + ua)) return { os: "linux" };
+    return { os: "mac" };
+  }
+  const detected = detectOS();
+  const releasePage = repo ? repo + "/releases/latest" : "#download";
+  const dlLinks = { mac: releasePage, win: releasePage, linux: releasePage };
+  const iconOf = os => { const svg = $(`.dl-card[data-os="${os}"] b svg`); return svg ? svg.cloneNode(true) : document.createElement("span"); };
+  const T = (zh, en) => `<span lang="zh">${zh}</span><span lang="en">${en}</span>`;
+
+  const main = $("[data-dl-main]"), toggle = $("[data-dl-toggle]"), menu = $("[data-dl-menu]");
+  function renderDownloads() {
+    const p = PLATFORMS[detected.os];
+    if (main) {
+      main.href = dlLinks[detected.os];
+      const icon = $("[data-dl-icon]", main);
+      if (icon) { icon.innerHTML = ""; const svg = iconOf(detected.os); svg.setAttribute("width", "18"); svg.setAttribute("height", "18"); icon.appendChild(svg); }
+      $("[data-dl-label-zh]", main).textContent = "下载 " + p.name + " 版";
+      $("[data-dl-label-en]", main).textContent = "Download for " + p.name;
+    }
+    $$("[data-dl-req-zh]").forEach(el => { el.textContent = p.reqZh; });
+    $$("[data-dl-req-en]").forEach(el => { el.textContent = p.reqEn; });
+    // 按钮下面的"其他平台"
+    const others = $("[data-dl-others]");
+    if (others) {
+      const links = Object.keys(PLATFORMS).filter(k => k !== detected.os)
+        .map(k => `<a class="dl-chip" href="${dlLinks[k]}" data-os-link="${k}"></a>`).join("");
+      others.innerHTML = T("其他平台：", "Other platforms: ") + links + `<a class="dl-chip ghost" href="#download">${T("全部下载", "All downloads")}</a>`;
+      $$("[data-os-link]", others).forEach(a => { const k = a.dataset.osLink; a.appendChild(iconOf(k)); a.appendChild(document.createTextNode(PLATFORMS[k].name)); });
+    }
+    // ▾ 菜单
+    if (menu) {
+      menu.innerHTML = "";
+      Object.keys(PLATFORMS).forEach(k => {
+        const q = PLATFORMS[k];
+        const a = document.createElement("a");
+        const rec = k === detected.os && !detected.mobile;
+        a.setAttribute("role", "menuitem"); a.href = dlLinks[k]; a.className = "dl-item" + (rec ? " current" : "");
+        a.appendChild(iconOf(k));
+        const text = document.createElement("span");
+        text.innerHTML = `<b>${q.name}${rec ? ` <em class="dl-rec">${T("推荐", "For you")}</em>` : ""}</b><small>${T(q.zh, q.en)}</small>`;
+        a.appendChild(text);
+        menu.appendChild(a);
+      });
+      const all = document.createElement("a");
+      all.className = "dl-item dl-all"; all.setAttribute("role", "menuitem");
+      all.href = repo ? repo + "/releases" : "#download"; all.target = "_blank"; all.rel = "noopener";
+      all.innerHTML = T("所有版本和更新说明 →", "All releases and notes →");
+      menu.appendChild(all);
+    }
+    // 下载区的三张卡片：直接指向各自的安装包
+    $$(".dl-card[data-os]").forEach(card => { card.href = dlLinks[card.dataset.os]; card.removeAttribute("target"); });
+    const mobileNote = $("[data-dl-mobile]");
+    if (mobileNote) mobileNote.hidden = !detected.mobile;
+  }
+  renderDownloads();
+
+  function setMenu(open) {
+    if (!menu || !toggle) return;
+    menu.hidden = !open;
+    toggle.setAttribute("aria-expanded", String(open));
+  }
+  if (toggle) {
+    toggle.addEventListener("click", e => { e.stopPropagation(); setMenu(menu.hidden); });
+    document.addEventListener("click", e => { if (!menu.hidden && !menu.contains(e.target)) setMenu(false); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape") setMenu(false); });
+  }
+
+  // 从最新的 Release 找到各平台安装包的直接下载地址
+  const repoPath = repo && (repo.match(/github\.com\/([^/]+\/[^/]+)/) || [])[1];
+  if (repoPath && window.fetch) {
+    fetch("https://api.github.com/repos/" + repoPath + "/releases/latest").then(r => r.ok ? r.json() : null).then(rel => {
+      if (!rel || !Array.isArray(rel.assets)) return;
+      Object.keys(PLATFORMS).forEach(k => {
+        const asset = rel.assets.find(a => (a.name || "").toLowerCase().endsWith(PLATFORMS[k].suffix));
+        if (asset) dlLinks[k] = asset.browser_download_url;
+      });
+      if (rel.tag_name) $$(".js-version").forEach(el => { el.textContent = rel.tag_name.replace(/^v/i, ""); });
+      renderDownloads();
+    }).catch(() => {});
+  }
+
   // ------------------------------------------------------------ 导航阴影
   const nav = $(".nav");
   const onScroll = () => nav.classList.toggle("scrolled", window.scrollY > 10);

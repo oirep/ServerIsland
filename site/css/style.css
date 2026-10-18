@@ -101,7 +101,7 @@ html[data-lang="en"] [lang="zh"] { display: none !important; }
   overflow: hidden;
 }
 .hero-sky { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; }
-.hero-inner { position: relative; z-index: 1; text-align: center; max-width: 820px; }
+.hero-inner { position: relative; z-index: 4; text-align: center; max-width: 820px; }
 .hero-tako { display: block; margin: 0 auto 6px; filter: drop-shadow(0 0 22px rgba(91,230,181,.45)); animation: tako-bob 2.4s ease-in-out infinite; }
 @keyframes tako-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
 .pixel-word { width: min(560px, 88vw); height: auto; aspect-ratio: 560 / 96; display: block; margin: 0 auto 10px; }
@@ -111,7 +111,7 @@ html[data-lang="en"] [lang="zh"] { display: none !important; }
   line-height: 1.12; letter-spacing: -0.5px; font-weight: 800;
 }
 .lead { color: var(--sec); font-size: clamp(15.5px, 2vw, 18.5px); margin: 0 auto 26px; }
-.cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; position: relative; z-index: 40; }
 .fine { color: var(--ter); font-size: 13px; margin-top: 14px; }
 
 /* Mac 屏幕顶部 + 刘海演示 */
@@ -453,3 +453,51 @@ pre.build { display: inline-block; text-align: left; margin: 6px auto 0; backgro
   .doc td:first-child { white-space: normal; }
   .doc-hero { padding-top: 88px; }
 }
+
+/* ---------------------------------------------------------------- 下载：按系统推荐 + ▾ 选择其他平台 */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* 一个整体的胶囊：渐变和阴影画在外层，左右两半透明，中间一道浅色短分隔线，悬停时只给那一半加一层浅色。 */
+.dl-split {
+  position: relative; display: inline-flex; align-items: stretch; border-radius: 999px;
+  background: linear-gradient(135deg, var(--mint), #7CCBFF);
+  box-shadow: 0 8px 30px rgba(91, 230, 181, .28); transition: box-shadow .2s, transform .15s;
+}
+.dl-split:hover { box-shadow: 0 10px 40px rgba(91, 230, 181, .45); transform: translateY(-1px); }
+.dl-split .btn-primary { background: transparent; box-shadow: none; transform: none; }
+.dl-split .btn-primary:hover { background: rgba(255, 255, 255, .16); box-shadow: none; transform: none; }
+.dl-split .dl-main { border-radius: 999px 0 0 999px; padding-right: 16px; }
+.dl-split .dl-toggle {
+  position: relative; border: 0; cursor: pointer; font: inherit; color: #04140e;
+  border-radius: 0 999px 999px 0; padding: 12px 16px 12px 13px;
+}
+.dl-split .dl-toggle::before {
+  content: ""; position: absolute; left: 0; top: 28%; bottom: 28%; width: 1px; background: rgba(4, 20, 14, .18);
+}
+.dl-split .dl-toggle svg { transition: transform .2s; }
+.dl-split .dl-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+.dl-icon { display: inline-flex; }
+.dl-menu {
+  position: absolute; top: calc(100% + 10px); left: 50%; transform: translateX(-50%); z-index: 30;
+  width: min(340px, calc(100vw - 32px)); padding: 6px;
+  background: rgba(16, 20, 32, .97); border: 1px solid var(--line); border-radius: 16px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, .55); text-align: left; backdrop-filter: blur(14px);
+}
+.dl-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 11px; color: var(--text); }
+.dl-item:hover, .dl-item:focus-visible { background: rgba(255, 255, 255, .07); outline: none; }
+.dl-item > svg { width: 20px; height: 20px; flex: none; color: var(--sec); }
+.dl-item.current > svg { color: var(--mint); }
+.dl-item b { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.dl-item small { display: block; color: var(--sec); font-size: 12.5px; margin-top: 1px; }
+.dl-item.dl-all { justify-content: center; color: var(--sec); font-size: 13px; border-top: 1px solid var(--line); border-radius: 0 0 11px 11px; margin-top: 4px; }
+.dl-rec {
+  font-style: normal; font-size: 11px; font-weight: 700; letter-spacing: .02em;
+  color: #04140e; background: var(--mint); border-radius: 999px; padding: 1px 8px;
+}
+.dl-others { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; color: var(--sec); font-size: 13.5px; margin-top: 16px; }
+.dl-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px;
+  color: var(--text); background: var(--card); border: 1px solid var(--line); font-size: 13px; transition: background .2s, border-color .2s;
+}
+.dl-chip svg { width: 14px; height: 14px; }
+.dl-chip:hover { background: rgba(255, 255, 255, .1); border-color: rgba(91, 230, 181, .45); }
+.dl-chip.ghost { background: transparent; color: var(--sec); }
