@@ -29,6 +29,7 @@ public sealed partial class MonitorEngine
     readonly Dictionary<Guid, HostConfig> _runningConfig = [];
     readonly Dictionary<Guid, Parsers.CPUSample> _cpuSamples = [];
     readonly Dictionary<Guid, int> _failures = [];
+    readonly Dictionary<string, DateTime> _progressEnds = [];
     readonly Queue<IslandEvent> _eventQueue = new();
     CancellationTokenSource? _eventDismiss;
     readonly Dictionary<Guid, HashSet<string>> _diskAlerted = [];
@@ -52,6 +53,7 @@ public sealed partial class MonitorEngine
     readonly Dictionary<string, AppRateState> _appRates = [];
     /// 详情页曲线的增量缓存（见 AppCurves）。
     public readonly Dictionary<string, CurveCache> CurveCaches = [];
+    public readonly DockerHistory DockerHistory = new();
     /// 目录过滤用：每台服务器上各任务的工作目录。
     sealed class WorkdirCache { public string? Home; public Dictionary<string, string> Dirs = []; }
     readonly Dictionary<Guid, WorkdirCache> _workdirs = [];
@@ -131,6 +133,7 @@ public sealed partial class MonitorEngine
 
     public void Start()
     {
+        StartLocalTaskMonitoring();
         SyncNow();
         _ = WakeWatcher();
     }
@@ -176,6 +179,9 @@ public sealed partial class MonitorEngine
     {
         var c = h.Clone();
         c.DisplayName = ""; c.Muted = false; c.AllowCancel = false; c.Paused = false; c.RememberPassword = false;
+        c.DockerView = DockerViewMode.List; c.DockerSort = DockerSortOrder.Updated;
+        c.DockerAllView = DockerViewMode.List;
+        c.DockerFavorites = [];
         return c.Fingerprint();
     }
 
@@ -369,6 +375,11 @@ public sealed partial class MonitorEngine
         _failures[id] = 0;
         var previous = snap;
         snap = Build(host, parsed, previous);
+        if (host.ShowDocker) snap.Docker = DockerSnapshot.Parse(parsed.Get("docker")?.Lines ?? [], Snapshots.GetValueOrDefault(id)?.Docker);
+        if (snap.Docker is { } docker) DockerHistory.Record(id, docker);
+        snap.Jobs.AddRange(_localJobs.GetValueOrDefault(id) ?? []);
+        snap.Jobs = snap.Jobs.OrderByDescending(j => j.State.IsActive())
+            .ThenByDescending(j => j.Id.StartsWith("local:")).ToList();
         snap.Latency = result.Duration;
         snap.LastUpdate = DateTime.Now;
         snap.Health = HostHealth.Ok;
@@ -531,7 +542,7 @@ public sealed partial class MonitorEngine
             var staleCutoff = DateTime.Now.AddHours(-36);
             foreach (var entry in Parsers.Progress(progSec.Lines))
             {
-                if (entry.Updated is { } u && u < staleCutoff) continue;
+                if (entry.Updated is { } u && u < staleCutoff && !entry.Done && !entry.Failed && !entry.Unknown) continue;
                 if (entry.JobID is { } jid && jobs.FirstOrDefault(j => j.Id == jid) is { } job)
                 {
                     job.Progress = entry.Progress;
@@ -541,11 +552,19 @@ public sealed partial class MonitorEngine
                 else
                 {
                     var j = new RemoteJob("file:" + entry.Id, entry.Name,
-                        entry.Failed ? JobState.Failed : entry.Done ? JobState.Completed : JobState.Running, JobSource.ProgressFile)
+                        entry.Failed ? JobState.Failed : entry.Done ? JobState.Completed : entry.Unknown ? JobState.Other : JobState.Running, JobSource.ProgressFile)
                     {
                         Progress = entry.Done ? 1 : entry.Progress,
                         Message = entry.Message,
                     };
+                    var key = host.Id + "|" + j.Id;
+                    if (!j.State.IsActive())
+                    {
+                        var end = entry.Updated ?? (_progressEnds.TryGetValue(key, out var observed) ? observed : DateTime.Now);
+                        _progressEnds[key] = end;
+                        j.ProgressEndedAt = end;
+                    }
+                    else _progressEnds.Remove(key);
                     if (entry.Updated is { } up) j.Detail = L("更新于 ", "updated ") + Format.Relative(up);
                     jobs.Add(j);
                 }
@@ -678,7 +697,7 @@ public sealed partial class MonitorEngine
             var vanished = new List<RemoteJob>();
             var arrayElementsDone = new List<(string Base, RemoteJob Job)>();
             var arraysFinished = new List<RemoteJob>();
-            foreach (var job in old.Jobs.Where(j => j.State.IsActive()))
+            foreach (var job in old.Jobs.Where(j => j.State.IsActive() && !j.Id.StartsWith("local:")))
             {
                 if (job.Array is { } a)
                 {
@@ -999,7 +1018,23 @@ public sealed partial class MonitorEngine
     // MARK: - 汇总
 
     public List<(HostConfig Host, HostSnapshot Snap)> OrderedHosts =>
-        Store.Settings.Hosts.Where(h => h.Enabled).Select(h => (h, Snapshots.GetValueOrDefault(h.Id) ?? new HostSnapshot())).ToList();
+        Store.Settings.Hosts.Where(h => h.Enabled)
+            .Concat((_localJobs.GetValueOrDefault(HostConfig.LocalTaskID)?.Any(j => j.StaysVisible(Store.Settings.ProgressFileStaySeconds)) ?? false)
+                ? new[] { LocalTaskStore.LocalHost } : Array.Empty<HostConfig>())
+            .Select(h => (h, DisplaySnapshot(h.Id))).ToList();
+
+    public HostSnapshot DisplaySnapshot(Guid id)
+    {
+        var source = Snapshots.GetValueOrDefault(id) ?? new HostSnapshot();
+        // 保留原始对象供状态转换与提醒，展示副本只过滤任务。
+        var copy = new HostSnapshot {
+            Health = source.Health, Metrics = source.Metrics, Gpus = source.Gpus, Disks = source.Disks,
+            Jobs = source.Jobs.Where(j => j.StaysVisible(Store.Settings.ProgressFileStaySeconds)).ToList(),
+            LastUpdate = source.LastUpdate, Latency = source.Latency,
+            Warnings = source.Warnings, IsRefreshing = source.IsRefreshing
+        };
+        return copy;
+    }
 
     public int TotalRunning => Snapshots.Values.Sum(s => s.RunningCount);
     public int TotalPending => Snapshots.Values.Sum(s => s.PendingCount);

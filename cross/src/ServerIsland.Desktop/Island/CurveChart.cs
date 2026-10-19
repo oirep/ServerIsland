@@ -80,6 +80,28 @@ public static class CurveChart
             Grid.SetColumn(corner, 2);
             body.Children.Add(corner);
         }
+        // 收敛判据放在图的右上角（结构优化的力从左上往右下降，右上角通常是空的），图例那一行放不下。
+        var label = curve.Note ?? (curve.Bars.Count > 0 ? null : curve.Threshold is { } th ? L($"按力收敛 < {AppProgress.Sci(th)} eV/Å", $"force criterion < {AppProgress.Sci(th)} eV/Å") : null);
+        if (label != null)
+        {
+            var tag = H(4);
+            if (curve.Threshold != null) tag.Children.Add(new Border { Width = 9, Height = 1.5, CornerRadius = new CornerRadius(1), Background = Hue.Amber.WithAlpha(0.8).B(), VerticalAlignment = VerticalAlignment.Center });
+            tag.Children.Add(T(label, 9, color: Hue.Tertiary));
+            var corner = new Border
+            {
+                Child = tag, Background = Hue.Card.WithAlpha(0.9).B(), CornerRadius = new CornerRadius(4), Padding = new Thickness(5, 1.5),
+                HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
+            };
+            ToolTip.SetTip(corner, curve.Bars.Count > 0
+                ? L("能垒 = 最高的像点 − 初态（00），和 VTST 的 nebef.pl 一样用 energy(sigma→0)。柱子是每个中间像点的最大力（VTST），虚线是 |EDIFFG|：所有柱子都低于虚线时 NEB 收敛。",
+                    "Barrier = highest image − initial state (00), using energy(sigma→0) like VTST's nebef.pl. Bars are each image's max force (VTST); the dashed line is |EDIFFG| — NEB has converged when every bar is below it.")
+                : curve.Note != null
+                ? L("这次结构优化按能量收敛（EDIFFG ≥ 0 或没写，VASP 默认 0.001），最大力不是停止条件，所以没有目标线。",
+                    "This relaxation stops on energy (EDIFFG ≥ 0 or unset; VASP's default is 0.001), so the max force isn't the stopping rule and there's no target line.")
+                : L("EDIFFG < 0：所有原子的受力都小于这个值时优化结束（虚线）。", "EDIFFG < 0: the relaxation ends when every force is below this value (dashed line)."));
+            Grid.SetColumn(corner, 2);
+            body.Children.Add(corner);
+        }
 
         var g = new Grid { RowDefinitions = new RowDefinitions("Auto,5,*") };
         g.Children.Add(top);

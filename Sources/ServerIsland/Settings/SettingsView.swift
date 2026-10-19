@@ -255,6 +255,9 @@ extension GeneralSettingsView {
             Image(systemName: "arrow.down.circle.fill").foregroundStyle(.blue)
             VStack(alignment: .leading, spacing: 2) {
                 Text(updateTitle)
+                if UpdateChecker.isCustomizedBuild {
+                    Text(UpdateChecker.customizedUpdateMessage).font(.caption).foregroundStyle(.secondary)
+                }
                 if case .installFailed(_, let why) = updates.state {
                     Text(why).font(.caption).foregroundStyle(Theme.coral)
                 } else if let r = updates.state.release, !r.notes.isEmpty {
@@ -266,15 +269,19 @@ extension GeneralSettingsView {
             Spacer()
             switch updates.state {
             case .available(let r):
-                Button(L("更新到 v\(r.version)", "Update to v\(r.version)")) { Task { await updates.install(r) } }
-                    .buttonStyle(.borderedProminent)
-                    .help(L("下载并核对新版本，替换后自动重新打开", "Download and verify the new version, replace this app and reopen it"))
+                if !UpdateChecker.isCustomizedBuild {
+                    Button(L("更新到 v\(r.version)", "Update to v\(r.version)")) { Task { await updates.install(r) } }
+                        .buttonStyle(.borderedProminent)
+                        .help(L("下载并核对新版本，替换后自动重新打开", "Download and verify the new version, replace this app and reopen it"))
+                }
                 Button(L("更新说明", "Release Notes")) { NSWorkspace.shared.open(r.pageURL) }
             case .downloading, .installing:
                 ProgressView().controlSize(.small)
             case .installFailed(let r, _):
-                Button(L("下载 v\(r.version)", "Download v\(r.version)")) { NSWorkspace.shared.open(r.downloadURL) }
-                    .buttonStyle(.borderedProminent)
+                if !UpdateChecker.isCustomizedBuild {
+                    Button(L("下载 v\(r.version)", "Download v\(r.version)")) { NSWorkspace.shared.open(r.downloadURL) }
+                        .buttonStyle(.borderedProminent)
+                }
                 Button(L("更新说明", "Release Notes")) { NSWorkspace.shared.open(r.pageURL) }
             default:
                 Button(updates.state == .checking ? L("检查中…", "Checking…") : L("检查更新", "Check for Updates")) {
@@ -286,7 +293,7 @@ extension GeneralSettingsView {
     }
 
     private var updateTitle: String {
-        let current = UpdateChecker.currentVersion ?? "dev"
+        let current = (UpdateChecker.currentVersion ?? "dev") + (UpdateChecker.isCustomizedBuild ? L(" 定制版", " Custom") : "")
         switch updates.state {
         case .idle: return L("当前版本 ", "Current version ") + current
         case .checking: return L("正在检查 GitHub 上的最新版本…", "Checking GitHub for the latest version…")
@@ -445,6 +452,14 @@ struct GeneralSettingsView: View {
                 Text(L("训练脚本往服务器的 ~/.serverisland/progress/<名称>.json 写一行 JSON，刘海里就能显示真实进度：",
                        "Have your script write one line of JSON to ~/.serverisland/progress/<name>.json on the server to show real progress:"))
                     .font(.callout)
+                HStack {
+                    HelpLabel(L("停留时长", "Stay duration"),
+                              help: L("任务成功、失败或异常退出后保留显示的秒数。0 表示永久显示，只隐藏条目，不删除进度文件和日志。",
+                                      "Seconds to keep completed, failed or interrupted tasks visible. 0 keeps them forever; files and logs are not deleted."))
+                    Spacer()
+                    SecondsInput(value: $store.settings.progressFileStaySeconds)
+                    Text(L("秒", "seconds")).foregroundStyle(.secondary)
+                }
                 Text(#"{"name": "train", "progress": 0.42, "message": "epoch 3/10", "jobid": "$SLURM_JOB_ID"}"#)
                     .font(.system(.callout, design: .monospaced))
                     .textSelection(.enabled)

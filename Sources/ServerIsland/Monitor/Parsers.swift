@@ -396,6 +396,7 @@ enum Parsers {
         var updated: Date?
         var done: Bool
         var failed: Bool
+        var unknown = false
     }
 
     /// 进度文件格式（字段均可选）：
@@ -427,7 +428,8 @@ enum Parsers {
                 jobID: jobID,
                 updated: updated,
                 done: status == "done" || status == "completed" || status == "finished",
-                failed: status == "failed" || status == "error"))
+                failed: status == "failed" || status == "error",
+                unknown: ["unknown", "cancelled", "canceled", "timeout", "interrupted"].contains(status)))
         }
 
         for line in lines {

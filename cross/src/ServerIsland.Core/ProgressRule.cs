@@ -5,12 +5,29 @@ using static ServerIsland.Core.Lang;
 namespace ServerIsland.Core;
 
 public enum RuleMatch { Keyword, Regex }
+public enum RuleSource { File, ActionLog }
+public enum LogRuleMode { Numbered, Stages }
+
+public sealed class LogRuleStage
+{
+    [JsonConverter(typeof(UpperGuidConverter))]
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Name { get; set; } = "";
+    public string Pattern { get; set; } = "";
+}
 
 /// 用户自定义的进度识别规则：任务的工作目录里有某个文件，就从这个文件里取"当前值"和"目标值"。
 /// 保存在全局设置里，对所有服务器生效。规则在内置识别（NEP / GPUMD / VASP / LAMMPS）之前检查。
 /// 任何一步对不上（文件没有、数字取不到、当前值超过目标值）都当作没识别到，不显示进度。
 public sealed class ProgressRule
 {
+    public RuleSource Source { get; set; } = RuleSource.File;
+    public LogRuleMode LogMode { get; set; } = LogRuleMode.Numbered;
+    public string ActivationPattern { get; set; } = "";
+    public int CurrentGroup { get; set; } = 1;
+    public int TotalGroup { get; set; } = 2;
+    public int LabelGroup { get; set; } = 3;
+    public List<LogRuleStage> Stages { get; set; } = [];
     [JsonConverter(typeof(UpperGuidConverter))]
     public Guid Id { get; set; } = Guid.NewGuid();
     public bool Enabled { get; set; } = true;
@@ -47,6 +64,25 @@ public sealed class ProgressRule
         get
         {
             if (Name.Trim().Length == 0) return L("还没有填名称", "Name is empty");
+            if (Source == RuleSource.ActionLog)
+            {
+                bool Valid(string value) {
+                    if (value.Length is 0 or > 1000) return false;
+                    try { _ = new Regex(value); return true; } catch { return false; }
+                }
+                if (ActivationPattern.Length > 0 && !Valid(ActivationPattern)) return L("激活正则无效", "Invalid activation regex");
+                if (LogMode == LogRuleMode.Stages)
+                    return Stages.Count is 0 or > 100 || Stages.Any(s => s.Name.Length == 0 || !Valid(s.Pattern))
+                        ? L("阶段名称或正则无效", "Invalid stage name or regex") : null;
+                if (!Valid(Pattern)) return L("日志正则无效", "Invalid log regex");
+                var count = new Regex(Pattern).GetGroupNumbers().Length - 1;
+                if (CurrentGroup < 1 || CurrentGroup > count || LabelGroup < 0 || LabelGroup > count)
+                    return L("捕获组超出范围", "Capture group out of range");
+                if (Total.Length > 0)
+                    return !int.TryParse(Total, out var total) || total is < 1 or > 1000
+                        ? L("固定总阶段数无效", "Invalid fixed stage total") : null;
+                return TotalGroup < 1 || TotalGroup > count ? L("总数捕获组无效", "Invalid total group") : null;
+            }
             if (!IsSafeFileName(File)) return L("文件名为空或含有不支持的字符", "File name is empty or has unsupported characters");
             if (Pattern.Length == 0) return Match == RuleMatch.Keyword ? L("还没有填关键字", "Keyword is empty") : L("还没有填正则", "Regex is empty");
             if (Match == RuleMatch.Regex)
@@ -62,7 +98,7 @@ public sealed class ProgressRule
         }
     }
 
-    [JsonIgnore] public bool IsUsable => Enabled && Problem == null;
+    [JsonIgnore] public bool IsUsable => Source == RuleSource.File && Enabled && Problem == null;
 
     /// 当前生效的规则（由 ConfigStore 更新，生成远端脚本时读取）。
     public static List<ProgressRule> Active = [];

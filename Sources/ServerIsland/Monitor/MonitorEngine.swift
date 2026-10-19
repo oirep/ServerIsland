@@ -40,12 +40,27 @@ final class MonitorEngine: ObservableObject {
     var appRates: [String: AppRateState] = [:]
     /// 详情页曲线的增量缓存（见 AppCurves）。
     var curveCaches: [String: CurveCache] = [:]
+    var dockerHistory = DockerHistory()
+    var dockerLiveRequests: Set<String> = []
+    /// 传输可替换，用假数据验证详情持续采样和取消行为，运行时默认走 SSHRunner。
+    var dockerDetailReader: ((HostConfig, String) async -> SSHResult)?
+    var dockerListReader: ((HostConfig, String) async -> SSHResult)?
+    @Published var dockerListRequests: Set<UUID> = []
     /// 目录过滤用：每台服务器上各任务的工作目录。
     struct WorkdirCache { var home: String?; var dirs: [String: String] = [:] }
     var workdirCache: [UUID: WorkdirCache] = [:]
     var partitionCache: [UUID: (stats: [PartitionStat], at: Date)] = [:]
     /// 正在弹窗登录的主机。
     @Published var loggingIn: Set<UUID> = []
+    @Published var runningActions: Set<String> = []
+    @Published var dockerControlRequests: Set<String> = []
+    var actionProcesses: [String: Process] = [:]
+    var localTaskLoop: Task<Void, Never>?
+    var localJobs: [UUID: [RemoteJob]] = [:]
+    var localTaskStates: [String: JobState] = [:]
+    var localTasksLoaded = false
+    var localTaskRecords: [LocalTaskStore.Record] = []
+    var progressEnds: [String: Date] = [:]
     /// 上次后台自动重新登录的时间（限频）。
     var lastAutoLogin: [UUID: Date] = [:]
     /// 运行中各机器的跳板机链（跳板机的连接设置变了，经它跳转的机器也要重连）。
@@ -65,6 +80,7 @@ final class MonitorEngine: ObservableObject {
     // MARK: - 生命周期
 
     func start() {
+        startLocalTaskMonitoring()
         let ws = NSWorkspace.shared.notificationCenter
         observers.append(ws.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.isAsleep = true; DebugLog.log("系统即将睡眠") }
@@ -129,6 +145,11 @@ final class MonitorEngine: ObservableObject {
             a.muted = false; b.muted = false; a.allowCancel = false; b.allowCancel = false
             a.paused = false; b.paused = false
             a.rememberPassword = false; b.rememberPassword = false
+            a.actions = []; b.actions = []
+            a.dockerView = .list; b.dockerView = .list
+            a.dockerAllView = .list; b.dockerAllView = .list
+            a.dockerSort = .updated; b.dockerSort = .updated
+            a.dockerFavorites = []; b.dockerFavorites = []
             let chain = SSHHosts.chain(host, in: Dictionary(store.settings.hosts.map { ($0.id, $0) }, uniquingKeysWith: { x, _ in x }))
             let chainChanged = runningChain[host.id].map { connectionKey($0) != connectionKey(chain) } ?? false
             runningChain[host.id] = chain
@@ -283,6 +304,12 @@ final class MonitorEngine: ObservableObject {
         failures[id] = 0
         let previous = snap
         snap = build(host: host, parsed: parsed, previous: previous)
+        if let docker = snap.docker { dockerHistory.record(host: id, snapshot: docker) }
+        snap.jobs += localJobs[id] ?? []
+        snap.jobs.sort {
+            if $0.state.isActive != $1.state.isActive { return $0.state.isActive }
+            return $0.id.hasPrefix("local:") && !$1.id.hasPrefix("local:")
+        }
         snap.latency = result.duration
         snap.lastUpdate = Date()
         snap.health = .ok
@@ -374,6 +401,9 @@ final class MonitorEngine: ObservableObject {
         }
 
         let apps = resolveApps(host.id, parsed.sections["apps"].map { AppDetectors.parse($0.lines) })
+        if host.showDocker {
+            snap.docker = DockerSnapshot.parse(parsed.sections["docker"]?.lines ?? [], previous: previous.docker)
+        }
         var jobs: [RemoteJob] = []
         switch host.kind {
         case .slurm, .pbs:
@@ -434,17 +464,23 @@ final class MonitorEngine: ObservableObject {
         if let sec = parsed.sections["progress"] {
             let staleCutoff = Date().addingTimeInterval(-36 * 3600)
             for entry in Parsers.progress(sec.lines) {
-                if let u = entry.updated, u < staleCutoff { continue }
+                if let u = entry.updated, u < staleCutoff, !entry.done && !entry.failed && !entry.unknown { continue }
                 if let jid = entry.jobID, let i = jobs.firstIndex(where: { $0.id == jid }) {
                     jobs[i].progress = entry.progress
                     jobs[i].message = entry.message
                     if jobs[i].source == .slurm, entry.name != entry.id { jobs[i].name = entry.name }
                 } else {
                     var job = RemoteJob(id: "file:" + entry.id, name: entry.name,
-                                        state: entry.failed ? .failed : (entry.done ? .completed : .running),
+                                        state: entry.failed ? .failed : (entry.done ? .completed : entry.unknown ? .other : .running),
                                         source: .progressFile)
                     job.progress = entry.done ? 1 : entry.progress
                     job.message = entry.message
+                    let key = host.id.uuidString + "|" + job.id
+                    if !job.state.isActive {
+                        let end = entry.updated ?? progressEnds[key] ?? Date()
+                        progressEnds[key] = end
+                        job.progressEndedAt = end
+                    } else { progressEnds[key] = nil }
                     if let u = entry.updated { job.detail = L("更新于 ", "updated ") + Format.relative(u) }
                     jobs.append(job)
                 }
@@ -601,7 +637,7 @@ final class MonitorEngine: ObservableObject {
         var vanished: [RemoteJob] = []
         var arrayElementsDone: [(base: String, job: RemoteJob)] = []
         var arraysFinished: [RemoteJob] = []
-        for job in old.jobs where job.state.isActive {
+        for job in old.jobs where job.state.isActive && !job.id.hasPrefix("local:") {
             if let a = job.array {
                 // 数组：按元素比较；排队范围的编号变化（123_[7-99] -> 123_[8-99]）不算"消失"。
                 if let now = newByID[job.id], let na = now.array {
@@ -875,7 +911,17 @@ final class MonitorEngine: ObservableObject {
     // MARK: - 汇总
 
     var orderedHosts: [(HostConfig, HostSnapshot)] {
-        store.settings.hosts.filter(\.enabled).map { ($0, snapshots[$0.id] ?? HostSnapshot()) }
+        var hosts = store.settings.hosts.filter(\.enabled)
+        if !(localJobs[HostConfig.localTaskID] ?? []).filter({
+            $0.staysVisible(seconds: store.settings.progressFileStaySeconds)
+        }).isEmpty { hosts.append(LocalTaskStore.localHost) }
+        return hosts.map { ($0, displaySnapshot($0.id)) }
+    }
+
+    func displaySnapshot(_ id: UUID, now: Date = Date()) -> HostSnapshot {
+        var snap = snapshots[id] ?? HostSnapshot()
+        snap.jobs = snap.jobs.filter { $0.staysVisible(seconds: store.settings.progressFileStaySeconds, now: now) }
+        return snap
     }
 
     var totalRunning: Int { snapshots.values.reduce(0) { $0 + $1.runningCount } }

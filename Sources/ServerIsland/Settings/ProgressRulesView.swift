@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 
 /// 设置 → 进度识别：内置软件的说明 + 用户自定义规则。
 struct ProgressRulesView: View {
@@ -6,6 +8,8 @@ struct ProgressRulesView: View {
     @ObservedObject var engine: MonitorEngine
     @State private var editing: ProgressRule?
     @State private var isNew = false
+    @State private var importMessage = ""
+    @State private var showImportMessage = false
 
     var body: some View {
         Form {
@@ -37,6 +41,14 @@ struct ProgressRulesView: View {
                 .onMove { store.settings.progressRules.move(fromOffsets: $0, toOffset: $1) }
                 HStack {
                     Menu {
+                        Button(L("部署日志规则", "Deployment log rule")) {
+                            var rule = ProgressRule()
+                            rule.source = .actionLog; rule.match = .regex
+                            rule.name = L("部署日志", "Deployment log")
+                            rule.pattern = #"^\[进度\s+(\d+)/(\d+)\]\s*(.+)$"#
+                            startNew(rule)
+                        }
+                        Divider()
                         Button(L("空白规则", "Blank Rule")) { startNew(ProgressRule()) }
                         Divider()
                         Button(L("训练日志（Epoch 37/100）", "Training log (Epoch 37/100)")) {
@@ -51,28 +63,67 @@ struct ProgressRulesView: View {
                         Label(L("添加规则", "Add Rule"), systemImage: "plus")
                     }
                     .fixedSize()
+                    Button(L("导入规则…", "Import Rules…")) { importRules() }
+                    Button(L("导出全部…", "Export All…")) { exportRules() }
+                        .disabled(store.settings.progressRules.isEmpty)
                     Spacer()
                 }
             } header: {
                 SettingsHeader(title: L("自定义规则", "Custom Rules"), symbol: "wand.and.stars", tint: .indigo)
             } footer: {
-                Text(L("自定义规则排在内置识别前面检查；匹配到文件但取不到数字时不显示进度。",
-                       "Custom rules are checked before the built-in ones. If the file matches but no number is found, nothing is shown."))
+                Text(L("文件规则读取任务目录；部署日志规则匹配 Action 实时输出。导入导出只包含识别配置，不含执行命令或服务器配置。",
+                       "File rules read job directories; deployment rules match live Action output. Import/export contains detection settings only, never commands or server settings."))
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
         .navigationTitle(L("进度识别", "Progress Detection"))
+        .alert(L("自定义规则", "Custom rules"), isPresented: $showImportMessage) {
+            Button(L("确定", "OK"), role: .cancel) {}
+        } message: { Text(importMessage) }
         .sheet(item: $editing) { rule in
-            RuleEditorSheet(rule: rule, isNew: isNew, hosts: store.settings.hosts.filter(\.enabled), engine: engine) { saved in
-                if let i = store.settings.progressRules.firstIndex(where: { $0.id == saved.id }) {
-                    store.settings.progressRules[i] = saved
-                } else {
-                    store.settings.progressRules.append(saved)
+            if rule.source == .actionLog {
+                ActionLogRuleEditor(rule: rule, onSave: saveRule) {
+                    store.settings.progressRules.removeAll { $0.id == rule.id }
                 }
+            } else {
+            RuleEditorSheet(rule: rule, isNew: isNew, hosts: store.settings.hosts.filter(\.enabled), engine: engine) { saved in
+                saveRule(saved)
             } onDelete: {
                 store.settings.progressRules.removeAll { $0.id == rule.id }
             }
+            }
+        }
+    }
+
+    private func saveRule(_ rule: ProgressRule) {
+        if let index = store.settings.progressRules.firstIndex(where: { $0.id == rule.id }) {
+            store.settings.progressRules[index] = rule
+        } else { store.settings.progressRules.append(rule) }
+    }
+    private func importRules() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let pack = try ProgressRulePack.decode(Data(contentsOf: url))
+            store.settings.progressRules = pack.merging(into: store.settings.progressRules)
+            importMessage = L("已导入 \(pack.rules.count) 条识别规则；同一标识更新，其他规则保留。", "Imported \(pack.rules.count) rules; matching IDs updated and other rules preserved.")
+        } catch { importMessage = L("导入失败：", "Import failed: ") + error.localizedDescription }
+        showImportMessage = true
+    }
+    private func exportRules() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "serverisland-progress-rules.json"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try ProgressRulePack(rules: store.settings.progressRules).data().write(to: url, options: .atomic)
+        } catch {
+            importMessage = L("导出失败：", "Export failed: ") + error.localizedDescription
+            showImportMessage = true
         }
     }
 
@@ -100,9 +151,12 @@ struct ProgressRulesView: View {
                 Text(r.name.isEmpty ? L("未命名", "Untitled") : r.name)
                     .foregroundStyle(r.enabled ? .primary : .secondary)
                 HStack(spacing: 4) {
-                    Text(r.file).font(.system(.caption, design: .monospaced))
+                    Text(r.source == .actionLog ? L("Action 输出日志", "Action output") : r.file)
+                        .font(.system(.caption, design: .monospaced))
                     Text("·")
-                    Text(r.match == .keyword ? L("关键字 ", "keyword ") + r.pattern : L("正则", "regex"))
+                    Text(r.source == .actionLog
+                         ? (r.logMode == .stages ? L("\(r.stages.count) 个阶段", "\(r.stages.count) stages") : L("编号正则", "Numbered regex"))
+                         : r.match == .keyword ? L("关键字 ", "keyword ") + r.pattern : L("正则", "regex"))
                         .font(.caption).lineLimit(1)
                 }
                 .foregroundStyle(.secondary)

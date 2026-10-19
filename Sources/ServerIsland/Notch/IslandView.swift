@@ -80,6 +80,7 @@ struct IslandRootView: View {
         .animation(.spring(response: 0.44, dampingFraction: 0.78), value: spec)
         .animation(.easeOut(duration: 0.2), value: mode)
         .environment(\.colorScheme, .dark)
+        .background(IslandScrollbarProbe().frame(width: 0, height: 0))
     }
 }
 
@@ -315,7 +316,17 @@ struct ExpandedContent: View {
                  globalInterval: store.settings.defaultInterval,
                  globalAuto: store.settings.autoRefresh,
                  onToggleMute: { engine.toggleMute(host.id) },
-                 loggingIn: engine.loggingIn.contains(host.id))
+                 loggingIn: engine.loggingIn.contains(host.id),
+                 onRunAction: { engine.runHostAction(host: host, action: $0) },
+                 actionIsRunning: { engine.actionIsRunning(host: host, action: $0) },
+                 onDocker: { vm.page = .docker(host: host.id, container: $0) },
+                 onDockerMode: { engine.setDockerView(host: host.id, mode: $0) },
+                 onDockerSort: { engine.setDockerView(host: host.id, sort: $0) })
+            .task(id: host.showDocker) {
+                // 卡片显示即快读一次；收起首页或进入其它页面时由 SwiftUI 取消，不触发主机全量刷新。
+                guard host.enabled, host.showDocker else { return }
+                await engine.monitorDockerList(host: host, interval: 3) { _ in }
+            }
     }
 
     @ViewBuilder
@@ -323,7 +334,7 @@ struct ExpandedContent: View {
         let back = { withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { vm.page = .list } }
         switch vm.page {
         case .job(let hid, let jid):
-            if let host = store.host(hid) {
+            if let host = engine.displayHost(hid) {
                 let snap = engine.snapshots[hid]
                 // 数组元素嵌在分组行里，也要能找到。
                 let live = snap?.jobs.first { $0.id == jid }
@@ -344,6 +355,10 @@ struct ExpandedContent: View {
             if let host = store.host(hid) { ProcessPickerPage(host: host, engine: engine, store: store, onBack: back) }
         case .partitions(let hid):
             if let host = store.host(hid) { PartitionsPage(host: host, engine: engine, onBack: back) }
+        case .docker(let hid, let cid):
+            if let host = store.host(hid) {
+                DockerPage(host: host, engine: engine, onBack: back, selectedID: cid).id(hid)
+            }
         case .jobs(let hid):
             if let host = store.host(hid) {
                 AllJobsPage(host: host, engine: engine, onBack: back) { job in

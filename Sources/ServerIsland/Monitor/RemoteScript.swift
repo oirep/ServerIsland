@@ -88,6 +88,7 @@ enum RemoteScript {
         if host.showDisk && includeDisk {
             section("disk", c.disk)
         }
+        if host.showDocker { section("docker", DockerMonitor.script) }
         if host.readProgressFiles {
             section("progress", """
             for f in \(c.progressGlob); do

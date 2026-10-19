@@ -20,6 +20,9 @@ enum UpdateInstaller {
 
     /// 做不到原地替换时返回原因（界面上改为提供下载页面）。
     static func unsupportedReason(_ r: UpdateChecker.Release, bundle: URL = Bundle.main.bundleURL) -> String? {
+        if UpdateChecker.isCustomizedBuild && bundle == Bundle.main.bundleURL {
+            return UpdateChecker.customizedUpdateMessage
+        }
         guard r.digest != nil, r.downloadURL.pathExtension.lowercased() == "dmg" else {
             return L("这个版本的安装包没有校验信息，请手动下载", "This release has no checksum; please download it manually")
         }

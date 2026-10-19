@@ -52,6 +52,13 @@ struct RemoteJob: Identifiable, Equatable {
     /// 0...1，来自进度文件。
     var progress: Double?
     var message: String?
+    /// 仅用于进度文件任务的展示期限，不参与运行状态和结束通知判断。
+    var progressEndedAt: Date?
+
+    func staysVisible(seconds: Int, now: Date = Date()) -> Bool {
+        guard source == .progressFile, !state.isActive, seconds > 0, let end = progressEndedAt else { return true }
+        return now.timeIntervalSince(end) < Double(seconds)
+    }
     var cpuPercent: Double?
     var memoryBytes: Double?
     var gpuMemoryMB: Double?
@@ -159,6 +166,7 @@ struct HostSnapshot: Equatable {
     var metrics = HostMetrics()
     var gpus: [GPUStat] = []
     var disks: [DiskStat] = []
+    var docker: DockerSnapshot?
     var jobs: [RemoteJob] = []
     var lastUpdate: Date?
     var latency: TimeInterval?

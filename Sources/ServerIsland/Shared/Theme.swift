@@ -42,6 +42,7 @@ enum Theme {
     static func load(_ fraction: Double) -> Color {
         switch fraction {
         case ..<0.6: return mint
+        case ..<0.7: return cyan
         case ..<0.85: return amber
         default: return coral
         }

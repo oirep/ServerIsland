@@ -33,6 +33,7 @@ enum ReferenceScripts {
         return [
             ("poll-slurm.sh", RemoteScript.build(for: slurm)),
             ("poll-direct.sh", RemoteScript.build(for: direct)),
+            ("docker-collector.sh", DockerMonitor.script),
             ("detail-slurm.sh", RemoteScript.detailScript(host: slurm, job: sj)),
             ("detail-process.sh", RemoteScript.detailScript(host: direct, job: pj)),
             ("cancel-slurm.sh", RemoteScript.cancelScript(host: slurm, job: sj, expectedElapsed: nil, force: false)!),
@@ -57,6 +58,7 @@ enum ReferenceScripts {
             ("poll-slurm-cached.sh", RemoteScript.build(for: slurm, appSignatures: ["/home/u/it's run": "1.2 3.4 ", "/home/u/a": "/home/u/a/x.log 1 2 "], includeDisk: false)),
             ("poll-cluster.sh", RemoteScript.build(for: cluster)),
             ("poll-cluster-custom.sh", RemoteScript.build(for: custom)),
+            ("curve-neb.sh", AppCurves.script(.neb(dir: "/home/u/neb run"), offset: 0, head: "")),
         ]
     }
 }

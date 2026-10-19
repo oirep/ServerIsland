@@ -9,6 +9,7 @@ enum IslandPage: Equatable {
     case picker(host: UUID)
     case jobs(host: UUID)
     case partitions(host: UUID)
+    case docker(host: UUID, container: String?)
 }
 
 // MARK: - 通用
@@ -264,7 +265,8 @@ struct JobDetailPage: View {
             } else if detail == nil {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini).scaleEffect(0.7)
-                    Text(L("正在从服务器读取…", "Loading from server…")).font(Theme.rounded(11)).foregroundStyle(Theme.tertiary)
+                    Text(job.id.hasPrefix("local:") ? L("正在读取本机任务…", "Loading local task…")
+                         : L("正在从服务器读取…", "Loading from server…")).font(Theme.rounded(11)).foregroundStyle(Theme.tertiary)
                 }
             }
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)],
@@ -272,6 +274,15 @@ struct JobDetailPage: View {
                 ForEach(Array(short.enumerated()), id: \.offset) { _, kv in fieldRow(kv.0, kv.1) }
             }
             ForEach(Array(wide.enumerated()), id: \.offset) { _, kv in fieldRow(kv.0, kv.1) }
+            if job.id.hasPrefix("local:") {
+                HStack(spacing: 8) {
+                    SlimBar(fraction: job.fraction, fill: AnyShapeStyle(Theme.progress), height: 6)
+                    Text(job.fraction.map { Format.percent($0) } ?? L("未定", "Unknown"))
+                        .font(Theme.mono(10, .semibold)).foregroundStyle(Theme.cyan)
+                }
+                .padding(.top, 5)
+                .accessibilityLabel(L("任务进度", "Task progress"))
+            }
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -308,7 +319,8 @@ struct JobDetailPage: View {
                     Text(path).font(Theme.mono(9.5)).foregroundStyle(Theme.tertiary)
                         .lineLimit(1).truncationMode(.head).help(path)
                     CopyButton(value: path, help: L("复制日志路径", "Copy log path"))
-                    CopyButton(value: "ssh \(host.alias) " + SSHRunner.shellQuote("tail -f " + SSHRunner.shellQuote(path)),
+                    CopyButton(value: job.id.hasPrefix("local:") ? "tail -f " + SSHRunner.shellQuote(path)
+                               : "ssh \(host.alias) " + SSHRunner.shellQuote("tail -f " + SSHRunner.shellQuote(path)),
                                help: L("复制一条可以在本机终端里实时查看日志的命令", "Copy a command to follow this log from your terminal"), label: "tail -f")
                 }
                 Spacer(minLength: 0)
@@ -786,7 +798,7 @@ struct AllJobsPage: View {
     @FocusState private var searching: Bool
 
     var body: some View {
-        let snap = engine.snapshots[host.id] ?? HostSnapshot()
+        let snap = engine.displaySnapshot(host.id)
         let jobs = snap.jobs.filter(matches)
         VStack(alignment: .leading, spacing: 10) {
             PageHeader(title: L("全部任务", "All Jobs"), subtitle: L("\(host.displayName) · 运行 \(snap.runningCount) · 排队 \(snap.pendingCount)", "\(host.displayName) · \(snap.runningCount) running · \(snap.pendingCount) pending"),

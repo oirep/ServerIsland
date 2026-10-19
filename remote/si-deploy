@@ -1,0 +1,637 @@
+#!/usr/bin/env python3
+"""Run an existing deployment with ServerIsland's progress-file protocol.
+
+Python 3.8+, standard library only. Run on the same server and as the same user
+that ServerIsland monitors in legacy mode. With --local, run on the Mac around
+an ssh command; all monitoring state stays on that Mac. No HTTP service.
+"""
+import argparse
+import fcntl
+import hashlib
+import json
+import math
+import os
+from pathlib import Path
+import re
+import selectors
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+
+
+# Match headings, not arbitrary command output: a pip download URL or a build
+# warning must never become a task title, nor be copied into a progress file.
+DEFAULT_STAGES = [
+    ("同步代码", r"^(?:拉取(?:最新)?代码|同步代码|更新代码|(?:pulling|fetching|syncing)\s+(?:latest\s+)?code)"),
+    ("构建镜像", r"^(?:开始构建|构建(?:后端|前端)?\s*(?:docker\s*)?镜像|装依赖|安装依赖|(?:building|build)\s+(?:docker\s+)?image)"),
+    ("启动服务", r"^(?:重启(?:容器|服务)|启动(?:容器|服务)|运行镜像|(?:starting|restarting)\s+(?:containers?|services?))"),
+    ("健康检查", r"^(?:等待(?:容器启动|健康检查)|验证容器状态|健康检查|(?:waiting for\s+)?health\s*check)"),
+    ("后置处理", r"^(?:后置处理|(?:running\s+)?post[- ]deploy)"),
+    ("清理与备份", r"^(?:清理(?:历史|过期)|清理.*(?:旧镜像|历史镜像)|备份清理|清理备份|(?:pruning|cleaning)\s+old)"),
+]
+ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+EVENT_ENV = "SERVERISLAND_DEPLOY_EVENT_FD"
+ACTIVE_ENV = "SERVERISLAND_DEPLOY_ACTIVE"
+
+
+def redact_log(text):
+    # 保存用户请求的本机日志时遮盖常见凭据，终端原始输出仍保持不变。
+    text = re.sub(r"(https?://)[^\s/@]+:[^\s/@]+@", r"\1***@", text)
+    text = re.sub(r"(?i)\b(authorization\s*:\s*bearer\s+)\S+", r"\1***", text)
+    return re.sub(r"(?i)\b(password|passwd|token|api[_-]?key|secret)(\s*[:=]\s*)[^\s,;]+",
+                  r"\1\2***", text)
+
+
+def short_time(seconds):
+    seconds = max(0, int(seconds))
+    if seconds >= 3600:
+        return "%d:%02d:%02d" % (seconds // 3600, seconds // 60 % 60, seconds % 60)
+    return "%02d:%02d" % (seconds // 60, seconds % 60)
+
+
+def clean_label(value):
+    return "".join(c for c in ANSI.sub("", value) if c.isprintable())[:80]
+
+
+def positive_seconds(value):
+    number = float(value)
+    if not math.isfinite(number) or number < 0.1:
+        raise argparse.ArgumentTypeError("必须是至少 0.1 的有限秒数")
+    return number
+
+
+def atomic_json(path, value):
+    """Polling must see either the old or the complete new JSON, never half."""
+    data = (json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".si-deploy-", delete=False) as tmp:
+        scratch = Path(tmp.name)
+        try:
+            tmp.write(data)
+            tmp.flush()
+            os.replace(scratch, path)
+        finally:
+            if scratch.exists():
+                scratch.unlink()
+
+
+def load_rules(path):
+    if path is None:
+        rules = DEFAULT_STAGES
+    else:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+        if isinstance(raw, dict) and isinstance(raw.get("rules"), list):
+            rules = DEFAULT_STAGES
+        elif not isinstance(raw, dict) or not isinstance(raw.get("stages"), list):
+            raise ValueError("规则文件需要 stages 数组")
+        else:
+            rules = [(item["name"], item["pattern"]) for item in raw["stages"]]
+    if not 1 <= len(rules) <= 100:
+        raise ValueError("阶段数量必须在 1 到 100 之间")
+    compiled = []
+    for name, pattern in rules:
+        if not isinstance(name, str) or not name.strip() or len(name) > 80:
+            raise ValueError("阶段名称必须是 1 到 80 个字符")
+        if not isinstance(pattern, str) or len(pattern) > 1000:
+            raise ValueError("阶段匹配表达式过长或类型不正确")
+        compiled.append((clean_label(name), re.compile(pattern, re.IGNORECASE)))
+    return compiled
+
+
+def load_profiles(path):
+    """业务匹配完全来自设置导出的规则包；这里只实现通用捕获组和阶段列表协议。"""
+    if path is None:
+        return []
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    profiles = []
+    for rule in raw.get("rules", []):
+        if rule.get("source") != "actionLog" or not rule.get("enabled", True):
+            continue
+        activation = rule.get("activationPattern", "")
+        pattern = rule.get("pattern", "")
+        if len(activation) > 1000 or len(pattern) > 1000:
+            raise ValueError("部署日志正则过长")
+        item = dict(rule, activation=re.compile(activation, re.I) if activation else None)
+        if rule.get("logMode", "numbered") == "numbered":
+            item["regex"] = re.compile(pattern, re.I)
+            current, total, label = (rule.get("currentGroup", 1), rule.get("totalGroup", 2), rule.get("labelGroup", 3))
+            fixed = int(rule["total"]) if rule.get("total") else None
+            count = item["regex"].groups
+            if not 1 <= current <= count or not 0 <= label <= count:
+                raise ValueError("部署日志捕获组无效")
+            if fixed is None and not 1 <= total <= count:
+                raise ValueError("缺少有效的总阶段数")
+            if fixed is not None and not 1 <= fixed <= 1000:
+                raise ValueError("总阶段数超出范围")
+            item.update(current=current, total_group=total, label=label, fixed=fixed)
+        else:
+            stages = rule.get("stages", [])
+            if not 1 <= len(stages) <= 100:
+                raise ValueError("阶段列表需要 1 到 100 项")
+            item["compiled_stages"] = []
+            for stage in stages:
+                if not stage.get("name") or not stage.get("pattern") or len(stage["pattern"]) > 1000:
+                    raise ValueError("阶段名称或正则无效")
+                item["compiled_stages"].append((stage["name"], re.compile(stage["pattern"], re.I)))
+        profiles.append(item)
+    return profiles
+
+
+class Deployment:
+    def __init__(self, args, root):
+        self.args = args
+        self.root = root
+        self.run_id = uuid.uuid4().hex
+        if getattr(args, "run_id", ""):
+            self.run_id = uuid.UUID(args.run_id).hex
+        self.started_wall = time.time()
+        self.finished_wall = None
+        self.build_steps = {}
+        self.numbered = False
+        self.profiles = load_profiles(args.rules)
+        self.eligible_profiles = set()
+        self.active_profile = None
+        self.started = self.stage_started = self.last_output = time.monotonic()
+        self.index = self.total = None
+        self.label = "脚本运行中"
+        self.activity = ""
+        self.stage_fraction = None
+        self.explicit = args.manual
+        self.source = "manual" if args.manual else "unknown"
+        self.rules = load_rules(args.rules)
+        self.timeline = []
+        self.warning = False
+        self.status = "running"
+        self.exit_code = None
+        self.path = root / "progress" / ("deploy-" + args.name + ".json")
+        if getattr(args, "local", False):
+            self.path = root / "progress" / ("deploy-" + self.run_id + ".json")
+        self.history = root / "deployments" / (self.run_id + ".json")
+        self.log = root / "logs" / (self.run_id + ".log")
+
+    def log_line(self, text):
+        if not getattr(self.args, "local", False):
+            return
+        try:
+            data = (redact_log(text) + "\n").encode("utf-8", errors="replace")
+            # 只维护本次任务生成的日志，超过 2 MB 时保留最新约 1 MB，方便查看收尾错误。
+            if self.log.exists() and self.log.stat().st_size > 2 * 1024 * 1024:
+                with self.log.open("rb") as source:
+                    source.seek(-1024 * 1024, os.SEEK_END)
+                    tail = source.read().split(b"\n", 1)[-1]
+                self.log.write_bytes(tail)
+            fd = os.open(str(self.log), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            with os.fdopen(fd, "ab") as output:
+                output.write(data)
+        except OSError:
+            pass
+
+    def stage(self, index, total, label, source, fraction=None):
+        # A changing script branch can go backwards. Reset to the reported
+        # stage instead of pretending that skipped work has been completed.
+        now = time.monotonic()
+        if (index, total, label) != (self.index, self.total, self.label):
+            if self.timeline:
+                self.timeline[-1]["elapsed"] = round(now - self.stage_started, 2)
+            self.timeline.append({"index": index, "total": total, "name": label,
+                                  "started": time.time(), "source": source})
+            self.timeline = self.timeline[-100:]
+            self.stage_started = now
+            self.activity = ""
+            self.log_line("[阶段 %d/%d] %s" % (index, total, label))
+        self.index, self.total, self.label = index, total, label
+        self.source, self.stage_fraction = source, fraction
+
+    def event(self, line):
+        # Explicit hooks have priority over heuristics, including a Docker RUN
+        # which happens to print a phrase resembling another deployment stage.
+        try:
+            event = json.loads(line)
+            if event.get("kind") == "stage":
+                index, total = event["index"], event["total"]
+                if type(index) is not int or type(total) is not int or not 1 <= index <= total <= 1000:
+                    return
+                label = clean_label(event["name"])
+                fraction = event.get("fraction")
+                if fraction is not None and (type(fraction) not in (int, float)
+                                             or not math.isfinite(fraction)
+                                             or not 0 <= fraction <= 1):
+                    return
+                if not label:
+                    return
+                self.explicit = True
+                self.stage(index, total, label, "manual", fraction)
+            elif event.get("kind") == "detail":
+                self.activity = clean_label(event["message"])
+            self.last_output = time.monotonic()
+        except (ValueError, TypeError, KeyError, AttributeError):
+            return
+
+    def apply_profiles(self, text, heading):
+        activated = None
+        for index, rule in enumerate(self.profiles):
+            if rule["activation"] is None or rule["activation"].search(text):
+                self.eligible_profiles.add(index)
+                if rule["activation"] is not None and activated is None:
+                    activated = index
+        if activated is not None:
+            self.active_profile = activated
+        candidates = ([self.active_profile] if self.active_profile is not None else []) + [
+            i for i in range(len(self.profiles)) if i != self.active_profile]
+        for index in candidates:
+            if index not in self.eligible_profiles:
+                continue
+            rule = self.profiles[index]
+            if "regex" in rule:
+                match = rule["regex"].search(text)
+                if not match:
+                    continue
+                try:
+                    current = int(match[rule["current"]])
+                    total = rule["fixed"] or int(match[rule["total_group"]])
+                    label = match[rule["label"]] if rule["label"] else rule["name"]
+                except (ValueError, IndexError, TypeError):
+                    continue
+                if not 1 <= current <= total <= 1000:
+                    continue
+                self.stage(current, total, clean_label(redact_log(label or rule["name"])), "rule")
+            else:
+                stages = rule["compiled_stages"]
+                found = next(((i, name) for i, (name, pattern) in enumerate(stages, 1)
+                              if pattern.search(text) or pattern.search(heading)), None)
+                if found is None:
+                    continue
+                self.stage(found[0], len(stages), clean_label(redact_log(found[1])), "rule")
+            self.active_profile = index
+            self.numbered = True
+            return True
+        return False
+
+    def line(self, line):
+        text = ANSI.sub("", line).strip()
+        if not text:
+            return
+        self.log_line(text)
+        # Numeric prefixes and emoji are common in existing bash deploy files.
+        heading = re.sub(r"^(?:\[\d+/\d+\]|\d+[.)、]|[^\w\s])+\s*", "", text).strip()
+        configured = self.apply_profiles(text, heading) if not self.explicit else False
+        if not self.explicit and not configured:
+            numbered_text = re.sub(r"^\[(?:进度|步骤|step)\s+", "[", text, flags=re.IGNORECASE)
+            numbered = re.match(
+                r"^(?:[^\w\s\d\[]+\s*)?(?:\[(\d{1,3})/(\d{1,3})\]|(?:step|步骤)\s*(\d{1,3})/(\d{1,3}))\s*[:：.-]?\s*(.+)",
+                numbered_text, re.IGNORECASE)
+            if numbered:
+                index = int(numbered[1] or numbered[3])
+                total = int(numbered[2] or numbered[4])
+                if 1 <= index <= total <= 1000:
+                    self.numbered = True
+                    self.stage(index, total, clean_label(redact_log(numbered[5])), "auto")
+            elif not self.numbered:
+                for index, (label, pattern) in enumerate(self.rules, 1):
+                    if pattern.search(heading):
+                        self.stage(index, len(self.rules), label, "auto")
+                        break
+        lower = text.lower()
+        if not self.explicit:
+            build = re.match(r"^#(\d+)\s+\[(?:(.*?)\s+)?(\d+)/(\d+)\]", text)
+            if build:
+                vertex, group, current, total = build.groups()
+                current, total = int(current), int(total)
+                if 1 <= current <= total:
+                    self.build_steps[vertex] = (group or "Docker", current, total)
+                    self.stage(self.index if self.numbered else 2,
+                               self.total if self.numbered else len(self.rules),
+                               self.label if self.numbered else "构建镜像", "auto", (current - 1) / total)
+                    self.activity = "%s %d/%d" % (clean_label(group or "Docker"), current, total)
+            ended = re.match(r"^#(\d+)\s+(?:done|cached)\b", lower)
+            if ended and ended[1] in self.build_steps:
+                group, current, total = self.build_steps[ended[1]]
+                self.stage_fraction = current / total
+                self.activity = "%s %d/%d 已完成" % (clean_label(group), current, total)
+            container = re.match(r"^container\s+\S+\s+(recreate|recreated|creating|created|starting|started|waiting|healthy)\b", lower)
+            if container and not self.numbered:
+                health = container[1] in ("waiting", "healthy")
+                self.stage(4 if health else 3, len(self.rules),
+                           "健康检查" if health else "启动服务", "auto")
+                if container[1] in ("healthy", "started"):
+                    self.stage_fraction = 1
+        # Only static summaries are persisted. In particular never copy RUN
+        # commands, authenticated package-index URLs, or environment variables.
+        activity = None
+        if re.search(r"\b(?:pip3?|uv)\b.*\b(?:install|sync)\b", lower):
+            activity = "安装 Python 依赖"
+        elif re.search(r"\b(?:npm|pnpm|yarn)\b.*\b(?:install|ci|add)\b", lower):
+            activity = "安装前端依赖"
+        elif re.search(r"\b(?:npm|pnpm|yarn)\b.*\bbuild\b", lower):
+            activity = "编译前端产物"
+        elif re.match(r"^#\d+\s+cached\b", lower):
+            activity = "命中镜像缓存"
+        elif re.match(r"^#\d+.*(?:exporting|naming to)", lower):
+            activity = "导出镜像"
+        if activity:
+            if self.index is None and not self.explicit:
+                self.stage(2, len(self.rules), "构建镜像", "auto")
+            self.activity = (self.activity + " · " + activity) if (not self.explicit and (build or ended)) else activity
+
+    def payload(self):
+        now = time.monotonic()
+        elapsed = now - self.started
+        stage_elapsed = now - self.stage_started
+        quiet = now - self.last_output
+        prefix = ("%d/%d " % (self.index, self.total)) if self.index else ""
+        message = prefix + self.label
+        if self.activity:
+            message += " · " + self.activity
+        message += " · " + short_time(stage_elapsed)
+        if self.status == "running" and quiet >= self.args.quiet_after:
+            message += " · 无输出 " + short_time(quiet)
+        progress = None
+        if self.index is not None:
+            # This is phase completion, never a wall-clock ETA. A running
+            # deployment cannot reach 100% before its entire script exits.
+            progress = min(0.99, (self.index - 1 + (self.stage_fraction or 0)) / self.total)
+        if self.status == "done":
+            progress = 1
+            message = "部署完成 · 总耗时 " + short_time(elapsed)
+        elif self.status == "failed":
+            message = "失败于 " + message + " · 退出码 " + str(self.exit_code)
+        elif self.status == "unknown":
+            message = "连接中断，远端结果未知 · " + message
+        return {
+            "name": self.args.name, "status": self.status, "progress": progress,
+            "message": message, "updated": int(time.time()), "jobid": "",
+            "deployment": {
+                "run_id": self.run_id, "source": self.source,
+                "started": self.started_wall, "elapsed": round(elapsed, 2),
+                "finished": self.finished_wall,
+                "stage": self.index, "stages": self.total,
+                "stage_elapsed": round(stage_elapsed, 2), "quiet": round(quiet, 2),
+                "exit_code": self.exit_code,
+                "local": getattr(self.args, "local", False),
+                "host": getattr(self.args, "host", ""),
+                "action_id": getattr(self.args, "action_id", ""),
+                "pid": os.getpid(),
+            },
+        }
+
+    def publish(self, final=False):
+        payload = self.payload()
+        writes = [(self.path, payload)]
+        if final or getattr(self.args, "local", False):
+            history = dict(payload)
+            history["deployment"] = dict(payload["deployment"], timeline=self.timeline)
+            writes.append((self.history, history))
+        error = None
+        # Save the terminal archive even if the live progress directory
+        # becomes unavailable halfway through a deployment.
+        for path, value in writes:
+            try:
+                if path == self.path and len(json.dumps(value, ensure_ascii=False).encode()) > 4096:
+                    raise ValueError("进度摘要超过 4 KB")
+                atomic_json(path, value)
+            except (OSError, ValueError) as exc:
+                error = exc
+        if error is None:
+            self.warning = False
+        elif not self.warning:
+            print("si-deploy: 无法保存进度 (%s)" % type(error).__name__, file=sys.stderr)
+            self.warning = True
+
+    def finish(self, code):
+        self.finished_wall = time.time()
+        if self.timeline:
+            self.timeline[-1]["elapsed"] = round(time.monotonic() - self.stage_started, 2)
+        self.exit_code = code
+        self.status = "done" if code == 0 else "failed"
+        # SSH 255 cannot distinguish an interrupted transport from a remote
+        # command deliberately returning 255. Never claim a deployment failed
+        # or stopped merely because its local observation channel was lost.
+        if getattr(self.args, "local", False) and (code == 255 or (
+                getattr(self.args, "ssh", False) and code in (129, 130, 143))):
+            self.status = "unknown"
+        self.publish(final=True)
+        self.log_line("[结果] " + self.payload()["message"])
+
+
+def forward_bytes(destination, chunk):
+    try:
+        destination.buffer.write(chunk)
+        destination.buffer.flush()
+    except (BrokenPipeError, OSError):
+        # Losing a terminal's output consumer is not proof the deployment
+        # failed. Keep collecting its real result and maintaining heartbeat.
+        pass
+
+
+def supervise(args, root):
+    deployment = Deployment(args, root)
+    deployment.publish()
+    read_event, write_event = os.pipe()
+    env = os.environ.copy()
+    env[EVENT_ENV] = str(write_event)
+    env[ACTIVE_ENV] = deployment.run_id
+    env.setdefault("PYTHONUNBUFFERED", "1")
+    env.setdefault("BUILDKIT_PROGRESS", "plain")
+    process = None
+    handlers = {}
+    received_signal = None
+
+    def forward_signal(signum, _frame):
+        nonlocal received_signal
+        received_signal = signum
+        if process is not None and process.poll() is None:
+            try:
+                os.killpg(process.pid, signum)
+            except ProcessLookupError:
+                pass
+
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        handlers[sig] = signal.signal(sig, forward_signal)
+    try:
+        try:
+            process = subprocess.Popen(args.command, env=env, stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE, start_new_session=True,
+                                       pass_fds=(write_event,))
+        except OSError as exc:
+            code = 127 if isinstance(exc, FileNotFoundError) else 126
+            print("si-deploy: 无法启动命令 (%s)" % type(exc).__name__, file=sys.stderr)
+            deployment.finish(code)
+            return code
+        finally:
+            os.close(write_event)
+        if received_signal is not None:
+            forward_signal(received_signal, None)
+        with selectors.DefaultSelector() as selector:
+            for stream, kind in ((process.stdout, "stdout"), (process.stderr, "stderr"),
+                                 (read_event, "event")):
+                fd = stream if isinstance(stream, int) else stream.fileno()
+                os.set_blocking(fd, False)
+                selector.register(fd, selectors.EVENT_READ, kind)
+            buffers = {"stdout": b"", "stderr": b"", "event": b""}
+            next_beat = time.monotonic() + args.heartbeat
+            exited_at = None
+            while True:
+                now = time.monotonic()
+                for key, _ in selector.select(timeout=min(0.2, max(0, next_beat - now))):
+                    chunk = os.read(key.fd, 65536)
+                    if not chunk:
+                        remainder = buffers[key.data]
+                        if remainder:
+                            decoded = remainder.decode("utf-8", errors="replace")
+                            if key.data == "event":
+                                deployment.event(decoded)
+                            else:
+                                deployment.line(decoded)
+                        buffers[key.data] = b""
+                        selector.unregister(key.fd)
+                        continue
+                    kind = key.data
+                    if kind != "event":
+                        forward_bytes(sys.stdout if kind == "stdout" else sys.stderr, chunk)
+                        deployment.last_output = time.monotonic()
+                    # Treat CR as a line break for BuildKit / npm progress.
+                    combined = buffers[kind] + chunk.replace(b"\r", b"\n")
+                    lines = combined.split(b"\n")
+                    buffers[kind] = lines.pop()[-16384:]
+                    for line in lines:
+                        decoded = line[-16384:].decode("utf-8", errors="replace")
+                        if kind == "event":
+                            deployment.event(decoded)
+                        else:
+                            deployment.line(decoded)
+                    deployment.publish()
+                now = time.monotonic()
+                if now >= next_beat:
+                    deployment.publish()
+                    next_beat = now + args.heartbeat
+                if process.poll() is not None:
+                    if not selector.get_map():
+                        break
+                    # Background descendants may inherit the log pipes. The
+                    # deployed script's exit is authoritative; don't hang on
+                    # their still-open descriptors or kill those descendants.
+                    if exited_at is None:
+                        exited_at = now
+                    elif now - exited_at >= 0.5:
+                        break
+        for kind, remainder in buffers.items():
+            if remainder:
+                decoded = remainder.decode("utf-8", errors="replace")
+                if kind == "event":
+                    deployment.event(decoded)
+                else:
+                    deployment.line(decoded)
+        code = process.wait()
+        code = code if code >= 0 else 128 - code
+        deployment.finish(code)
+        return code
+    finally:
+        os.close(read_event)
+        if process is not None:
+            process.stdout.close()
+            process.stderr.close()
+        for sig, handler in handlers.items():
+            signal.signal(sig, handler)
+
+
+def run(args):
+    if not args.name or len(args.name) > 80 or args.name.startswith(".") or any(
+            (c in "/\\" and not getattr(args, "local", False)) or not c.isprintable() for c in args.name):
+        raise ValueError("名称需要 1 到 80 个可见字符，不能以点开头或包含路径分隔符")
+    if args.command[:1] == ["--"]:
+        args.command = args.command[1:]
+    if not args.command:
+        raise ValueError("请在 -- 后填写原部署命令")
+    # App 已在外层监控时，旧配置里的内层 si-deploy 只执行原命令，
+    # 不再创建另一份任务；stdout/stderr 与 stage 事件仍由外层统一采集。
+    if os.environ.get(ACTIVE_ENV):
+        os.execvp(args.command[0], args.command)
+    # Validate before starting anything: a malformed rule is an input error,
+    # not a reason to execute a deployment without the requested monitoring.
+    load_rules(args.rules)
+    load_profiles(args.rules)
+    root = Path(args.state_dir).expanduser()
+    if getattr(args, "local", False):
+        root = root / "local"
+    for directory in ("progress", "deployments", "runtime"):
+        (root / directory).mkdir(parents=True, exist_ok=True)
+    if getattr(args, "local", False):
+        (root / "logs").mkdir(parents=True, exist_ok=True)
+    lockpath = root / "runtime" / ("deploy-" + args.name + ".lock")
+    if getattr(args, "local", False):
+        identity = (args.host + "\0" + (args.action_id or args.name)).encode()
+        lockpath = root / "runtime" / (hashlib.sha256(identity).hexdigest() + ".lock")
+    # Never unlink the lock file: another process could hold the old inode.
+    # Different task names can run concurrently; the same name cannot silently
+    # overwrite the progress of an already-running deployment.
+    with lockpath.open("a") as lock:
+        os.chmod(lockpath, 0o600)
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError("同名部署正在运行，请等待结束或使用不同名称")
+        return supervise(args, root)
+
+
+def send_event(args):
+    if args.action == "stage":
+        if not 1 <= args.index <= args.total <= 1000:
+            raise ValueError("阶段需要满足 1 <= 当前阶段 <= 总阶段 <= 1000")
+        if args.fraction is not None and (not math.isfinite(args.fraction)
+                                          or not 0 <= args.fraction <= 1):
+            raise ValueError("阶段进度必须在 0 到 1 之间")
+        event = {"kind": "stage", "index": args.index, "total": args.total,
+                 "name": clean_label(args.label), "fraction": args.fraction}
+        if not event["name"]:
+            raise ValueError("阶段名称不能为空")
+    else:
+        event = {"kind": "detail", "message": clean_label(args.message)}
+    fd = os.environ.get(EVENT_ENV)
+    if not fd:
+        raise ValueError("stage/detail 必须在 si-deploy run 包装的脚本中调用")
+    # Events are below POSIX PIPE_BUF (4096), so simultaneous hook writers
+    # cannot interleave JSON. The private inherited fd avoids log scraping.
+    data = (json.dumps(event, ensure_ascii=False) + "\n").encode()
+    os.write(int(fd), data)
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description="将现有 SSH 部署脚本的进度显示到 ServerIsland")
+    sub = parser.add_subparsers(dest="action", required=True)
+    runner = sub.add_parser("run", help="包装原部署命令，保留原退出码")
+    runner.add_argument("--name", required=True, help="任务名称，例如 demo-api")
+    runner.add_argument("--state-dir", default="~/.serverisland")
+    runner.add_argument("--local", action="store_true", help="只在本机保存独立任务记录，供本机 App 读取")
+    runner.add_argument("--host", default="", help="任务归属的服务器 SSH 别名或 App 服务器 UUID")
+    runner.add_argument("--action-id", default="", help="App Action 标识")
+    runner.add_argument("--run-id", default="", help=argparse.SUPPRESS)
+    runner.add_argument("--ssh", action="store_true", help="SSH 中断时将远端结果标记为未知")
+    runner.add_argument("--heartbeat", type=positive_seconds, default=3)
+    runner.add_argument("--quiet-after", type=positive_seconds, default=60)
+    runner.add_argument("--manual", action="store_true", help="只接受 stage/detail 主动上报")
+    runner.add_argument("--rules", help="自定义阶段标题与日志正则的 JSON 文件")
+    runner.add_argument("command", nargs=argparse.REMAINDER)
+    stage = sub.add_parser("stage", help="从包装中的脚本主动上报当前阶段")
+    stage.add_argument("index", type=int)
+    stage.add_argument("total", type=int)
+    stage.add_argument("label")
+    stage.add_argument("--fraction", type=float, help="当前阶段的真实完成比例，0 到 1")
+    detail = sub.add_parser("detail", help="主动上报当前步骤说明")
+    detail.add_argument("message")
+    args = parser.parse_args()
+    try:
+        return run(args) if args.action == "run" else send_event(args)
+    except (ValueError, OSError, KeyError, TypeError, re.error) as exc:
+        # Do not print exception text: it may contain private paths or rules.
+        if isinstance(exc, ValueError) and not isinstance(exc, json.JSONDecodeError):
+            print("si-deploy: " + str(exc), file=sys.stderr)
+        else:
+            print("si-deploy: 参数、规则或状态目录不可用 (%s)" % type(exc).__name__, file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

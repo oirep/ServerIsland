@@ -5,6 +5,14 @@ import Foundation
 @MainActor
 final class UpdateChecker: ObservableObject {
     static let shared = UpdateChecker()
+    /// 官方二进制不包含本地 Actions/Docker 定制；升级必须合并源码，不能直接替换 App。
+    nonisolated static var isCustomizedBuild: Bool {
+        Bundle.main.object(forInfoDictionaryKey: "ServerIslandCustomizedBuild") as? Bool ?? true
+    }
+    nonisolated static var customizedUpdateMessage: String {
+        L("当前为定制版。为保留 Actions、Docker 与部署监控，请合并官方源码后重新打包，不要安装官方包覆盖。",
+          "This is a customized build. Merge upstream source and rebuild to preserve Actions, Docker and deployment monitoring; do not replace it with the official package.")
+    }
 
     struct Release: Equatable {
         var version: String
@@ -109,6 +117,10 @@ final class UpdateChecker: ObservableObject {
 
     /// 自动更新到这个版本：成功时 App 会退出，由替换脚本打开新版。
     func install(_ r: Release) async {
+        guard !Self.isCustomizedBuild else {
+            state = .installFailed(r, Self.customizedUpdateMessage)
+            return
+        }
         if case .downloading = state { return }
         if let why = UpdateInstaller.unsupportedReason(r) {
             state = .installFailed(r, why)

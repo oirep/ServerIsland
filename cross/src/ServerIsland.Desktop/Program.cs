@@ -62,6 +62,13 @@ static class Program
             return 0;
         }
 
+        // 开发用：读取（两次，第二次应是增量）详情页曲线。  --curve <别名> <目录> [nep|gnep|vasp]
+        if (Index(args, "--curve") is { } ci && ci + 2 < args.Length)
+        {
+            Diagnose.Curve(args[ci + 1], args[ci + 2], ci + 3 < args.Length ? args[ci + 3] : "nep").GetAwaiter().GetResult();
+            return 0;
+        }
+
         if (Index(args, "--dump-scripts") is { } di && di + 1 < args.Length)
         {
             Directory.CreateDirectory(args[di + 1]);

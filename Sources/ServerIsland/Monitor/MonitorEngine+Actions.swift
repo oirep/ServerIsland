@@ -30,6 +30,7 @@ extension MonitorEngine {
     // MARK: - 详情
 
     func fetchDetail(host: HostConfig, job: RemoteJob) async -> JobDetail {
+        if job.id.hasPrefix("local:") { return LocalTaskStore.detail(for: job) }
         var d = JobDetail()
         guard job.source != .progressFile else {
             d.fields = [(L("名称", "Name"), job.name)] + (job.message.map { [(L("进度说明", "Progress"), $0)] } ?? [])

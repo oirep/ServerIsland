@@ -58,9 +58,18 @@
 | `apps` | detectApps 且 watchJobs | 计算软件识别（见下文） |
 | `watch` | 直连且有监听的 PID | `ps -p <pids>`（不加 `-u`） |
 | `disk` | showDisk，且距上次查磁盘已满 5 分钟（或手动刷新） | `df -P -k ~` |
+| `docker` | showDocker（默认关闭） | 共享 `remote/docker-monitor.py` 经 stdin 执行，读取 Docker Unix socket 的 version、containers/json 和 stats（仅 GET）；单行 JSON 返回白名单指标 |
 | `progress` | readProgressFiles | 逐个 `cat` 进度文件 `~/.serverisland/progress/*.json`（每个最多 4KB） |
 
 squeue 的解析是**从两端按位置取列**，所以作业名里有 `|` 也能正确解析；也兼容没有 `%F|%K` 两列的老格式。数组作业从 `%F`/`%K` 识别，没有这两列时从编号 `123_5` 或 `123_[7-99%10]` 里拆出来。排队的一整段元素数量以编号里的 `_[...]` 为准（`%K` 在有的 Slurm 版本里不带方括号）。
+
+Docker 段独立解析到 `HostSnapshot.docker`，不合并到作业列表。socket、权限、Python 或 daemon 错误只影响该段；容器资源缺失保留未知。网络与块设备速率由连续有效样本的累计计数和远端采样时刻计算，计数回退不显示速率。采集文件在 Mac 打包为资源、C# 核心嵌入为同一资源；`docker-collector.sh` 加入两端脚本对照列表。
+
+容器 `createdAt` 来自列表的 Created；`updatedAt` 合并有 until 截止时间的 GET events 生命周期时间，并保留已观察到的最近变更。事件不可读时只回退创建时间，不使用 stats.read 冒充更新时间。日志使用同一共享采集器的 `SI_DOCKER_LOG_CONTAINER` / `SI_DOCKER_LOG_TAIL` 模式，经校验的容器 ID 只进入 GET logs（follow=0），按 Docker 的 8 字节头解析非 TTY 多路复用输出。日志单次响应有界，stdout/stderr 合并、去 ANSI、常见凭据掩码后返回单行 JSON。此模式只在用户打开运行日志时调用。
+
+采集资源时对同一批运行容器只读 GET inspect，限额查询超时 1 秒。只返回 `cpuLimitCores`（NanoCpus、quota/period、cpuset 与在线核心数的有效较小值）、`memoryConfiguredLimit`、`limitsRead` / `limitsError`，不输出完整 HostConfig、Config 或 Env。App 保留原始 `cpuPercent`，展示值按限额核数归一化，未设限时使用单核口径；内存分母取配置限额和 stats 上限的有效较小值。
+
+活跃详情使用共享采集器的 `SI_DOCKER_DETAIL_CONTAINER` 模式，只读 GET version、按 id 过滤的容器列表、该容器的 inspect/stats，不采集其它容器、事件或主机指标。返回单容器 `DockerSnapshot`，由引擎计算连续采样速率并部分合并。详情循环目标 1 秒，不堆叠请求；页面取消后不合并响应。全局解析对同 ID 的采样时刻做比较，防止旧全局结果覆盖新的详情数据。
 
 ## PBS（PBS Pro / OpenPBS / Torque，2026-10-18）
 
@@ -172,3 +181,5 @@ squeue 的解析是**从两端按位置取列**，所以作业名里有 `|` 也�
 3. 在 `AppDetectors.parse` 的 `switch kind` 里解析这些字段；
 4. 在 `SelfTest` 里加一条样例输出的解析测试，再用 `--final-state <alias> <目录>` 在真实目录上验证。
 5. **只读文件末尾或小文件**（tail、awk、grep -c），不要整读大文件。
+
+容器控制与采集分离：`remote/docker-control.py` 仅由明确确认后的按钮调用，校验完整 64 位 ID、GET inspect 再核对 Id/State，随后只允许 POST start/stop/restart；不调用 kill/remove 或自动 sudo。请求中断不重放。两端共享控制脚本资源。只读采集补充 Config.Cmd 参数用于详情展示，不执行 CMD 或导出 Env。

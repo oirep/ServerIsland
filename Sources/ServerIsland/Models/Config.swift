@@ -140,6 +140,10 @@ struct CommandSet: Codable, Equatable {
 }
 
 struct HostConfig: Codable, Identifiable, Equatable {
+    static let localTaskID = UUID(uuidString: "8F776986-CCBF-4DE2-ABD8-59E87E2E5B5D")!
+    var isLocalTaskHost: Bool { id == Self.localTaskID }
+    var actions: [HostAction] = []
+    var enabledActions: [HostAction] { actions.filter(\.enabled) }
     var id = UUID()
     /// `~/.ssh/config` 里的 Host 别名，或任意 `ssh` 能识别的目标（如 user@1.2.3.4）。
     /// 手动填写的服务器（hostName 非空）只用它做显示和去重。
@@ -153,6 +157,12 @@ struct HostConfig: Codable, Identifiable, Equatable {
     var showCPU = true
     var showMemory = true
     var showGPU = true
+    var showDocker = true
+    var dockerView: DockerViewMode = .list
+    var dockerAllView: DockerViewMode = .list
+    var dockerSort: DockerSortOrder = .updated
+    /// 按服务器内唯一名称收藏，部署重建容器后继续保留星标。
+    var dockerFavorites: [String] = []
     var watchJobs = true
     var readProgressFiles = true
     /// 直连服务器：只显示命令行匹配该正则的进程。
@@ -224,6 +234,12 @@ struct HostConfig: Codable, Identifiable, Equatable {
         showCPU = try c.decodeIfPresent(Bool.self, forKey: .showCPU) ?? true
         showMemory = try c.decodeIfPresent(Bool.self, forKey: .showMemory) ?? true
         showGPU = try c.decodeIfPresent(Bool.self, forKey: .showGPU) ?? true
+        showDocker = try c.decodeIfPresent(Bool.self, forKey: .showDocker) ?? false
+        dockerView = try c.decodeIfPresent(DockerViewMode.self, forKey: .dockerView) ?? .list
+        // 旧配置沿用原先的展示方式，此后首页与全部容器各自保存。
+        dockerAllView = try c.decodeIfPresent(DockerViewMode.self, forKey: .dockerAllView) ?? dockerView
+        dockerSort = try c.decodeIfPresent(DockerSortOrder.self, forKey: .dockerSort) ?? .updated
+        dockerFavorites = try c.decodeIfPresent([String].self, forKey: .dockerFavorites) ?? []
         watchJobs = try c.decodeIfPresent(Bool.self, forKey: .watchJobs) ?? true
         readProgressFiles = try c.decodeIfPresent(Bool.self, forKey: .readProgressFiles) ?? true
         processFilter = try c.decodeIfPresent(String.self, forKey: .processFilter) ?? processFilter
@@ -249,6 +265,7 @@ struct HostConfig: Codable, Identifiable, Equatable {
         jumpHostID = try c.decodeIfPresent(UUID.self, forKey: .jumpHostID)
         rememberPassword = try c.decodeIfPresent(Bool.self, forKey: .rememberPassword) ?? false
         pathFilter = try c.decodeIfPresent(String.self, forKey: .pathFilter) ?? ""
+        actions = try c.decodeIfPresent([HostAction].self, forKey: .actions) ?? []
     }
 }
 
@@ -285,6 +302,8 @@ struct AppSettings: Codable, Equatable {
     var progressRules: [ProgressRule] = []
     /// 诊断日志保留天数（更早的行自动删除）。
     var logRetentionDays = 7
+    /// 进度文件任务结束后在刘海停留的秒数；0 永久显示，只影响展示，不删除记录。
+    var progressFileStaySeconds = 0
     /// 启动时和之后每天检查一次 GitHub 上有没有新版本。
     var autoCheckUpdates = true
     /// 灵动岛显示在哪块屏幕：""=自动（有刘海的屏幕 → 内建屏幕 → 主屏幕），"primary"=主屏幕，其它=屏幕名称。
@@ -308,6 +327,7 @@ struct AppSettings: Codable, Equatable {
         language = try c.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .system
         progressRules = try c.decodeIfPresent([ProgressRule].self, forKey: .progressRules) ?? []
         logRetentionDays = try c.decodeIfPresent(Int.self, forKey: .logRetentionDays) ?? 7
+        progressFileStaySeconds = max(0, try c.decodeIfPresent(Int.self, forKey: .progressFileStaySeconds) ?? 0)
         autoCheckUpdates = try c.decodeIfPresent(Bool.self, forKey: .autoCheckUpdates) ?? true
         islandScreen = try c.decodeIfPresent(String.self, forKey: .islandScreen) ?? ""
     }

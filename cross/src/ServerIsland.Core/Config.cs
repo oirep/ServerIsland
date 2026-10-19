@@ -129,8 +129,25 @@ public sealed class WatchedProcess
     public DateTime? StartedAt { get; set; }
 }
 
+public enum HostActionTarget { Local, Remote }
+
+/// 与 Mac 配置兼容；保存 Action 不会触发执行。
+public sealed class HostAction
+{
+    [JsonConverter(typeof(UpperGuidConverter))]
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Name { get; set; } = "";
+    public string Command { get; set; } = "";
+    public HostActionTarget Target { get; set; } = HostActionTarget.Remote;
+    public bool Enabled { get; set; } = true;
+    [JsonIgnore] public bool IsValid => !string.IsNullOrWhiteSpace(Name) && !string.IsNullOrWhiteSpace(Command);
+}
+
 public sealed class HostConfig : IJsonOnDeserialized
 {
+    public static readonly Guid LocalTaskID = Guid.Parse("8F776986-CCBF-4DE2-ABD8-59E87E2E5B5D");
+    [JsonIgnore] public bool IsLocalTaskHost => Id == LocalTaskID;
+    public List<HostAction> Actions { get; set; } = [];
     public const string DefaultExclude = @"/usr/(lib|libexec|share)/|^/snap/|^/usr/sbin/|gnome-|Xorg|xdg-|ibus|gsd-|gvfs|update-manager|check-new-release|unattended-upgr|networkd-dispatcher|vscode-server|cursor-server|windsurf-server|\.codex/|codex app-server|jupyter-lab|ipykernel_launcher|pylsp|pyright|ruff|wireplumber|pipewire|dbus-daemon|update-notifier|systemd|at-spi|gcr-ssh|gnome-keyring|FlClash|clash";
     public const string DefaultAppProcessNames = "gpumd|nep|gnep|vasp_std|vasp_gam|vasp_ncl|lmp|lmp_mpi|lmp_serial";
     public const string DefaultFilter = @"python|torchrun|accelerate|deepspeed|julia|matlab|Rscript|java|node|\./";
@@ -148,6 +165,14 @@ public sealed class HostConfig : IJsonOnDeserialized
     public bool ShowCPU { get; set; } = true;
     public bool ShowMemory { get; set; } = true;
     public bool ShowGPU { get; set; } = true;
+    public bool ShowDocker { get; set; }
+    public DockerViewMode DockerView { get; set; } = DockerViewMode.List;
+    // 缺少新字段的旧配置先沿用原布局，首次明确切换后两个入口独立。
+    DockerViewMode? _dockerAllView;
+    public DockerViewMode DockerAllView { get => _dockerAllView ?? DockerView; set => _dockerAllView = value; }
+    public DockerSortOrder DockerSort { get; set; } = DockerSortOrder.Updated;
+    // 按容器名称保存收藏，使部署重建后星标继续有效。
+    public List<string> DockerFavorites { get; set; } = [];
     public bool WatchJobs { get; set; } = true;
     public bool ReadProgressFiles { get; set; } = true;
     public string ProcessFilter { get; set; } = DefaultFilter;
@@ -212,6 +237,8 @@ public sealed class AppSettings
 {
     public List<HostConfig> Hosts { get; set; } = [];
     public int DefaultInterval { get; set; } = 60;
+    /// 进度文件任务结束后展示秒数，0 永久保留；不删除记录。
+    public int ProgressFileStaySeconds { get; set; }
     /// false：所有机器都只手动刷新。
     public bool AutoRefresh { get; set; } = true;
     public CollapsedStyle CollapsedStyle { get; set; } = CollapsedStyle.Always;

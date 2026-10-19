@@ -443,7 +443,7 @@ public static class Parsers
 
     // MARK: - 进度文件
 
-    public sealed record ProgressEntry(string Id, string Name, double? Progress, string? Message, string? JobID, DateTime? Updated, bool Done, bool Failed);
+    public sealed record ProgressEntry(string Id, string Name, double? Progress, string? Message, string? JobID, DateTime? Updated, bool Done, bool Failed, bool Unknown = false);
 
     /// 进度文件格式（字段均可选）：
     /// {"name": "train", "progress": 0.42, "message": "epoch 3/10", "jobid": "12345",
@@ -475,7 +475,8 @@ public static class Parsers
             DateTime? updated = Num(obj, "updated") is { } u ? DateTimeOffset.FromUnixTimeMilliseconds((long)(u * 1000)).LocalDateTime : null;
             var jobID = Str(obj, "jobid") ?? (Num(obj, "jobid") is { } jn ? ((long)jn).ToString(CultureInfo.InvariantCulture) : null);
             entries.Add(new ProgressEntry(fileName, Str(obj, "name") ?? fileName, p, Str(obj, "message"), jobID, updated,
-                status is "done" or "completed" or "finished", status is "failed" or "error"));
+                status is "done" or "completed" or "finished", status is "failed" or "error",
+                status is "unknown" or "cancelled" or "canceled" or "timeout" or "interrupted"));
         }
 
         foreach (var line in lines)

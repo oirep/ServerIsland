@@ -62,6 +62,8 @@ struct MetricChip: View {
     var fraction: Double
     var valueText: String
     var help: String = ""
+    var showsFractionOnClick = false
+    @State private var fractionShown = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -70,12 +72,20 @@ struct MetricChip: View {
                 .foregroundStyle(Theme.tertiary)
             SlimBar(fraction: fraction, fill: AnyShapeStyle(Theme.load(fraction)), height: 4)
                 .frame(width: 44)
-            Text(valueText)
+            // 预留两种数值的宽度，点击切换时不挤动其它指标和 Action。
+            ZStack(alignment: .leading) {
+                Text(valueText).hidden()
+                if showsFractionOnClick { Text("100.0%").hidden() }
+                Text(showsFractionOnClick && fractionShown
+                     ? String(format: "%.1f%%", fraction * 100) : valueText)
+            }
                 .font(Theme.rounded(10.5, .medium).monospacedDigit())
                 .foregroundStyle(Theme.secondary)
                 .frame(minWidth: 28, alignment: .leading)
         }
-        .help(help)
+        .help(showsFractionOnClick ? "" : help)
+        .contentShape(Rectangle())
+        .onTapGesture { if showsFractionOnClick { fractionShown.toggle() } }
     }
 }
 

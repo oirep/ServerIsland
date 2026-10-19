@@ -32,6 +32,9 @@ struct HostDetailView: View {
             environment
             polling
             display
+            HostActionsSection(actions: $host.actions,
+                onRun: { engine.runHostAction(host: host, action: $0, testRun: true) },
+                isRunning: { engine.actionIsRunning(host: host, action: $0) })
             apps
             alerts
             if host.kind == .direct || host.slurmAlsoProcesses { watched }
@@ -224,6 +227,10 @@ struct HostDetailView: View {
             }
             Toggle("CPU", isOn: $host.showCPU)
             Toggle(L("内存", "Memory"), isOn: $host.showMemory)
+            Toggle(isOn: $host.showDocker) {
+                HelpLabel("Docker", help: L("通过 SSH 只读访问 Docker Unix socket，显示容器状态、CPU、内存和 I/O；服务器需要 python3，SSH 用户需要有 socket 访问权限。",
+                                            "Reads container status, CPU, memory and I/O over SSH via the Docker Unix socket. Requires python3 and socket access for the SSH user."))
+            }
             Toggle(isOn: $host.showGPU) {
                 HelpLabel("GPU", help: L("通过 nvidia-smi 读取。Slurm 登录节点上通常看不到计算节点的 GPU。",
                                          "Read with nvidia-smi. On Slurm login nodes the compute nodes' GPUs are usually not visible."))
