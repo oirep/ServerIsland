@@ -28,14 +28,15 @@
 <p style="text-align: justify;"><strong>ServerIsland</strong> 把你的远程计算装进 MacBook 的刘海里；在 Windows 和 Linux 上，它待在屏幕顶部或你的桌面上。它通过 SSH 查看 Slurm、PBS 集群和普通 Linux 服务器，把作业、GPU 占用，以及 VASP、LAMMPS、GPUMD、NEP 的<em>实时进度</em>放进一个"灵动岛"式的面板，服务器上什么都不用装。它为每天和计算材料、计算化学、计算物理打交道的人而做，让你不用再每隔二十分钟敲一遍 <code>squeue</code> 和 <code>tail -f</code>。</p>
 
 <p align="center">
-  <img src="./docs/demo-zh.gif" width="720" alt="ServerIsland 演示：收起的刘海、弹出“NEP 训练完成”、展开面板">
+  <a href="https://zhyan0603.github.io/ServerIsland/"><img src="./docs/hero-zh.png" width="100%" alt="ServerIsland：收起的刘海、“NEP 训练完成”提醒，以及每台服务器一张卡片的展开面板"></a>
 </p>
+<p align="center">▶ <a href="https://zhyan0603.github.io/ServerIsland/manual.html#video-guide">观看 3 分钟视频教程</a></p>
 
 ## 功能
 
 - **一眼看完所有服务器**：鼠标移到刘海上，每台服务器一张卡片：运行数、排队数、CPU、内存、GPU。空闲的机器自动合并成一行。
 - **真实进度，而不只是 "RUNNING"**：按工作目录里的文件识别 NEP、GPUMD、VASP、LAMMPS，显示进度、速度和剩余时间，还有 loss 曲线，VASP 结构优化的能量和最大力曲线。
-- **好好对待 Slurm 和 PBS**：数组作业合并成一条分段进度条；排队原因翻译成人话；按需查看 Slurm 各分区的空闲 CPU / GPU；最近 24 小时历史。PBS Pro、OpenPBS、Torque 也支持。
+- **好好对待 Slurm 和 PBS**：数组作业合并成一条分段进度条；排队原因翻译成人话；按需查看 Slurm 各分区的空闲 CPU / GPU / DCU；保留 7 天的历史记录，带工作目录。PBS Pro、OpenPBS、Torque 也支持。
 - **只看你关心的**：可以让一台服务器只显示某些目录（比如 `~/projects/LLZO`）下的作业和进程。
 - **听得见的提醒**：刘海弹窗，成功和失败是两种提示音。就算集群没开作业记录，也能分辨正常结束还是提前退出。
 - **你自己的程序也行**：写一条自定义规则（文件名 + 关键字或正则），在设置里就能对着服务器上的真实目录当场测试。
@@ -120,35 +121,28 @@ si-progress train done
 
 ## 截图
 
-<p align="center">
-  <img src="./docs/screenshots/zh/detail-nep.png" width="680" alt="NEP 训练详情和实时 loss 曲线"><br>
-  <sub><b>任务详情</b>：实时进度、增量更新的 loss 曲线和日志末尾。</sub>
-</p>
-
-<p align="center">
-  <img src="./docs/screenshots/zh/partitions.png" width="680" alt="Slurm 各分区的空闲 CPU 和 GPU"><br>
-  <sub><b>分区空闲资源</b>：我的作业现在能在哪儿跑？</sub>
-</p>
-
-<p align="center">
-  <img src="./docs/screenshots/zh/toast.png" width="49%" alt="完成提醒">
-  <img src="./docs/screenshots/zh/toast-failed.png" width="49%" alt="失败提醒"><br>
-  <sub><b>提醒</b>：完成"叮咚"，失败"咚咚"。</sub>
-</p>
-
-<p align="center">
-  <img src="./docs/screenshots/zh/settings-rule-editor.png" width="560" alt="自定义识别规则和测试按钮"><br>
-  <sub><b>自定义规则</b>：填好文件和关键字，点"测试"。</sub>
-</p>
-
-<details>
-<summary><b>更多截图</b></summary>
-<p align="center">
-  <img src="./docs/screenshots/zh/expanded.png" width="680" alt="展开面板"><br>
-  <img src="./docs/screenshots/zh/detail.png" width="680" alt="VASP AIMD 作业详情和日志末尾"><br>
-  <img src="./docs/screenshots/zh/history.png" width="680" alt="最近 24 小时">
-</p>
-</details>
+<table>
+  <tr>
+    <td width="50%" align="center"><img src="./docs/screenshots/zh/expanded.png" alt="展开的面板，每台服务器一张卡片"><br><sub><b>一眼看完所有服务器</b>：每台一张卡片，空闲的合并成一行</sub></td>
+    <td width="50%" align="center"><img src="./docs/screenshots/zh/alerts.png" alt="完成提醒和失败提醒"><br><sub><b>提醒</b>：完成和失败各有一种提示音</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="./docs/screenshots/zh/detail-nep.png" alt="NEP 训练详情和实时 loss 曲线"><br><sub><b>NEP 训练</b>：进度、剩余时间、实时 loss 曲线和日志末尾</sub></td>
+    <td width="50%" align="center"><img src="./docs/screenshots/zh/detail-vasp-relax.png" alt="VASP 结构优化的能量和最大力曲线"><br><sub><b>VASP 结构优化</b>：能量和最大力，虚线是 EDIFFG 目标</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="./docs/screenshots/zh/detail-neb.png" alt="VASP NEB 能垒图和能垒收敛"><br><sub><b>VASP NEB</b>：能垒图，以及能垒怎么收敛</sub></td>
+    <td width="50%" align="center"><img src="./docs/screenshots/zh/partitions.png" alt="Slurm 各分区的空闲 CPU 和 GPU"><br><sub><b>分区空闲资源</b>：我的作业现在能在哪儿跑？</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="./docs/screenshots/zh/history.png" alt="历史记录：结束的作业和工作目录"><br><sub><b>7 天历史</b>：结束的作业、退出码和工作目录</sub></td>
+    <td width="50%" align="center"><img src="./docs/screenshots/zh/settings-rule-editor.png" alt="自定义识别规则和测试按钮"><br><sub><b>自定义规则</b>：填好文件和关键字，点“测试”</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="./docs/screenshots/zh/settings-host.png" alt="服务器设置：类型、连接方式、跳板机和认证方式"><br><sub><b>各种登录方式</b>：密钥、密码、动态口令、跳板机</sub></td>
+    <td width="50%" align="center"><img src="./docs/screenshots/zh/windows-pet.png" alt="Windows 桌面上的小章鱼和浮动面板"><br><sub><b>Windows / Linux</b>：虚拟灵动岛，或者桌面小章鱼</sub></td>
+  </tr>
+</table>
 
 ## 路线图
 

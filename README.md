@@ -28,14 +28,15 @@
 <p style="text-align: justify;"><strong>ServerIsland</strong> puts your remote computations in the MacBook notch — and, on Windows and Linux, at the top of your screen or on your desktop. It watches Slurm and PBS clusters and plain Linux servers over SSH and shows your jobs, GPUs and the <em>live progress</em> of VASP, LAMMPS, GPUMD and NEP runs in a Dynamic-Island-style panel — with nothing installed on the server. It is built for people who spend their days in computational materials science, chemistry and physics, and are tired of typing <code>squeue</code> and <code>tail -f</code> every twenty minutes.</p>
 
 <p align="center">
-  <img src="./docs/demo-en.gif" width="720" alt="ServerIsland demo: the collapsed notch, a 'NEP training finished' alert, then the expanded panel">
+  <a href="https://zhyan0603.github.io/ServerIsland/"><img src="./docs/hero-en.png" width="100%" alt="ServerIsland: the collapsed notch, a 'NEP training finished' alert, and the expanded panel with one card per server"></a>
 </p>
+<p align="center">▶ <a href="https://zhyan0603.github.io/ServerIsland/manual.html#video-guide">Watch the 3-minute video tour</a></p>
 
 ## Features
 
 - **Every Server at a Glance**: Hover the notch to see one card per server — running / pending counts, CPU, memory and GPUs. Idle servers fold into a single line.
 - **Real Progress, Not Just "RUNNING"**: Detects NEP, GPUMD, VASP and LAMMPS from the job's working directory and shows progress, speed and ETA, plus loss curves and, for VASP relaxations, energy and max-force curves.
-- **Slurm and PBS Done Right**: Job arrays as one segmented bar, pending reasons in plain words, free CPUs / GPUs per Slurm partition, and 24-hour history. PBS Pro, OpenPBS and Torque work too.
+- **Slurm and PBS Done Right**: Job arrays as one segmented bar, pending reasons in plain words, free CPUs / GPUs / DCUs per Slurm partition, and 7 days of history with each job's folder. PBS Pro, OpenPBS and Torque work too.
 - **Only What You Care About**: Limit a server to jobs and processes under certain folders, e.g. `~/projects/LLZO`.
 - **Alerts You Can Hear**: A notch pop-up with distinct sounds for success and failure — it can tell a clean finish from an early exit even without Slurm accounting.
 - **Your Own Programs, Too**: Write a custom rule (a file name + a keyword or regex) and test it against a real directory right from Settings.
@@ -112,35 +113,28 @@ On macOS and Linux, ServerIsland uses the system `ssh` with a shared connection 
 
 ## Screenshots
 
-<p align="center">
-  <img src="./docs/screenshots/en/detail-nep.png" width="680" alt="NEP training detail with a live loss curve"><br>
-  <sub><b>Job details</b> — live progress, an incrementally updated loss curve and the log tail.</sub>
-</p>
-
-<p align="center">
-  <img src="./docs/screenshots/en/partitions.png" width="680" alt="Free CPUs and GPUs per Slurm partition"><br>
-  <sub><b>Partitions</b> — where can my job start right now?</sub>
-</p>
-
-<p align="center">
-  <img src="./docs/screenshots/en/toast.png" width="49%" alt="Finished alert">
-  <img src="./docs/screenshots/en/toast-failed.png" width="49%" alt="Failed alert"><br>
-  <sub><b>Alerts</b> — a ding when it's done, a dong when it isn't.</sub>
-</p>
-
-<p align="center">
-  <img src="./docs/screenshots/en/settings-rule-editor.png" width="560" alt="Custom progress rule editor with a Test button"><br>
-  <sub><b>Custom rules</b> — fill in a file and a keyword, then hit Test.</sub>
-</p>
-
-<details>
-<summary><b>More screenshots</b></summary>
-<p align="center">
-  <img src="./docs/screenshots/en/expanded.png" width="680" alt="Expanded panel"><br>
-  <img src="./docs/screenshots/en/detail.png" width="680" alt="VASP AIMD job detail with log tail"><br>
-  <img src="./docs/screenshots/en/history.png" width="680" alt="Last 24 hours">
-</p>
-</details>
+<table>
+  <tr>
+    <td width="50%" align="center"><img src="./docs/screenshots/en/expanded.png" alt="The expanded panel with one card per server"><br><sub><b>Every server at a glance</b> — one card per server; idle ones fold into a line</sub></td>
+    <td width="50%" align="center"><img src="./docs/screenshots/en/alerts.png" alt="A finished alert and a failed alert"><br><sub><b>Alerts</b> — one sound when a job finishes, another when it fails</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="./docs/screenshots/en/detail-nep.png" alt="NEP training detail with a live loss curve"><br><sub><b>NEP training</b> — progress, ETA, a live loss curve and the log tail</sub></td>
+    <td width="50%" align="center"><img src="./docs/screenshots/en/detail-vasp-relax.png" alt="VASP relaxation with energy and max-force curves"><br><sub><b>VASP relaxation</b> — energy and max force against your EDIFFG target</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="./docs/screenshots/en/detail-neb.png" alt="VASP NEB energy profile and barrier"><br><sub><b>VASP NEB</b> — the energy profile and how the barrier converges</sub></td>
+    <td width="50%" align="center"><img src="./docs/screenshots/en/partitions.png" alt="Free CPUs and GPUs per Slurm partition"><br><sub><b>Free resources</b> — where can my job start right now?</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="./docs/screenshots/en/history.png" alt="History of finished jobs with their folders"><br><sub><b>7-day history</b> — finished jobs, exit codes and their folders</sub></td>
+    <td width="50%" align="center"><img src="./docs/screenshots/en/settings-rule-editor.png" alt="Custom progress rule editor with a Test button"><br><sub><b>Custom rules</b> — a file and a keyword, then hit Test</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="./docs/screenshots/en/settings-host.png" alt="Server settings: type, connection, jump host and login"><br><sub><b>Any login</b> — key, password, one-time code, jump hosts</sub></td>
+    <td width="50%" align="center"><img src="./docs/screenshots/en/windows-pet.png" alt="Tako on a Windows desktop with the floating panel"><br><sub><b>Windows &amp; Linux</b> — a virtual island, or Tako on your desktop</sub></td>
+  </tr>
+</table>
 
 ## Roadmap
 
