@@ -100,8 +100,8 @@ enum IslandLayout {
         var h = cardPad * 2 + cardHeader
         if p.paused { h += sectionGap + emptyRow }
         if p.problem { h += sectionGap + problemRow }
-        if p.connecting { h += sectionGap + emptyRow }
-        if p.metrics { h += sectionGap + (p.actions ? actionMetricsRow : metricsRow) }
+        if p.connecting { h += sectionGap + (p.actions ? actionMetricsRow : emptyRow) }
+        if p.metrics && !p.connecting { h += sectionGap + (p.actions ? actionMetricsRow : metricsRow) }
         if p.warnings > 0 { h += 6 + CGFloat(p.warnings) * warningRow }
         if p.docker {
             h += sectionGap + dockerHeader + jobGap

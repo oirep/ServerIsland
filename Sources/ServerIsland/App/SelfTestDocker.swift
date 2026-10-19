@@ -4,6 +4,44 @@ import SwiftUI
 /// 只验证模拟指标和本机脚本，绝不连接真实 Docker daemon 或服务器。
 enum SelfTestDocker {
     static func run(_ check: (Bool, String) -> Void) {
+        MainActor.assumeIsolated {
+            let cell = DockerSearchCell(textCell: "demo 搜索")
+            cell.font = .systemFont(ofSize: 11.5)
+            cell.isBordered = false; cell.isBezeled = false; cell.usesSingleLineMode = true
+            let bounds = NSRect(x: 0, y: 0, width: 140, height: 18)
+            let textRect = cell.drawingRect(forBounds: bounds)
+            check(abs(textRect.midY - bounds.midY) < 0.01 && textRect.height <= bounds.height,
+                  "Docker 搜索布局：原生文字区域在固定输入框内垂直居中")
+            let field = DockerSearchInput.makeField()
+            field.frame = bounds
+            check(field.isEditable && field.isSelectable && field.acceptsFirstResponder,
+                  "Docker 搜索焦点：居中 cell 保留可编辑、可选择及首响应能力")
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 180, height: 40),
+                                  styleMask: .titled, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView?.addSubview(field)
+            let accepted = window.makeFirstResponder(field)
+            let editor = field.currentEditor() as? NSTextView
+            editor?.insertText("docker", replacementRange: NSRange(location: NSNotFound, length: 0))
+            check(accepted && editor?.string == "docker",
+                  "Docker 搜索焦点：隐藏测试窗口可实际建立原生编辑器并输入文字")
+            window.makeFirstResponder(nil)
+            window.close()
+        }
+        check(DockerSearchKeyRouting.accepts(characters: "a", modifiers: [], keyCode: 0, hasTextFocus: false, menuTracking: false)
+              && DockerSearchKeyRouting.accepts(characters: "中", modifiers: [], keyCode: 0, hasTextFocus: false, menuTracking: false)
+              && DockerSearchKeyRouting.accepts(characters: "´", modifiers: [.option], keyCode: 14, hasTextFocus: false, menuTracking: false),
+              "Docker 搜索键盘：普通文字、中文和 Option 组合字符可触发聚焦")
+        check(!DockerSearchKeyRouting.accepts(characters: "f", modifiers: [.command], keyCode: 3, hasTextFocus: false, menuTracking: false)
+              && !DockerSearchKeyRouting.accepts(characters: "a", modifiers: [.control], keyCode: 0, hasTextFocus: false, menuTracking: false),
+              "Docker 搜索键盘：不拦截 Command 或 Control 快捷键")
+        check(!DockerSearchKeyRouting.accepts(characters: "\u{F702}", modifiers: [], keyCode: 123, hasTextFocus: false, menuTracking: false)
+              && !DockerSearchKeyRouting.accepts(characters: "\r", modifiers: [], keyCode: 36, hasTextFocus: false, menuTracking: false)
+              && !DockerSearchKeyRouting.accepts(characters: "\u{7f}", modifiers: [], keyCode: 51, hasTextFocus: false, menuTracking: false),
+              "Docker 搜索键盘：方向、回车、删除等操作键不会触发文字搜索")
+        check(!DockerSearchKeyRouting.accepts(characters: "a", modifiers: [], keyCode: 0, hasTextFocus: true, menuTracking: false)
+              && !DockerSearchKeyRouting.accepts(characters: "a", modifiers: [], keyCode: 0, hasTextFocus: false, menuTracking: true),
+              "Docker 搜索键盘：已有文本焦点或菜单打开时不重定向")
         let plainLog = DockerLogText.render("普通日志\nnext")
         check(String(plainLog.characters) == "普通日志\nnext" && plainLog.runs.first?.foregroundColor == Theme.secondary,
               "Docker 日志：无颜色日志保持灰色及换行")
@@ -134,6 +172,20 @@ enum SelfTestDocker {
               "Docker 展示：首页 Grid 与全部 List 可独立持久保存")
         var older = first.containers[0]; older.id = String(repeating: "b", count: 64); older.createdAt = 10; older.updatedAt = 20; older.cpuPercent = 100; older.memoryUsed = 900
         var newer = first.containers[0]; newer.createdAt = 100; newer.updatedAt = 100; newer.cpuPercent = 250; newer.memoryUsed = 100
+        var searchable = newer
+        searchable.name = "demo-API"; searchable.image = "registry.example.org/demo:v3"
+        searchable.composeProject = "demo-stack"; searchable.composeService = "backend"
+        check(DockerContainerSearch.matches(searchable, query: " api ")
+              && DockerContainerSearch.matches(searchable, query: String(searchable.id.prefix(8)))
+              && DockerContainerSearch.matches(searchable, query: "REGISTRY.EXAMPLE.ORG"),
+              "Docker 搜索：名称/ID/镜像部分匹配，忽略大小写与首尾空格")
+        check(DockerContainerSearch.matches(searchable, query: "demo-stack backend")
+              && DockerContainerSearch.matches(searchable, query: "API v3")
+              && !DockerContainerSearch.matches(searchable, query: "API missing"),
+              "Docker 搜索：Compose 信息可检索，多词可跨字段匹配且必须全部满足")
+        check(DockerContainerSearch.matches(searchable, query: " \n\t")
+              && !DockerContainerSearch.matches(searchable, query: "not-found-container"),
+              "Docker 搜索：清空查询恢复全部，无结果可显示空状态")
         older.name = "demo-favorite"; newer.name = "demo-newer"
         check(DockerSortOrder.updated.sorted([older, newer]).first?.id == newer.id,
               "Docker 排序：默认按真实变更时间倒序，不按采样时间")
