@@ -71,6 +71,7 @@ public static class RemoteScript
             if (pids.Length > 0) Sec("watch", $"ps -o pid=,etimes=,pcpu=,rss=,args= -p {pids}; true");
         }
         if (host.ShowDisk && includeDisk) Sec("disk", c.Disk);
+        if (host.ShowDocker) Sec("docker", DockerMonitor.Script);
         if (host.ReadProgressFiles)
         {
             Sec("progress", $$"""

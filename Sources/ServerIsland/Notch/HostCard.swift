@@ -21,6 +21,11 @@ struct HostCard: View {
     /// 关注的任务号（这台服务器上的）。关注的任务排在前面。
     var starred: Set<String> = []
     var onStar: (RemoteJob) -> Void = { _ in }
+    var onRunAction: (HostAction) -> Void = { _ in }
+    var actionIsRunning: (HostAction) -> Bool = { _ in false }
+    var onDocker: (String?) -> Void = { _ in }
+    var onDockerMode: (DockerViewMode) -> Void = { _ in }
+    var onDockerSort: (DockerSortOrder) -> Void = { _ in }
 
     var body: some View {
         let p = IslandLayout.parts(host, snap)
@@ -57,7 +62,11 @@ struct HostCard: View {
                 }
                 .frame(height: IslandLayout.emptyRow)
             }
-            if p.metrics { gap; metrics.frame(height: IslandLayout.metricsRow).opacity(host.paused ? 0.45 : 1) }
+            if p.metrics {
+                gap
+                metrics.frame(height: p.actions ? IslandLayout.actionMetricsRow : IslandLayout.metricsRow)
+                    .opacity(host.paused && !p.actions ? 0.45 : 1)
+            }
             if p.warnings > 0 {
                 Spacer().frame(height: 6)
                 ForEach(snap.warnings, id: \.self) { w in
@@ -82,10 +91,17 @@ struct HostCard: View {
                     .help(w + L("\n可以在 设置 → 高级命令 里调整", "\nAdjust under Settings → Advanced"))
                 }
             }
+            if p.docker {
+                gap
+                DockerCardSection(snapshot: snap.docker, mode: host.dockerView, sort: host.dockerSort, now: now,
+                                  favorites: Set(host.dockerFavorites),
+                                  onMode: onDockerMode, onSort: onDockerSort, onOpen: onDocker)
+                    .opacity(host.paused ? 0.45 : 1)
+            }
             if p.jobRows > 0 {
                 gap
                 VStack(spacing: IslandLayout.jobGap) {
-                    ForEach(MonitorEngine.starredFirst(snap.jobs) { starred.contains($0.id) }.prefix(IslandLayout.maxJobs)) { job in
+                    ForEach(MonitorEngine.starredFirst(IslandLayout.visibleJobs(snap)) { starred.contains($0.id) }.prefix(IslandLayout.maxJobs)) { job in
                         JobRowButton(job: job, kind: host.kind, now: now, sampledAt: host.paused ? nil : snap.lastUpdate,
                                      starred: starred.contains(job.id), onStar: { onStar(job) }) { onOpenJob(job) }
                             .frame(height: IslandLayout.jobRow)
@@ -148,12 +164,15 @@ struct HostCard: View {
                 .font(Theme.rounded(13, .semibold))
                 .foregroundStyle(Theme.text)
                 .lineLimit(1)
-            KindBadge(kind: host.kind)
+            if host.isLocalTaskHost {
+                Text("LOCAL").font(Theme.rounded(9, .bold)).foregroundStyle(Theme.cyan)
+            } else { KindBadge(kind: host.kind) }
             if snap.runningCount + snap.pendingCount > 0 {
                 JobCountChips(running: snap.runningCount, pending: snap.pendingCount, dimmed: host.paused)
             }
             Spacer(minLength: 6)
             HStack(spacing: 0) {
+                if !host.isLocalTaskHost {
                 if host.kind == .direct {
                     SmallIconButton(systemName: "eye", help: L("从高负载进程中挑选要监听的进程", "Pick a busy process to watch"), action: onPicker)
                 } else if host.kind == .slurm {
@@ -171,6 +190,7 @@ struct HostCard: View {
                 SmallIconButton(systemName: host.muted ? "bell.slash.fill" : "bell.fill",
                                 help: host.muted ? L("取消静音", "Unmute") : L("静音这台服务器（不弹提示、不发通知、不响铃）", "Mute this server (no pop-ups, notifications or sounds)"),
                                 tint: host.muted ? Theme.amber : Theme.tertiary, action: onToggleMute)
+                }
             }
             if snap.isRefreshing {
                 ProgressView().controlSize(.mini).scaleEffect(0.6).frame(width: 12, height: 12)
@@ -192,28 +212,83 @@ struct HostCard: View {
     private var metrics: some View {
         let m = snap.metrics
         return HStack(spacing: 16) {
-            if host.showCPU, let cpu = m.cpuPercent {
-                MetricChip(label: "CPU", fraction: cpu / 100, valueText: "\(Int(cpu.rounded()))%",
-                           help: [m.cores.map { L("\($0) 核", "\($0) cores") }, m.load1.map { String(format: L("负载 %.2f", "load %.2f"), $0) }]
-                               .compactMap { $0 }.joined(separator: " · "))
-            }
-            if host.showMemory, let f = m.memoryFraction {
-                MetricChip(label: L("内存", "MEM"), fraction: f,
-                           valueText: "\(Format.bytes(m.memoryUsed ?? 0).dropLast())/\(Format.bytes(m.memoryTotal ?? 0))",
-                           help: L("已用 \(Format.percent(f))", "\(Format.percent(f)) used"))
-            }
-            if host.showGPU, !snap.gpus.isEmpty {
-                if snap.gpus.count <= 2 {
-                    ForEach(snap.gpus) { GPUDetailChip(gpu: $0, showIndex: snap.gpus.count > 1) }
-                } else {
-                    GPUCells(gpus: snap.gpus)
+            HStack(spacing: 16) {
+                if host.showCPU, let cpu = m.cpuPercent {
+                    MetricChip(label: "CPU", fraction: cpu / 100, valueText: "\(Int(cpu.rounded()))%",
+                               help: [m.cores.map { L("\($0) 核", "\($0) cores") }, m.load1.map { String(format: L("负载 %.2f", "load %.2f"), $0) }]
+                                   .compactMap { $0 }.joined(separator: " · "))
+                }
+                if host.showMemory, let f = m.memoryFraction {
+                    MetricChip(label: L("内存", "MEM"), fraction: f,
+                               valueText: "\(Format.bytes(m.memoryUsed ?? 0).dropLast())/\(Format.bytes(m.memoryTotal ?? 0))",
+                               showsFractionOnClick: true)
+                }
+                if host.showGPU, !snap.gpus.isEmpty {
+                    if snap.gpus.count <= 2 {
+                        ForEach(snap.gpus) { GPUDetailChip(gpu: $0, showIndex: snap.gpus.count > 1) }
+                    } else {
+                        GPUCells(gpus: snap.gpus)
+                    }
+                }
+                if IslandLayout.showsDiskColumns(host, snap) {
+                    DiskColumns(disks: snap.disks)
+                } else if host.showDisk, let d = snap.disks.max(by: { $0.fraction < $1.fraction }), d.fraction >= 0.8 {
+                    DiskChip(disk: d, all: snap.disks)
                 }
             }
-            if host.showDisk, let d = snap.disks.max(by: { $0.fraction < $1.fraction }), d.fraction >= 0.8 {
-                DiskChip(disk: d, all: snap.disks)
+            .fixedSize(horizontal: true, vertical: false)
+            if !host.enabledActions.isEmpty {
+                ViewThatFits(in: .horizontal) {
+                    ForEach(Array((0...host.enabledActions.count).reversed()), id: \.self) { count in
+                        actionButtons(visibleCount: count)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            } else {
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
         }
+    }
+
+    /// 从全部按钮到仅菜单逐级尝试，只折叠剩余宽度容纳不下的后续项，保留用户配置顺序。
+    private func actionButtons(visibleCount: Int) -> some View {
+        HStack(spacing: 4) {
+            ForEach(host.enabledActions.prefix(visibleCount)) { action in
+                Button { onRunAction(action) } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: actionIsRunning(action) ? "hourglass" : "play.fill")
+                            .font(.system(size: 6, weight: .bold))
+                        Text(action.name.isEmpty ? L("未命名", "Untitled") : action.name)
+                            .font(Theme.rounded(8, .bold)).lineLimit(1)
+                    }
+                    .padding(.horizontal, 5).padding(.vertical, 2)
+                    .background(Capsule().fill(Theme.cyan.opacity(0.14)))
+                    .foregroundStyle(Theme.cyan)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).fixedSize(horizontal: true, vertical: false)
+                .disabled(!action.isValid || actionIsRunning(action))
+                .help(action.name + " · " + action.target.label
+                    + (actionIsRunning(action) ? L(" · 运行中", " · running") : ""))
+                .accessibilityLabel(action.name + " · " + action.target.label)
+            }
+            if host.enabledActions.count > visibleCount {
+                Menu {
+                    ForEach(host.enabledActions.dropFirst(visibleCount)) { action in
+                        Button(action.name.isEmpty ? L("未命名", "Untitled") : action.name) { onRunAction(action) }
+                            .disabled(!action.isValid || actionIsRunning(action))
+                    }
+                } label: {
+                    Image(systemName: "ellipsis").font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(Theme.cyan).frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .help(L("更多 Actions", "More Actions"))
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var problemRow: some View {
@@ -527,7 +602,7 @@ struct DiskChip: View {
     var all: [DiskStat]
 
     var body: some View {
-        let c = disk.fraction >= 0.9 ? Theme.coral : Theme.amber
+        let c = Theme.load(disk.fraction)
         HStack(spacing: 4) {
             Image(systemName: "internaldrive.fill").font(.system(size: 9))
             Text(Format.percent(disk.fraction)).font(Theme.rounded(10.5, .semibold).monospacedDigit())

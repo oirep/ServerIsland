@@ -41,6 +41,19 @@ enum SSHRunner {
     /// ssh 命令行上的目标（别名或 si-<UUID>）。
     static func target(_ host: HostConfig) -> String { SSHHosts.target(host) }
 
+    /// Action 复用 App 的私有配置、跳板机和已登录连接；不在远端安装任何监控脚本。
+    static func actionCommand(for host: HostConfig) -> [String] {
+        ["/usr/bin/ssh"] + options(for: host) + [target(host), "bash -s"]
+    }
+
+    /// 长时间部署由本地包装器流式采集，不使用查询命令的 30 秒超时；
+    /// 远端启动仍统一经过 SSHRunner，复用相同的 SSH 参数与认证策略。
+    static func run(host: HostConfig, action: HostAction, monitoredProcess: Process) throws {
+        let command = action.target == .local ? ["/bin/bash", "-l", "-s"] : actionCommand(for: host)
+        monitoredProcess.arguments = (monitoredProcess.arguments ?? []) + ["--"] + command
+        try monitoredProcess.run()
+    }
+
     static func options(for host: HostConfig, connectTimeout: Int = 10) -> [String] {
         var opts = configArgs(host) + [
             "-o", "BatchMode=yes",              // 绝不在后台卡住等待密码输入

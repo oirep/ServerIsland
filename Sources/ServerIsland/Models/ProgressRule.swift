@@ -4,6 +4,27 @@ import Foundation
 /// 保存在全局设置里，对所有服务器生效。规则在内置识别（NEP / GPUMD / VASP / LAMMPS）之前检查。
 /// 任何一步对不上（文件没有、数字取不到、当前值超过目标值）都当作没识别到，不显示进度。
 struct ProgressRule: Codable, Equatable, Identifiable {
+    enum Source: String, Codable, CaseIterable { case file, actionLog }
+    enum LogMode: String, Codable, CaseIterable { case numbered, stages }
+    struct LogStage: Codable, Equatable, Identifiable {
+        var id = UUID()
+        var name = ""
+        var pattern = ""
+        init(name: String = "", pattern: String = "") { self.name = name; self.pattern = pattern }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+            name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+            pattern = try c.decodeIfPresent(String.self, forKey: .pattern) ?? ""
+        }
+    }
+    var source: Source = .file
+    var logMode: LogMode = .numbered
+    var activationPattern = ""
+    var currentGroup = 1
+    var totalGroup = 2
+    var labelGroup = 3
+    var stages: [LogStage] = []
     enum Match: String, Codable, CaseIterable, Identifiable {
         /// 关键字后面的数字，比如 `epoch` 匹配 "Epoch 37/100"、"epoch: 37"。
         case keyword
@@ -42,6 +63,13 @@ struct ProgressRule: Codable, Equatable, Identifiable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        source = try c.decodeIfPresent(Source.self, forKey: .source) ?? .file
+        logMode = try c.decodeIfPresent(LogMode.self, forKey: .logMode) ?? .numbered
+        activationPattern = try c.decodeIfPresent(String.self, forKey: .activationPattern) ?? ""
+        currentGroup = try c.decodeIfPresent(Int.self, forKey: .currentGroup) ?? 1
+        totalGroup = try c.decodeIfPresent(Int.self, forKey: .totalGroup) ?? 2
+        labelGroup = try c.decodeIfPresent(Int.self, forKey: .labelGroup) ?? 3
+        stages = try c.decodeIfPresent([LogStage].self, forKey: .stages) ?? []
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
         file = try c.decodeIfPresent(String.self, forKey: .file) ?? ""
@@ -63,6 +91,31 @@ struct ProgressRule: Codable, Equatable, Identifiable {
     /// 规则是否完整可用；不可用时返回原因（设置页里显示）。
     var problem: String? {
         if name.trimmingCharacters(in: .whitespaces).isEmpty { return L("还没有填名称", "Name is empty") }
+        if source == .actionLog {
+            if !activationPattern.isEmpty, !Self.validLogRegex(activationPattern) {
+                return L("激活正则无效", "Invalid activation regex")
+            }
+            if logMode == .stages {
+                if stages.isEmpty || stages.count > 100 { return L("需要 1–100 个阶段", "Specify 1–100 stages") }
+                if stages.contains(where: { $0.name.isEmpty || !Self.validLogRegex($0.pattern) }) {
+                    return L("阶段名称或正则无效", "Invalid stage name or regex")
+                }
+            } else {
+                guard Self.validLogRegex(pattern), let regex = try? NSRegularExpression(pattern: pattern) else {
+                    return L("日志正则无效", "Invalid log regex")
+                }
+                let count = regex.numberOfCaptureGroups
+                if currentGroup < 1 || currentGroup > count || labelGroup < 0 || labelGroup > count {
+                    return L("阶段编号或名称捕获组超出范围", "Stage or label capture group is out of range")
+                }
+                if total.isEmpty {
+                    if totalGroup < 1 || totalGroup > count { return L("请设置总数捕获组或固定总阶段数", "Set a total capture group or fixed total") }
+                } else if !(1...1000).contains(Int(total) ?? 0) {
+                    return L("固定总阶段数需要为 1–1000 的整数", "Fixed total must be an integer from 1 to 1000")
+                }
+            }
+            return nil
+        }
         if !Self.isSafeFileName(file) { return L("文件名为空或含有不支持的字符", "File name is empty or has unsupported characters") }
         if pattern.isEmpty { return match == .keyword ? L("还没有填关键字", "Keyword is empty") : L("还没有填正则", "Regex is empty") }
         if match == .regex {
@@ -75,7 +128,11 @@ struct ProgressRule: Codable, Equatable, Identifiable {
         return nil
     }
 
-    var isUsable: Bool { enabled && problem == nil }
+    var isUsable: Bool { source == .file && enabled && problem == nil }
+    var isLogUsable: Bool { source == .actionLog && enabled && problem == nil }
+    static func validLogRegex(_ value: String) -> Bool {
+        !value.isEmpty && value.count <= 1000 && (try? NSRegularExpression(pattern: value)) != nil
+    }
 
     /// 当前生效的规则（由 ConfigStore 在启动和修改设置时更新，生成远端脚本时读取）。
     static var active: [ProgressRule] = []

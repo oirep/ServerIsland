@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // ⓘ 和按钮的悬停说明：系统默认要停一秒多才出来，改成 0.25 秒（只影响本 App）
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 250])
+        EditMenu.install()
         store = ConfigStore(persist: !demo)
         if demo { store.settings = DemoData.settings() }
         NSScreen.islandPreference = store.settings.islandScreen
@@ -112,7 +113,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(.separator())
         if case .available(let r) = UpdateChecker.shared.state {
-            menu.addItem(item(L("更新到 v\(r.version)…", "Update to v\(r.version)…"), #selector(downloadUpdate), ""))
+            menu.addItem(item(UpdateChecker.isCustomizedBuild ? L("查看官方 v\(r.version) 更新…", "View Upstream v\(r.version)…")
+                              : L("更新到 v\(r.version)…", "Update to v\(r.version)…"), #selector(downloadUpdate), ""))
             menu.addItem(.separator())
         }
         menu.addItem(item(L("立即刷新", "Refresh Now"), #selector(refresh), "r"))
@@ -131,6 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// 菜单里的"更新到 v…"：打开设置的通用页显示进度，同时开始自动更新。
     @objc private func downloadUpdate() {
         guard case .available(let r) = UpdateChecker.shared.state else { return }
+        if UpdateChecker.isCustomizedBuild { NSWorkspace.shared.open(r.pageURL); return }
         openSettings()
         Task { await UpdateChecker.shared.install(r) }
     }
@@ -144,7 +147,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard UserDefaults.standard.string(forKey: key) != r.version else { return }
             UserDefaults.standard.set(r.version, forKey: key)
             engine.emit(.init(kind: .info, title: L("ServerIsland 有新版本 v\(r.version)", "ServerIsland v\(r.version) is available"),
-                              subtitle: L("在菜单栏图标或 设置 → 通用 里一键更新", "Update from the menu bar icon or Settings → General"),
+                              subtitle: UpdateChecker.isCustomizedBuild ? L("定制版请合并源码升级，以保留现有功能", "Merge upstream source to preserve this build's custom features")
+                                  : L("在菜单栏图标或 设置 → 通用 里一键更新", "Update from the menu bar icon or Settings → General"),
                               hostName: "ServerIsland"))
         }
     }

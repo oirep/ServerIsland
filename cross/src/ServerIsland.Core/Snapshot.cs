@@ -73,6 +73,10 @@ public sealed class RemoteJob
     /// 0...1，来自进度文件。
     public double? Progress;
     public string? Message;
+    public DateTime? ProgressEndedAt;
+    public bool StaysVisible(int seconds, DateTime? now = null) =>
+        Source != JobSource.ProgressFile || State.IsActive() || seconds <= 0 || ProgressEndedAt == null
+        || ((now ?? DateTime.UtcNow).ToUniversalTime() - ProgressEndedAt.Value.ToUniversalTime()).TotalSeconds < seconds;
     public double? CpuPercent;
     public double? MemoryBytes;
     public double? GpuMemoryMB;
@@ -201,6 +205,7 @@ public sealed class HostSnapshot
     public HostMetrics Metrics = new();
     public List<GPUStat> Gpus = [];
     public List<DiskStat> Disks = [];
+    public DockerSnapshot? Docker;
     public List<RemoteJob> Jobs = [];
     public DateTime? LastUpdate;
     public double? Latency;

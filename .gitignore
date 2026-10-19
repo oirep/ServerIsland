@@ -14,3 +14,8 @@ cross/**/obj/
 
 # 本地测试用的计算算例（不上传）
 /test/
+
+# Local SDK-specific Swift builds and Python test caches
+.build-*/
+__pycache__/
+*.pyc

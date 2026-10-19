@@ -31,6 +31,7 @@ public sealed partial class MonitorEngine
 
     public async Task<JobDetail> FetchDetail(HostConfig host, RemoteJob job)
     {
+        if (job.Id.StartsWith("local:")) return LocalTaskStore.Detail(job);
         if (IsDemo(host)) { await Task.Delay(300); return DemoData.Detail(job); }
         var d = new JobDetail();
         if (job.Source == JobSource.ProgressFile)

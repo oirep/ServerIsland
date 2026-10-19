@@ -249,6 +249,41 @@ enum SelfTest {
         SelfTestApps.run(check)
         SelfTestConnection.run(check)
         SelfTestPBS.run(check)
+        MainActor.assumeIsolated { SelfTestActions.run(check) }
+        // Action 用临时进程环境隔离文件；会初始化常驻引擎的详情集成测试放在其后。
+        SelfTestDocker.run(check)
+        MainActor.assumeIsolated { SelfTestScrollbars.run(check) }
+        var customizedSettings = AppSettings()
+        var customizedHost = HostConfig(alias: "demo-preserved")
+        var disabledAction = HostAction(name: "Demo deploy", command: "printf demo", target: .local)
+        disabledAction.enabled = false
+        customizedHost.actions = [disabledAction]; customizedHost.dockerFavorites = ["demo-container"]
+        customizedSettings.hosts = [customizedHost]; customizedSettings.progressFileStaySeconds = 17
+        customizedSettings.islandScreen = "primary"
+        let customizedRoundTrip = (try? JSONEncoder().encode(customizedSettings)).flatMap {
+            try? JSONDecoder().decode(AppSettings.self, from: $0)
+        }
+        check(customizedRoundTrip == customizedSettings,
+              "v0.3.0 合并：Action 脚本/禁用状态、Docker 收藏、停留时长与新显示器设置完整往返保存")
+        let protectedRelease = UpdateChecker.Release(version: "99.0.0", pageURL: URL(string: "https://example.org/release")!,
+            downloadURL: URL(string: "https://example.org/update.dmg")!, notes: "", digest: String(repeating: "0", count: 64))
+        check(UpdateChecker.isCustomizedBuild && UpdateInstaller.unsupportedReason(protectedRelease) == UpdateChecker.customizedUpdateMessage,
+              "v0.3.0 合并：定制版拒绝官方安装包覆盖，保留版本检查能力")
+        MainActor.assumeIsolated {
+            var finished = false, protected = false
+            if UpdateChecker.isCustomizedBuild {
+                Task {
+                    await UpdateChecker.shared.install(protectedRelease)
+                    if case .installFailed(_, let why) = UpdateChecker.shared.state {
+                        protected = why == UpdateChecker.customizedUpdateMessage
+                    }
+                    finished = true
+                }
+                let deadline = Date().addingTimeInterval(0.5)
+                while !finished && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+            }
+            check(finished && protected, "v0.3.0 合并：即使直接调用更新入口也在下载前阻止覆盖")
+        }
         SelfTestMonitor.run(check)
         return ok
     }

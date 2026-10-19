@@ -18,6 +18,8 @@
 	<string>0.4.0</string>
 	<key>CFBundleVersion</key>
 	<string>4</string>
+	<key>ServerIslandCustomizedBuild</key>
+	<true/>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>LSUIElement</key>

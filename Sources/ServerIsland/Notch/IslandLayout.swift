@@ -23,6 +23,7 @@ enum IslandLayout {
     static let cardHeader: CGFloat = 20
     static let sectionGap: CGFloat = 10
     static let metricsRow: CGFloat = 16
+    static let actionMetricsRow: CGFloat = 18
     static let jobRow: CGFloat = 34
     static let jobGap: CGFloat = 6
     static let moreRow: CGFloat = 14
@@ -32,6 +33,9 @@ enum IslandLayout {
     static let cardGap: CGFloat = 8
     static let idleRow: CGFloat = 36
     static let maxJobs = 5
+    static let dockerHeader: CGFloat = 18
+    static let dockerTile: CGFloat = 78
+    static let maxDockerContainers = 3
     static let emptyState: CGFloat = 104
     /// 二级页面（详情 / 历史 / 监听）的固定高度。
     static let pageHeight: CGFloat = 420
@@ -45,24 +49,51 @@ enum IslandLayout {
         var emptyJobs = false
         var warnings = 0
         var paused = false
+        var actions = false
+        var docker = false
+        var dockerRows = 0
+        var dockerGrid = false
+    }
+
+    /// SSH 异常时只有本机任务仍有独立的实时来源，不把旧远端进程当作最新状态展示。
+    static func visibleJobs(_ snap: HostSnapshot) -> [RemoteJob] {
+        if snap.health.isProblem || snap.lastUpdate == nil {
+            return snap.jobs.filter { $0.id.hasPrefix("local:") }
+        }
+        return snap.jobs
     }
 
     static func parts(_ host: HostConfig, _ snap: HostSnapshot) -> CardParts {
         var p = CardParts()
+        let jobs = visibleJobs(snap)
         p.paused = host.paused
-        if host.paused && snap.lastUpdate == nil && !snap.isRefreshing { return p }
-        if snap.health.isProblem { p.problem = true; return p }
-        if snap.lastUpdate == nil { p.connecting = true; return p }
+        p.actions = !host.enabledActions.isEmpty
+        p.metrics = p.actions
+        if host.paused && snap.lastUpdate == nil && !snap.isRefreshing && jobs.isEmpty { return p }
+        if snap.health.isProblem { p.problem = true; if jobs.isEmpty { return p } }
+        if snap.lastUpdate == nil && !p.problem && !host.paused { p.connecting = true; if jobs.isEmpty { return p } }
         let m = snap.metrics
-        p.metrics = (host.showCPU && m.cpuPercent != nil) || (host.showMemory && m.memoryFraction != nil)
-            || (host.showGPU && !snap.gpus.isEmpty)
+        p.metrics = p.actions || (host.showCPU && m.cpuPercent != nil) || (host.showMemory && m.memoryFraction != nil)
+            || (host.showGPU && !snap.gpus.isEmpty) || showsDiskColumns(host, snap)
         p.warnings = snap.warnings.count
-        if host.watchJobs || !snap.jobs.isEmpty {
-            p.jobRows = min(snap.jobs.count, maxJobs)
-            p.more = max(0, snap.jobs.count - maxJobs)
-            p.emptyJobs = snap.jobs.isEmpty
+        p.docker = host.showDocker
+        let activeDocker = snap.docker?.containers.filter { !$0.isStopped }.count ?? 0
+        p.dockerRows = host.showDocker && snap.docker?.error == nil ? min(activeDocker, maxDockerContainers) : 0
+        p.dockerGrid = host.dockerView == .grid
+        if p.dockerGrid && host.showDocker && snap.docker?.error == nil {
+            p.dockerRows = (min(activeDocker, 4) + 1) / 2
+        }
+        if host.watchJobs || !jobs.isEmpty {
+            p.jobRows = min(jobs.count, maxJobs)
+            p.more = max(0, jobs.count - maxJobs)
+            p.emptyJobs = jobs.isEmpty && !p.actions && !p.docker
         }
         return p
+    }
+
+    /// 没有可显示的 GPU 时，复用指标行的柱状区域展示磁盘，不必等磁盘达到告警阈值。
+    static func showsDiskColumns(_ host: HostConfig, _ snap: HostSnapshot) -> Bool {
+        host.showDisk && !snap.disks.isEmpty && !(host.showGPU && !snap.gpus.isEmpty)
     }
 
     static func cardHeight(_ p: CardParts) -> CGFloat {
@@ -70,8 +101,12 @@ enum IslandLayout {
         if p.paused { h += sectionGap + emptyRow }
         if p.problem { h += sectionGap + problemRow }
         if p.connecting { h += sectionGap + emptyRow }
-        if p.metrics { h += sectionGap + metricsRow }
+        if p.metrics { h += sectionGap + (p.actions ? actionMetricsRow : metricsRow) }
         if p.warnings > 0 { h += 6 + CGFloat(p.warnings) * warningRow }
+        if p.docker {
+            h += sectionGap + dockerHeader + jobGap
+            h += p.dockerRows > 0 ? CGFloat(p.dockerRows) * (p.dockerGrid ? dockerTile : jobRow) + CGFloat(p.dockerRows - 1) * jobGap : emptyRow
+        }
         if p.jobRows > 0 { h += sectionGap + CGFloat(p.jobRows) * jobRow + CGFloat(p.jobRows - 1) * jobGap }
         if p.more > 0 { h += 4 + moreRow }
         if p.emptyJobs { h += sectionGap + emptyRow }
@@ -80,6 +115,7 @@ enum IslandLayout {
 
     /// 空闲：已连上、没有任务、没有问题和警告、磁盘不紧张。暂停且没有任务的也算。
     static func isIdle(_ host: HostConfig, _ snap: HostSnapshot) -> Bool {
+        if !host.enabledActions.isEmpty || host.showDocker { return false }
         guard snap.jobs.isEmpty, !snap.health.isProblem, snap.warnings.isEmpty else { return false }
         if snap.lastUpdate == nil { return host.paused && !snap.isRefreshing }
         return !snap.disks.contains { $0.fraction >= 0.8 }

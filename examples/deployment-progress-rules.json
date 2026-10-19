@@ -1,0 +1,77 @@
+{
+  "format": "serverisland.progress-rules",
+  "version": 1,
+  "rules": [
+    {
+      "source": "actionLog",
+      "enabled": true,
+      "match": "regex",
+      "file": "",
+      "unit": "阶段",
+      "id": "87F4D96C-99AD-5759-AC07-10017DAC1144",
+      "name": "部署日志：编号阶段",
+      "logMode": "numbered",
+      "activationPattern": "",
+      "pattern": "^\\[(?:进度\\s+)?(\\d+)/(\\d+)\\]\\s*(.+)$",
+      "currentGroup": 1,
+      "totalGroup": 2,
+      "labelGroup": 3,
+      "total": ""
+    },
+    {
+      "source": "actionLog",
+      "enabled": true,
+      "match": "regex",
+      "file": "",
+      "unit": "阶段",
+      "id": "81C6394A-DA87-5E73-B330-5011E6A352F0",
+      "name": "部署日志：前端七步",
+      "logMode": "numbered",
+      "activationPattern": "Frontend\\s+部署脚本",
+      "pattern": "^(\\d+)[.)、]\\s+(.+)$",
+      "currentGroup": 1,
+      "totalGroup": 0,
+      "labelGroup": 2,
+      "total": "7"
+    },
+    {
+      "source": "actionLog",
+      "enabled": true,
+      "match": "regex",
+      "file": "",
+      "unit": "阶段",
+      "id": "BB9D2B01-8601-5FB7-A688-7E6A3564A23F",
+      "name": "部署日志：后端阶段",
+      "logMode": "stages",
+      "activationPattern": "后端智能部署",
+      "pattern": "",
+      "total": "",
+      "stages": [
+        {
+          "name": "同步代码",
+          "pattern": "^(?:同步代码|拉取.*代码)"
+        },
+        {
+          "name": "构建或更新内容",
+          "pattern": "^(?:构建.*镜像|同步文档到容器|策略[:：].*(?:热更新|重建镜像|产物切换))"
+        },
+        {
+          "name": "启动服务或增量索引",
+          "pattern": "^(?:重启服务|执行增量索引)"
+        },
+        {
+          "name": "健康检查",
+          "pattern": "^(?:等待健康检查|验证容器状态)"
+        },
+        {
+          "name": "业务验证",
+          "pattern": "^(?:冒烟[:：]|运行版本已核对)"
+        },
+        {
+          "name": "后置处理与状态核对",
+          "pattern": "^(?:提取(?:最新)?\\s*manifest|服务状态[:：])"
+        }
+      ]
+    }
+  ]
+}

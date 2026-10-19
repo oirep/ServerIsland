@@ -268,6 +268,7 @@ public static class SelfTest
         SelfTestConnection.Run(Check);
         SelfTestPBS.Run(Check, hasBash);
         SelfTestMonitor.Run(Check);
+        SelfTestDocker.Run(Check);
 
         CrossPlatformChecks(hasBash);
 
@@ -410,6 +411,7 @@ public static class SelfTest
             [
                 ("poll-slurm.sh", RemoteScript.Build(slurm)),
                 ("poll-direct.sh", RemoteScript.Build(direct)),
+                ("docker-collector.sh", DockerMonitor.Script),
                 ("detail-slurm.sh", RemoteScript.DetailScript(slurm, sj)),
                 ("detail-process.sh", RemoteScript.DetailScript(direct, pj)),
                 ("cancel-slurm.sh", RemoteScript.CancelScript(slurm, sj, null, false)!),
@@ -436,6 +438,7 @@ public static class SelfTest
                 ("poll-slurm-cached.sh", RemoteScript.Build(slurm, new Dictionary<string, string> { ["/home/u/it's run"] = "1.2 3.4 ", ["/home/u/a"] = "/home/u/a/x.log 1 2 " }, includeDisk: false)),
                 ("poll-cluster.sh", RemoteScript.Build(cluster)),
                 ("poll-cluster-custom.sh", RemoteScript.Build(custom)),
+                ("curve-neb.sh", AppCurves.Script(new AppCurves.Source("/home/u/neb run", AppCurves.CurveKind.Neb), 0, "")),
             ];
         }
         finally { ProgressRule.Active = saved; }

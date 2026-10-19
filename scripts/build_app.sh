@@ -9,13 +9,31 @@ APP="$ROOT/build/ServerIsland.app"
 CONFIG="${CONFIG:-release}"
 
 cd "$ROOT"
-swift build -c "$CONFIG"
-BIN="$(swift build -c "$CONFIG" --show-bin-path)/ServerIsland"
+# 新版 CLT 的默认 macOS 27 SDK 缺少 SwiftUI 宏插件时，使用本机仍安装的 26.5 SDK。
+# 也可显式指定 SERVERISLAND_SDK；构建和查找产物必须使用同一组参数。
+SDK="${SERVERISLAND_SDK:-}"
+if [[ -z "$SDK" && -d /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk ]]; then
+  SDK=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
+fi
+BUILD_ARGS=(--disable-sandbox --build-system native -c "$CONFIG")
+if [[ -n "$SDK" ]]; then
+  [[ -d "$SDK" ]] || { echo "SDK 不存在：$SDK" >&2; exit 1; }
+  BUILD_ARGS+=(--scratch-path "$ROOT/.build-macos26"
+    -Xswiftc -sdk -Xswiftc "$SDK" -Xcc -isysroot -Xcc "$SDK")
+fi
+swift build "${BUILD_ARGS[@]}"
+BIN="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)/ServerIsland"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/ServerIsland"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
+cp "$ROOT/remote/si-deploy" "$APP/Contents/Resources/si-deploy"
+cp "$ROOT/remote/docker-monitor.py" "$APP/Contents/Resources/docker-monitor.py"
+cp "$ROOT/remote/docker-control.py" "$APP/Contents/Resources/docker-control.py"
+if [[ -f "$ROOT/examples/deployment-progress-rules.json" ]]; then
+  cp "$ROOT/examples/deployment-progress-rules.json" "$ROOT/build/deployment-progress-rules.json"
+fi
 if [[ -f "$ROOT/Resources/AppIcon.icns" ]]; then
   cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 fi
@@ -27,7 +45,8 @@ if [[ -f "$ROOT/Branding/menubar.png" ]]; then
   cp "$ROOT/Branding/menubar@2x.png" "$APP/Contents/Resources/menubar@2x.png"
 fi
 
-codesign --force --sign - "$APP" >/dev/null 2>&1 || true
+codesign --force --sign - "$APP"
+codesign --verify --deep --strict "$APP"
 echo "✓ 已生成 $APP"
 
 if [[ "${1:-}" == "--run" ]]; then

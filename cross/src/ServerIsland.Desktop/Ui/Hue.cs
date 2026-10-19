@@ -75,7 +75,7 @@ public static class Hue
     };
 
     /// 资源占用越高颜色越"热"。
-    public static Color Load(double fraction) => fraction < 0.6 ? Mint : fraction < 0.85 ? Amber : Coral;
+    public static Color Load(double fraction) => fraction < 0.6 ? Mint : fraction < 0.7 ? Cyan : fraction < 0.85 ? Amber : Coral;
 
     /// 界面字体：Windows 用 Segoe UI Variable / 微软雅黑，Linux 用 Noto / Ubuntu，macOS（开发）用苹方。
     public static readonly FontFamily Sans = new(
