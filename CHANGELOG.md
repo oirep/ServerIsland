@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.3.0 — 2026-10-19
+
+- **One-click updates**: "Update to v…" downloads the new version, checks its SHA-256 against GitHub, replaces the app and reopens it (macOS, Windows and Linux). Updating from v0.2.0 or earlier still has to be done by hand once.
+- **Reorder servers**: drag them in the Settings sidebar or right-click → Move to Top / Up / Down / Bottom; the island uses the same order
+- **Terminal button** on every server card in the island: one click opens an ssh session (reusing the kept-alive connection)
+- **Lighter on your servers**: one `squeue` / `qstat` call per refresh instead of three, one pass over your processes, one fewer `nvidia-smi`; disk usage is checked every 5 minutes; VASP / LAMMPS / GPUMD / custom-rule folders whose files haven't changed aren't re-read
+- **History** kept for 7 days (was 24 hours) with each job's folder, copy and "Open in Terminal"; jobs that ended while ServerIsland was closed are recorded on the next launch; Clear History in Settings
+- **Choose the screen** the island shows on (Settings → General)
+- **DCU / NPU / MLU** in the partition view; a clear `chmod 600` hint when ssh rejects a private key because of its permissions
+- **VASP**: VTST-aware max force; NEB energy profile and barrier
+- Faster tooltips; a Quit button in Settings
+
 ## v0.2.0 — 2026-10-18
 
 - **Windows and Linux** versions (virtual island at the top of the screen, or a desktop pet; tray icon)

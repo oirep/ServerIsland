@@ -149,10 +149,10 @@ On macOS and Linux, ServerIsland uses the system `ssh` with a shared connection 
 - [x] Loss / energy / max-force curves in job details
 - [x] PBS (PBS Pro / OpenPBS / Torque), folder filters, log retention
 - [x] Windows and Linux versions
+- [x] Display selection on multi-monitor setups
+- [x] One-click updates, server reordering, a terminal button on each card
 - [ ] More packages: CP2K, Quantum ESPRESSO, ABACUS, Gaussian, ORCA
-- [ ] PBS / Torque and LSF
-- [ ] Display selection on multi-monitor setups
-- [ ] Auto-update
+- [ ] LSF
 
 ## Contributing
 

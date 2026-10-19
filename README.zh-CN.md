@@ -157,10 +157,10 @@ si-progress train done
 - [x] 详情页的 loss / 能量 / 最大力曲线
 - [x] PBS（PBS Pro / OpenPBS / Torque）、按目录过滤、日志保留天数
 - [x] Windows 和 Linux 版
+- [x] 多显示器时选择显示在哪块屏幕
+- [x] 一键自动更新、服务器排序、卡片上的终端按钮
 - [ ] 更多软件：CP2K、Quantum ESPRESSO、ABACUS、Gaussian、ORCA
-- [ ] PBS / Torque 和 LSF
-- [ ] 多显示器时选择显示在哪块屏幕
-- [ ] 自动更新
+- [ ] LSF
 
 ## 参与贡献
 

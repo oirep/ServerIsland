@@ -48,7 +48,7 @@
   })();
 
   // ------------------------------------------------------------ 版本、GitHub 和下载
-  $$(".js-version").forEach(el => { el.textContent = cfg.version || "0.2.0"; });
+  $$(".js-version").forEach(el => { el.textContent = cfg.version || "0.3.0"; });
   const repo = (cfg.repo || "").replace(/\/$/, "");
   if (repo) {
     $$(".js-github").forEach(a => { a.href = repo + (a.dataset.path || ""); a.target = "_blank"; a.rel = "noopener"; });
