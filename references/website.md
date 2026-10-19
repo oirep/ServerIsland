@@ -15,15 +15,20 @@
 | `site/js/main.js` | 三个页面共用：语言切换（子页面的标题写在 `<body data-title-zh / data-title-en>`）、手册目录滚动高亮（默认英文；`index.html` 开头的小脚本按系统首选语言选中文 / 英文，手动切换后记在 localStorage）、宣传视频按语言换中 / 英文版、GitHub Star 数、像素字组装动画、夜空星星、刘海演示状态机（收起 → 提示 → 收起 → 展开，鼠标悬停时一直展开）、滚动出现 |
 | `site/assets/shots/{zh,en}/` | App 截图，由 `scripts/site_shots.sh` 生成；`cross-pet.png`（Windows / Linux 的桌宠模式）来自跨平台版的 `dotnet run -- --render-preview <目录> zh|en` 里的 `cross-pet.png` |
 | `site/assets/promo[-en].mp4`、`promo-poster[-en].jpg` | 宣传视频的网页版（中 / 英文，1280 宽、CRF 27，约 4 MB） |
+| `site/assets/tutorial[-en].mp4`、`tutorial-poster[-en].jpg` | 3 分钟使用教程的网页版（中 / 英文，1280 宽、CRF 28、AAC 96k，各约 9 MB），放在 `manual.html` 顶部的"视频教程"一节，跟着页面语言换片源（换语言时会暂停）；下面的章节按钮用 `data-t-zh` / `data-t-en` 记两种语言的跳转秒数（章节开始后 0.5 秒，避开交叉淡化，取自 `promo/tutorial/timing[-en].js`），播放时高亮当前章节 |
 | `.github/workflows/pages.yml` | 推送到 main 且 `site/` 有变化时自动部署 |
 
 ## 常用操作
 
 ```bash
 ./scripts/site_shots.sh                 # 重新生成中英文截图（演示数据）
-python3 -m http.server 8765 --directory site   # 本地预览（或用 .claude/launch.json 里的 "site"）
+python3 -m http.server 8765 --directory site   # 本地预览（或用 .claude/launch.json 里的 "site"）。它不支持 Range 请求，视频没下载完时点章节跳不过去；GitHub Pages 支持，线上正常
 # 视频改动后：node promo/render.mjs，再压网页版
 ffmpeg -i promo/out/ServerIsland-v0.1.mp4 -vf scale=1280:-2 -c:v libx264 -preset slow -crf 27 -pix_fmt yuv420p -c:a aac -b:a 128k -movflags +faststart site/assets/promo.mp4
+# 使用教程改动后：node promo/tutorial/render.mjs，再压网页版和封面（封面取标题卡那一帧）；章节时间变了要同步改 manual.html 里按钮的 data-t-zh / data-t-en
+ffmpeg -i promo/out/tutorial/ServerIsland-教程-v0.3.0.mp4 -vf scale=1280:-2 -c:v libx264 -preset slow -crf 28 -tune stillimage -pix_fmt yuv420p -c:a aac -b:a 96k -movflags +faststart site/assets/tutorial.mp4
+ffmpeg -ss 17.6 -i promo/out/tutorial/ServerIsland-教程-v0.3.0.mp4 -frames:v 1 -vf scale=1280:-2 -q:v 4 site/assets/tutorial-poster.jpg
+# 英文版同理：输入 promo/out/tutorial/ServerIsland-Tutorial-v0.3.0-en.mp4，输出 site/assets/tutorial-en.mp4、tutorial-poster-en.jpg
 ```
 
 ## 部署到 GitHub Pages

@@ -4,6 +4,7 @@
 //   node promo/tutorial/render.mjs                    # 完整视频 → promo/out/tutorial/ServerIsland-教程-v0.3.0.mp4
 //   node promo/tutorial/render.mjs --stills 3,12.5    # 只导出这些时刻（秒）的静帧 → promo/out/tutorial/still-*.png
 //   node promo/tutorial/render.mjs --from 20 --to 30  # 只渲染一段（调试用）
+//   node promo/tutorial/render.mjs --en               # 英文版（先跑 audio.py --en）→ ServerIsland-Tutorial-v0.3.0-en.mp4
 //   node promo/tutorial/render.mjs --fps 30           # 默认 30fps（教程以界面为主，30fps 足够，渲染快一倍）
 import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -23,6 +24,7 @@ const opt = (k, d) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] :
 const stills = opt("--stills");
 const FPS = Number(opt("--fps", 30));
 const VW = 1920, VH = 1080;
+const EN = args.includes("--en");
 
 const browser = await puppeteer.launch({
   executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -33,7 +35,7 @@ const browser = await puppeteer.launch({
 const page = await browser.newPage();
 page.on("pageerror", e => console.error("页面错误:", e.message));
 page.on("console", m => { if (m.type() === "error") console.error("console:", m.text()); });
-await page.goto("file://" + join(HERE, "index.html"), { waitUntil: "load" });
+await page.goto("file://" + join(HERE, "index.html") + (EN ? "?en" : ""), { waitUntil: "load" });
 await page.evaluate(() => window.ready);
 const DURATION = await page.evaluate(() => window.DURATION);
 
@@ -42,7 +44,7 @@ const shot = () => page.screenshot({ type: "png", clip: { x: 0, y: 0, width: VW,
 if (stills) {
   for (const s of stills.split(",").map(Number)) {
     await page.evaluate(t => window.renderFrame(t), s);
-    const f = join(OUT, `still-${String(s).replace(".", "_")}.png`);
+    const f = join(OUT, `still${EN ? "-en" : ""}-${String(s).replace(".", "_")}.png`);
     writeFileSync(f, await shot());
     console.log("wrote", f);
   }
@@ -52,14 +54,14 @@ if (stills) {
 
 const from = Number(opt("--from", 0)), to = Number(opt("--to", DURATION));
 const partial = from > 0 || to < DURATION;
-const video = join(OUT, partial ? `part-${from}-${to}.mp4` : "ServerIsland-教程-v0.3.0.mp4");
+const video = join(OUT, partial ? `part-${from}-${to}${EN ? "-en" : ""}.mp4` : EN ? "ServerIsland-Tutorial-v0.3.0-en.mp4" : "ServerIsland-教程-v0.3.0.mp4");
 const total = Math.round((to - from) * FPS);
 
 // 声音已经在 audio.py 里混好；这里只做响度标准化（讲解类视频用 -16 LUFS）
 const ff = spawn("ffmpeg", [
   "-y", "-loglevel", "error",
   "-f", "image2pipe", "-framerate", String(FPS), "-c:v", "png", "-i", "-",
-  "-ss", String(from), "-t", String(to - from), "-i", join(OUT, "audio.wav"),
+  "-ss", String(from), "-t", String(to - from), "-i", join(OUT, EN ? "audio-en.wav" : "audio.wav"),
   "-filter:a", "loudnorm=I=-16:TP=-1.0:LRA=11",
   "-c:v", "libx264", "-preset", "slow", "-crf", "16", "-pix_fmt", "yuv420p", "-profile:v", "high",
   "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",

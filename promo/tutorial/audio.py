@@ -6,13 +6,15 @@
 3. 合成一段轻柔的 chiptune 背景音乐，配音出现时自动压低（ducking）；
 4. 叠加音效（叮咚 / 咚咚直接用 App 自己的 Resources/Sounds），输出 out/tutorial/audio.wav。
 
-    python3 promo/tutorial/audio.py
+    python3 promo/tutorial/audio.py          # 中文 → timing.js、out/tutorial/audio.wav
+    python3 promo/tutorial/audio.py --en     # 英文 → timing-en.js、out/tutorial/audio-en.wav
 """
 import hashlib
 import json
 import os
 import re
 import subprocess
+import sys
 
 import numpy as np
 from scipy.io import wavfile
@@ -27,6 +29,9 @@ os.makedirs(TTS_DIR, exist_ok=True)
 src = open(os.path.join(HERE, "script.js"), encoding="utf-8").read()
 m = re.search(r"SCRIPT_JSON_BEGIN\s*window\.SCRIPT\s*=\s*(\{.*\})\s*//\s*SCRIPT_JSON_END", src, re.S)
 SC = json.loads(m.group(1))
+# --en：英文版，用每句的 en / ttsEn 和英文声音；输出文件名带 -en
+EN = "--en" in sys.argv
+SUF = "-en" if EN else ""
 
 SR = 44100
 rng = np.random.default_rng(11)
@@ -42,7 +47,8 @@ EDGE = os.environ.get("EDGE_TTS", "edge-tts")
 def tts(text):
     """合成一句，返回单声道 float 数组。按 (引擎, 声音, 语速, 文本) 缓存。"""
     eng = SC.get("engine", "say")
-    voice, rate = (SC["voice"], SC["rate"]) if eng == "edge" else (SC["sayVoice"], SC["sayRate"])
+    if eng == "edge": voice, rate = (SC["voiceEn"], SC["rateEn"]) if EN else (SC["voice"], SC["rate"])
+    else: voice, rate = ("Samantha", 190) if EN else (SC["sayVoice"], SC["sayRate"])
     key = hashlib.sha1(f"{eng}|{voice}|{rate}|{text}".encode()).hexdigest()[:16]
     wav = os.path.join(TTS_DIR, key + ".wav")
     if not os.path.exists(wav):
@@ -73,25 +79,25 @@ for ch in SC["chapters"]:
     t += ch.get("lead", 0.8)
     for ln in ch["lines"]:
         t += ln.get("gap", 0.0)
-        v = tts(ln.get("tts", ln["text"]))
+        v = tts(ln.get("ttsEn", ln["en"]) if EN else ln.get("tts", ln["text"]))
         dur = len(v) / SR
         voices[ln["id"]] = (t, v)
         slot = max(dur, ln.get("min", 0))
         timing["lines"][ln["id"]] = {"start": round(t, 3), "dur": round(dur, 3), "end": round(t + slot, 3),
-                                     "text": ln["text"], "chapter": ch["id"]}
+                                     "text": ln["en"] if EN else ln["text"], "chapter": ch["id"]}
         over = "" if dur <= ln.get("min", 0) else f"  (比 min 长 {dur - ln.get('min', 0):.2f}s)"
         print(f"{ln['id']:>3}  {t:6.2f}s  语音 {dur:4.2f}s  占 {slot:4.2f}s{over}")
         t += slot + SC["lineGap"]
     t += ch.get("tail", 0.5) - SC["lineGap"]
-    timing["chapters"].append({"id": ch["id"], "title": ch["title"], "from": round(c0, 3), "to": round(t, 3)})
+    timing["chapters"].append({"id": ch["id"], "title": ch["titleEn"] if EN else ch["title"], "from": round(c0, 3), "to": round(t, 3)})
 TOTAL = t
 timing["total"] = round(TOTAL, 3)
 for c in SC["cues"]:
     timing["cues"].append({"t": round(timing["lines"][c["at"]]["start"] + c["off"], 3), "type": c["type"], "dur": c.get("dur", 0)})
 
-with open(os.path.join(HERE, "timing.js"), "w", encoding="utf-8") as f:
+with open(os.path.join(HERE, f"timing{SUF}.js"), "w", encoding="utf-8") as f:
     f.write("// 由 audio.py 生成，不要手改：每句旁白的起止时间（秒）、各章节的范围、音效时刻。\n")
-    f.write("window.TIMING = " + json.dumps(timing, ensure_ascii=False, indent=1) + ";\n")
+    f.write(("window.TIMING_EN = " if EN else "window.TIMING = ") + json.dumps(timing, ensure_ascii=False, indent=1) + ";\n")
 print(f"总长 {TOTAL:.1f}s（{int(TOTAL // 60)}:{TOTAL % 60:04.1f}）")
 
 N = int((TOTAL + 0.5) * SR)
@@ -280,5 +286,5 @@ mix = np.stack([Lc, Rc], axis=1)
 mix = hp(mix.T, 30).T
 mix = np.tanh(mix * 1.1) / np.tanh(1.1)
 mix *= 0.9 / np.max(np.abs(mix))
-wavfile.write(os.path.join(OUT, "audio.wav"), SR, (mix * 32767).astype(np.int16))
-print("✓", os.path.join(OUT, "audio.wav"))
+wavfile.write(os.path.join(OUT, f"audio{SUF}.wav"), SR, (mix * 32767).astype(np.int16))
+print("✓", os.path.join(OUT, f"audio{SUF}.wav"))

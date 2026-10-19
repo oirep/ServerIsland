@@ -5,6 +5,9 @@
 // 坐标：Mac 世界 = 14 寸 MacBook Pro 的屏幕点（1512 × 982），刘海 185 × 32。
 // =====================================================================================
 const W = 1920, H = 1080;
+// ?en：英文版。画面上的文字都写成 T(中文, English)，界面文案和 App 的 L(zh, en) 一致
+const EN = new URLSearchParams(location.search).has("en");
+const T = (zh, en) => EN ? en : zh;
 const FONT = '"PingFang SC", system-ui, -apple-system, sans-serif';
 const MONO = '"SF Mono", Menlo, monospace';
 
@@ -299,8 +302,8 @@ function drawDesktop(c, t, o = {}) {
   text(c, "", 22, 22, { size: 17 });
   const app = o.app || "Finder";
   let mx = 52 + text(c, app, 52, 22, { size: 14, weight: 700 }) + 22;
-  (o.menus || ["文件", "编辑", "显示", "前往", "窗口", "帮助"]).forEach(s => { mx += text(c, s, mx, 22, { size: 14 }) + 24; });
-  text(c, "10月19日 周一  14:26", SW - 20, 22, { size: 14, align: "right" });
+  (o.menus || [T("文件", "File"), T("编辑", "Edit"), T("显示", "View"), T("前往", "Go"), T("窗口", "Window"), T("帮助", "Help")]).forEach(s => { mx += text(c, s, mx, 22, { size: 14 }) + 24; });
+  text(c, T("10月19日 周一  14:26", "Mon Oct 19  14:26"), SW - 20, 22, { size: 14, align: "right" });
   drawTako(c, SW - 196, 25, 15, "idle", 1, { shadow: false, glow: false });
   c.save(); c.fillStyle = "#fff"; c.globalAlpha *= 0.9;
   [SW - 236, SW - 268].forEach(x => { rr(c, x - 9, 9, 18, 14, 3); c.fill(); });
@@ -471,12 +474,12 @@ function drawCard(c, x, y, w, card, t, o = {}) {
   let rx = x + w - pad;
   if (card.meta !== "") {
     rx -= text(c, card.meta || "110ms", rx, cy + 3.8, { size: 10, color: COL.ter, align: "right" }) + 6;
-    rx -= text(c, card.ago || "刚刚", rx, cy + 3.8, { size: 10, color: COL.ter, align: "right" }) + 12;
+    rx -= text(c, card.ago || T("刚刚", "just now"), rx, cy + 3.8, { size: 10, color: COL.ter, align: "right" }) + 12;
   }
   const btns = [];
   btns.push(card.muted ? ["bellSlash", COL.amber] : ["bell", COL.sec]);
   btns.push(card.paused ? ["play", COL.amber] : ["pause", COL.sec]);
-  btns.push(["pill", card.paused ? "暂停" : "1m"]);
+  btns.push(["pill", card.paused ? T("暂停", "paused") : "1m"]);
   btns.push(["history", COL.sec]); btns.push(["terminal", COL.sec]);
   btns.push(card.kind === "DIRECT" ? ["eye", COL.sec] : card.kind === "SLURM" ? ["grid", COL.sec] : null);
   card._btn = {};
@@ -515,8 +518,8 @@ function drawCard(c, x, y, w, card, t, o = {}) {
     c.fillStyle = alpha(COL.amber, 0.10); rr(c, x + pad, cy, w - pad * 2, 26, 9); c.fill();
     icon(c, "pause", x + pad + 14, cy + 13, 9, COL.amber);
     text(c, card.banner, x + pad + 26, cy + 17, { size: 10.5, weight: 500, color: COL.amber });
-    pill(c, x + w - pad - 52, cy + 13, "恢复", { icon: "play", color: COL.amber, bg: alpha(COL.amber, 0.14) });
-    pill(c, x + w - pad - 128, cy + 13, "刷新一次", { icon: "refresh", color: COL.sec });
+    pill(c, x + w - pad - 52, cy + 13, T("恢复", "Resume"), { icon: "play", color: COL.amber, bg: alpha(COL.amber, 0.14) });
+    pill(c, x + w - pad - 128, cy + 13, T("刷新一次", "Refresh Once"), { icon: "refresh", color: COL.sec });
     cy += 26;
   }
   if (card.jobs.length) cy += 10;
@@ -562,12 +565,12 @@ function drawIdleRow(c, x, y, w, hosts, o = {}) {
   c.fillStyle = "rgba(255,255,255,0.04)"; rr(c, x, y, w, 36, 14); c.fill();
   c.strokeStyle = "rgba(255,255,255,0.08)"; c.lineWidth = 0.6; rr(c, x, y, w, 36, 14); c.stroke();
   text(c, "☾", x + 14, y + 23, { size: 12, color: COL.ter });
-  let px = x + 32 + text(c, `${hosts.length} 台空闲`, x + 32, y + 22.5, { size: 11, weight: 600, color: COL.sec }) + 12;
+  let px = x + 32 + text(c, T(`${hosts.length} 台空闲`, `${hosts.length} idle`), x + 32, y + 22.5, { size: 11, weight: 600, color: COL.sec }) + 12;
   for (const n of hosts) {
     c.fillStyle = COL.mint; c.beginPath(); c.arc(px + 2.5, y + 18.5, 2.5, 0, 7); c.fill();
     px += 9 + text(c, n, px + 9, y + 22.5, { size: 11, color: COL.ter }) + 12;
   }
-  text(c, "展开 ⌄", x + w - 14, y + 22.5, { size: 10, weight: 500, color: COL.cyan, align: "right" });
+  text(c, T("展开 ⌄", "Show ⌄"), x + w - 14, y + 22.5, { size: 10, weight: 500, color: COL.cyan, align: "right" });
 }
 // 面板顶部
 function islandHeader(c, x, w, t, o = {}) {

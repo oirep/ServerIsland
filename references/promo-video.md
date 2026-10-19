@@ -109,7 +109,7 @@ node promo/render.mjs --from 10 --to 16      # 只渲染一段 → out/part-10-1
 
 ## 使用教程视频（`promo/tutorial/`，2026-10-19）
 
-和宣传片分开的第二支视频：**中文、横屏 1920×1080、30fps、约 3 分 15 秒**，带中文配音（微软神经网络语音，edge-tts）和字幕，逐项演示 v0.3.0 的功能和用法。成品 `promo/out/tutorial/ServerIsland-教程-v0.3.0.mp4`（不进 git）。没有竖屏版和英文版。
+和宣传片分开的第二支视频：**中文、横屏 1920×1080、30fps、约 3 分 15 秒**，带中文配音（微软神经网络语音，edge-tts）和字幕，逐项演示 v0.3.0 的功能和用法。成品 `promo/out/tutorial/ServerIsland-教程-v0.3.0.mp4`（不进 git）。**英文版**（2026-10-19 加）：`ServerIsland-Tutorial-v0.3.0-en.mp4`，约 3 分 21 秒，配音 `en-US-AvaNeural`。没有竖屏版。
 
 ### 文件
 
@@ -117,7 +117,7 @@ node promo/render.mjs --from 10 --to 16      # 只渲染一段 → out/part-10-1
 |---|---|
 | `tutorial/script.js` | **旁白脚本**：配音引擎和声音（`engine` / `voice` / `rate`）、章节、每句字幕（`text`）、配音读法（`tts`，比如 Tako 写成“塔可”）、每句至少占多少秒（`min`，给动画留时间）、音效 cues（锚在某一句开始后的若干秒） |
 | `tutorial/audio.py` | 逐句调用 edge-tts 合成配音（默认 `zh-CN-XiaoxiaoNeural`，语速 +8%；按文本缓存在 `out/tutorial/tts/`），**按实际时长排出时间轴写进 `timing.js`**；再合成 92 BPM 的轻柔背景乐（配音出现时压低到 40%）、叠加音效（叮咚 / 咚咚用 App 的 `Resources/Sounds`），输出 `out/tutorial/audio.wav` |
-| `tutorial/timing.js` | audio.py 生成，不要手改：每句的起止时间、各章范围、音效时刻 |
+| `tutorial/timing.js`、`timing-en.js` | audio.py（`--en`）生成，不要手改：每句的起止时间、各章范围、音效时刻。中英文配音时长不同，所以各有一份 |
 | `tutorial/kit.js` | 绘图工具。Tako、刘海形状、壁纸、光标、粒子从 `index.html`（宣传片）复制过来，时间单位改成秒；卡片、二级页面、设置窗口（侧栏、分组表单、分段控件、下拉菜单、开关）按 `--render-preview` 的截图重画 |
 | `tutorial/index.html` | 各章的场景函数 + 字幕 + 章节标签。动画都写成 `S("a3") + 0.4`（第 a3 句开始后 0.4 秒），所以改了文案或语速、重跑 audio.py 后画面自动跟着对齐 |
 | `tutorial/render.mjs` | 逐帧截图送进 FFmpeg（libx264 CRF 16，AAC 192k，响度 -16 LUFS）。puppeteer-core 用 `promo/node_modules` 里那份 |
@@ -128,6 +128,7 @@ node promo/render.mjs --from 10 --to 16      # 只渲染一段 → out/part-10-1
 pip install edge-tts                                    # 第一次（或者装在任意 venv 里，再用 EDGE_TTS=<venv>/bin/edge-tts 指过去）
 python3 promo/tutorial/audio.py                         # 配音 + timing.js + out/tutorial/audio.wav（需要联网，首次约 1 分钟，之后有缓存）
 node promo/tutorial/render.mjs                          # 完整视频（约 6,000 帧，十几分钟）
+python3 promo/tutorial/audio.py --en && node promo/tutorial/render.mjs --en   # 英文版（timing-en.js、audio-en.wav → …-en.mp4）
 node promo/tutorial/render.mjs --stills 13,42,90        # 只导出这些秒数的静帧 → out/tutorial/still-*.png
 node promo/tutorial/render.mjs --from 60 --to 80        # 只渲染一段
 open "promo/tutorial/index.html?play"                   # 浏览器里带声音预览（点击播放，←→ 跳 3 秒）
@@ -148,6 +149,13 @@ audio.py 会打印每句的开始时间、语音时长，以及哪些句子比 `
 | 07 v0.3.0 新功能 | 2:36–2:54 | 卡片上的终端按钮 → 终端窗口里 ssh 登录；设置侧栏拖动排序 + 右键"移到最上面"，旁边的小刘海同步换顺序；一键更新（下载核对 → SHA-256 一致 → 退出重开 → 已是最新）。轮询开销的优化属于内部改进，按维护者的意见不在视频里介绍 |
 | 08 Windows / Linux | 2:54–3:05 | Windows 风格桌面：顶部虚拟灵动岛展开；切到桌面小章鱼（徽章、浮动面板）和托盘图标 |
 | 结尾 | 3:05–3:15 | logo、像素字、v0.3.0 · 免费开源、GitHub 地址 |
+
+### 英文版
+
+- 地址带 `?en` 时用英文：画面上的文字都写成 `T("中文", "English")`（定义在 kit.js 开头），英文取自 App 的 `L(zh, en)`（`--render-preview <目录> en` 看对照图）；时间轴读 `timing-en.js`（`window.TIMING_EN`）。
+- 旁白在 `script.js` 每句的 `en`（字幕）和 `ttsEn`（配音读法，比如把 `~/.ssh/config` 读成 "your SSH config"），章节名在 `titleEn`，声音在 `voiceEn` / `rateEn`。
+- 英文句子长，字幕超过 1560 px 会自动拆成两行（`wrapSub`），所以镜头构图时字幕区按两行（底部约 920–1034 px）留空。
+- 新加画面文字时两种语言都要写；检查：`node promo/tutorial/render.mjs --en --stills …`（文件名 `still-en-*.png`）。
 
 ### 修改指南
 

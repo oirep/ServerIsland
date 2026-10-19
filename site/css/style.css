@@ -284,6 +284,12 @@ canvas.tako { image-rendering: pixelated; }
 /* 视频 */
 .video { border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); box-shadow: 0 30px 80px rgba(0,0,0,.5); background: #000; aspect-ratio: 16 / 9; }
 .video video { width: 100%; height: 100%; display: block; }
+/* 手册里的视频教程：章节跳转 */
+.chapters { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+.chapters button { font: inherit; font-size: 13.5px; color: var(--sec); text-align: left; cursor: pointer; background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 11px; display: flex; gap: 8px; align-items: baseline; transition: border-color .2s, color .2s; }
+.chapters button b { font-family: var(--mono); font-weight: 600; font-size: 12px; color: var(--mint); }
+.chapters button:hover, .chapters button.active { color: var(--text); border-color: rgba(91,230,181,.5); }
+@media (max-width: 640px) { .chapters { grid-template-columns: repeat(2, 1fr); } }
 
 /* 隐私 */
 .privacy-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }

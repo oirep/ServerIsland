@@ -16,6 +16,7 @@
 <img id="logo" src="../../Branding/logo-1024.png" style="display:none">
 <script src="script.js"></script>
 <script src="timing.js"></script>
+<script src="timing-en.js"></script>
 <script src="kit.js"></script>
 <script>
 "use strict";
@@ -25,7 +26,8 @@
 // =====================================================================================
 const cv = document.getElementById("c");
 const ctx = cv.getContext("2d");
-const TM = window.TIMING, SCR = window.SCRIPT;
+// 英文版用自己的时间轴（英文配音的时长不同）：audio.py --en 生成 timing-en.js
+const TM = EN ? window.TIMING_EN : window.TIMING, SCR = window.SCRIPT;
 const S = id => TM.lines[id].start;
 const CH = id => TM.chapters.find(c => c.id === id);
 
@@ -33,36 +35,36 @@ const CH = id => TM.chapters.find(c => c.id === id);
 function hpcCard(o = {}) {
   const t = o.t || 0, done = o.done ?? 14;
   const jobs = [
-    { icon: "atom", col: COL.mint, name: "aimd_Li3PS4_900K", id: "#8812044", right: "25% · 约剩 1d", rightCol: COL.mint, detail: "VASP MD · 1,243/5,000 步", k: 0.25 },
-    { icon: "atom", col: COL.mint, name: "relax_LiCoO2_hse", id: "#8812101", right: "3:12:16 / 1d 00:00", detail: "VASP 结构优化 · 17 离子步", k: 0.13, fill: "time" },
-    { icon: "stack", col: COL.mint, name: "eos_scan", id: "数组 #8812300", idCol: COL.violet, right: `完成 ${done + 2}/40`, rightCol: COL.mint,
-      seg: [done / 40, 2 / 40, 6 / 40], segText: [["运行 6", COL.cyan], [`排队 ${32 - done}`, COL.sec], ["失败 2", COL.coral]] },
-    { icon: "atom", col: COL.mint, name: "gpumd_kappa_300K", id: "#8812230", right: "62% · 约剩 8m", rightCol: COL.mint, detail: "GPUMD 模拟 · 1.25M/2.00M 步 · 1,520 步/秒", k: 0.62 },
-    { icon: "hourglass", col: COL.amber, name: "phonon_Si_444", id: "#8812355", right: "上限 12:00:00", pending: "优先级排队中 · cpu" },
-    { icon: "hourglass", col: COL.amber, name: "band_LiCoO2", id: "#8812356", right: "上限 6:00:00", pending: "依赖永远无法满足 · cpu", warn: true },
+    { icon: "atom", col: COL.mint, name: "aimd_Li3PS4_900K", id: "#8812044", right: T("25% · 约剩 1d", "25% · ~1d"), rightCol: COL.mint, detail: T("VASP MD · 1,243/5,000 步", "VASP MD · 1,243/5,000 steps"), k: 0.25 },
+    { icon: "atom", col: COL.mint, name: "relax_LiCoO2_hse", id: "#8812101", right: "3:12:16 / 1d 00:00", detail: T("VASP 结构优化 · 17 离子步", "VASP relaxation · 17 ionic steps"), k: 0.13, fill: "time" },
+    { icon: "stack", col: COL.mint, name: "eos_scan", id: T("数组 #8812300", "array #8812300"), idCol: COL.violet, right: T(`完成 ${done + 2}/40`, `${done + 2}/40 done`), rightCol: COL.mint,
+      seg: [done / 40, 2 / 40, 6 / 40], segText: [[T("运行 6", "6 running"), COL.cyan], [T(`排队 ${32 - done}`, `${32 - done} pending`), COL.sec], [T("失败 2", "2 failed"), COL.coral]] },
+    { icon: "atom", col: COL.mint, name: "gpumd_kappa_300K", id: "#8812230", right: T("62% · 约剩 8m", "62% · ~8m"), rightCol: COL.mint, detail: T("GPUMD 模拟 · 1.25M/2.00M 步 · 1,520 步/秒", "GPUMD MD · 1.25M/2.00M steps · 1,520 steps/s"), k: 0.62 },
+    { icon: "hourglass", col: COL.amber, name: "phonon_Si_444", id: "#8812355", right: T("上限 12:00:00", "limit 12:00:00"), pending: T("优先级排队中 · cpu", "Queued by priority · cpu") },
+    { icon: "hourglass", col: COL.amber, name: "band_LiCoO2", id: "#8812356", right: T("上限 6:00:00", "limit 6:00:00"), pending: T("依赖永远无法满足 · cpu", "Dependency never satisfied · cpu"), warn: true },
   ];
   const pick = o.jobs || [0, 1, 2, 3, 4];
-  return { name: "HPC 集群", kind: "SLURM", run: 9, pend: 20, metrics: [["CPU", 0.29, "29%"], ["内存", 0.39, "92.8/238G"]],
-    jobs: pick.map(i => Object.assign({}, jobs[i])), more: o.more === false ? null : (o.more || "还有 1 个任务，查看全部 ›"), muted: o.muted, paused: o.paused, banner: o.banner };
+  return { name: T("HPC 集群", "HPC Cluster"), kind: "SLURM", run: 9, pend: 20, metrics: [["CPU", 0.29, "29%"], [T("内存", "MEM"), 0.39, "92.8/238G"]],
+    jobs: pick.map(i => Object.assign({}, jobs[i])), more: o.more === false ? null : (o.more || T("还有 1 个任务，查看全部 ›", "1 more — show all ›")), muted: o.muted, paused: o.paused, banner: o.banner };
 }
 function gpuCard(o = {}) {
   const jobs = [
-    { icon: "atom", col: COL.mint, name: "nep", id: "pid 41022", right: "39% · 约剩 7m", rightCol: COL.mint, detail: "NEP 训练 · 7,860/20,000 代 · Total 0.1815", k: 0.39 },
-    { icon: "atom", col: COL.mint, name: "lmp", id: "pid 41377", right: "39% · 约剩 12m", rightCol: COL.mint, detail: "LAMMPS MD · 386,000/1.00M 步 · 830 步/秒", k: 0.386 },
-    { icon: "atom", col: COL.mint, name: "python train_mace.py", id: "pid 41856", right: "19%", rightCol: COL.mint, detail: "MACE 训练 · 37/200 epoch", k: 0.19 },
+    { icon: "atom", col: COL.mint, name: "nep", id: "pid 41022", right: T("39% · 约剩 7m", "39% · ~7m"), rightCol: COL.mint, detail: T("NEP 训练 · 7,860/20,000 代 · Total 0.1815", "NEP training · 7,860/20,000 gen · Total 0.1815"), k: 0.39 },
+    { icon: "atom", col: COL.mint, name: "lmp", id: "pid 41377", right: T("39% · 约剩 12m", "39% · ~12m"), rightCol: COL.mint, detail: T("LAMMPS MD · 386,000/1.00M 步 · 830 步/秒", "LAMMPS MD · 386,000/1.00M steps · 830 steps/s"), k: 0.386 },
+    { icon: "atom", col: COL.mint, name: "python train_mace.py", id: "pid 41856", right: "19%", rightCol: COL.mint, detail: T("MACE 训练 · 37/200 epoch", "MACE training · 37/200 epoch"), k: 0.19 },
   ];
-  return { name: "4090 工作站", kind: "DIRECT", run: 3, metrics: [["CPU", 0.58, "58%"], ["内存", 0.56, "66.8/119G"], ["GPU", 0, "1/4 空闲"]],
+  return { name: T("4090 工作站", "4090 Workstation"), kind: "DIRECT", run: 3, metrics: [["CPU", 0.58, "58%"], [T("内存", "MEM"), 0.56, "66.8/119G"], ["GPU", 0, T("1/4 空闲", "1/4 idle")]],
     gpus: [0.92, 0.84, 0.97, 0], jobs: (o.jobs || [0, 1, 2]).map(i => Object.assign({}, jobs[i])) };
 }
 function pbsCard() {
-  return { name: "超算中心", kind: "PBS", run: 2, pend: 1, metrics: [["CPU", 0.22, "22%"], ["内存", 0.24, "61/250G"]],
+  return { name: T("超算中心", "Supercomputing Center"), kind: "PBS", run: 2, pend: 1, metrics: [["CPU", 0.22, "22%"], [T("内存", "MEM"), 0.24, "61/250G"]],
     jobs: [
-      { icon: "atom", col: COL.mint, name: "md_water_512", id: "#4471203", right: "41% · 约剩 3h", rightCol: COL.mint, detail: "LAMMPS MD · 410,000/1.00M 步", k: 0.41 },
-      { icon: "stack", col: COL.mint, name: "opt_scan", id: "数组 #4471250", idCol: COL.violet, right: "完成 8/20", rightCol: COL.mint, seg: [8 / 20, 0, 4 / 20], segText: [["运行 4", COL.cyan], ["排队 8", COL.sec]] },
-      { icon: "hourglass", col: COL.amber, name: "neb_AuCu", id: "#4471266", right: "上限 24:00:00", pending: "等待资源 · workq" },
+      { icon: "atom", col: COL.mint, name: "md_water_512", id: "#4471203", right: T("41% · 约剩 3h", "41% · ~3h"), rightCol: COL.mint, detail: T("LAMMPS MD · 410,000/1.00M 步", "LAMMPS MD · 410,000/1.00M steps"), k: 0.41 },
+      { icon: "stack", col: COL.mint, name: "opt_scan", id: T("数组 #4471250", "array #4471250"), idCol: COL.violet, right: T("完成 8/20", "8/20 done"), rightCol: COL.mint, seg: [8 / 20, 0, 4 / 20], segText: [[T("运行 4", "4 running"), COL.cyan], [T("排队 8", "8 pending"), COL.sec]] },
+      { icon: "hourglass", col: COL.amber, name: "neb_AuCu", id: "#4471266", right: T("上限 24:00:00", "limit 24:00:00"), pending: T("等待资源 · workq", "Waiting for resources · workq") },
     ] };
 }
-const IDLE = ["老服务器", "3090 工作站"];
+const IDLE = [T("老服务器", "Old Server"), T("3090 工作站", "3090 Workstation")];
 const PANEL_W = 668;
 // 面板内容区：ear 14 + 内边距 14
 const CARD_X = MID - PANEL_W / 2 + 28, CARD_W = PANEL_W - 56;
@@ -126,7 +128,7 @@ function sceneHook(c, t) {
   const keys = [[0, "collapsed"], [h2 - 0.15, "toast"], [h3 + 0.05, "collapsed"], [h3 + 0.55, panelSpec(PH)]];
   macScene(c, t, cam, keys, islandContent(t, {
     wings: t => ({ mood: t > h2 && t < h3 + 0.6 ? "happy" : "working", k: t > h2 ? 0.62 : 0.97, run: t > h2 ? 12 : 13 }),
-    toast: () => ({ ok: true, host: "4090 工作站", title: "NEP 训练完成", sub: "20,000 代 · nep-train" }),
+    toast: () => ({ ok: true, host: T("4090 工作站", "4090 Workstation"), title: T("NEP 训练完成", "NEP training finished"), sub: T("20,000 代 · nep-train", "20,000 gen · nep-train") }),
     panel: (x, w, s) => panelBody(c, x, w, t, cards, { since: s.since }),
   }), {
     above: () => {
@@ -144,9 +146,9 @@ function sceneHook(c, t) {
     c.save(); c.globalAlpha *= kt;
     const k = easeOutBack(pr(t, h4 - 0.3, h4 + 0.4), 1.4);
     if (LOGO.complete) { c.save(); c.shadowColor = "rgba(91,230,181,0.5)"; c.shadowBlur = 60; const sz = 190 * k; c.drawImage(LOGO, W / 2 - sz / 2, 250 - sz / 2, sz, sz); c.restore(); }
-    text(c, "ServerIsland 使用教程", W / 2, 470, { size: 74, weight: 700, align: "center" });
+    text(c, T("ServerIsland 使用教程", "ServerIsland Tutorial"), W / 2, 470, { size: 74, weight: 700, align: "center" });
     c.globalAlpha *= pr(t, h4, h4 + 0.5);
-    text(c, "从添加服务器到每一项功能 · v0.3.0", W / 2, 540, { size: 30, color: "rgba(255,255,255,0.7)", align: "center" });
+    text(c, T("从添加服务器到每一项功能 · v0.3.0", "From adding a server to every feature · v0.3.0"), W / 2, 540, { size: 30, color: "rgba(255,255,255,0.7)", align: "center" });
     c.restore();
     const chs = TM.chapters.filter(ch => ch.title);
     chs.forEach((ch, i) => {
@@ -169,18 +171,18 @@ function sceneHook(c, t) {
 const WX = 346, WY = 140, WW = 820, WH = 560, SIDE = 220, MAINX = WX + SIDE + 26, MAINW = WW - SIDE - 52;
 const CAM_WIN = { x: 756, y: 420, z: 1.5 };
 const SRV = {
-  hpc: { title: "HPC 集群", sub: "运行 9 · 排队 20", col: "#D45BE8", icon: "stack", dot: COL.mint },
-  gpu: { title: "4090 工作站", sub: "运行 3 · 排队 0", col: "#35C7C2", icon: "server", dot: COL.mint },
-  jump: { title: "校园网跳板机", sub: "跳板机 · 已停用", col: "#F2A33A", icon: "key" },
-  lab: { title: "实验室集群", sub: "未登录", col: "#4C8DFF", icon: "stack", dot: COL.amber },
+  hpc: { title: T("HPC 集群", "HPC Cluster"), sub: T("运行 9 · 排队 20", "9 running · 20 pending"), col: "#D45BE8", icon: "stack", dot: COL.mint },
+  gpu: { title: T("4090 工作站", "4090 Workstation"), sub: T("运行 3 · 排队 0", "3 running · 0 pending"), col: "#35C7C2", icon: "server", dot: COL.mint },
+  jump: { title: T("校园网跳板机", "Campus Gateway"), sub: T("跳板机 · 已停用", "Jump host · disabled"), col: "#F2A33A", icon: "key" },
+  lab: { title: T("实验室集群", "Lab Cluster"), sub: T("未登录", "Not logged in"), col: "#4C8DFF", icon: "stack", dot: COL.amber },
 };
 // 侧栏：order = 服务器顺序；pos(i) 可以是小数（排序动画）；sel = 选中项的 id
 function sidebar(c, t, o) {
   const x = WX;
   const top = WY + 48;
-  sideItem(c, x, top, SIDE, { title: "通用", sub: "轮询、提醒、提示音", col: "#8E8E93", icon: "gear" }, o.sel === "general");
-  sideItem(c, x, top + 46, SIDE, { title: "进度识别", sub: "内置软件、自定义规则", col: "#7B61FF", icon: "wand" }, o.sel === "rules");
-  text(c, "服务器", x + 18, top + 118, { size: 11, weight: 600, color: SET.sec });
+  sideItem(c, x, top, SIDE, { title: T("通用", "General"), sub: T("轮询、提醒、提示音", "Refresh, alerts, sounds"), col: "#8E8E93", icon: "gear" }, o.sel === "general");
+  sideItem(c, x, top + 46, SIDE, { title: T("进度识别", "Progress Detection"), sub: T("内置软件、自定义规则", "Built-in apps, custom rules"), col: "#7B61FF", icon: "wand" }, o.sel === "rules");
+  text(c, T("服务器", "Servers"), x + 18, top + 118, { size: 11, weight: 600, color: SET.sec });
   const rowY = i => top + 128 + i * 46;
   const ys = {};
   o.order.forEach((id, i) => {
@@ -196,14 +198,14 @@ function sidebar(c, t, o) {
   };
   o.order.filter(id => !(o.drag && o.drag.id === id)).forEach(drawRow);
   if (o.drag) drawRow(o.drag.id);
-  text(c, "拖动或右键可调整顺序", x + 18, rowY(o.order.length) + 14, { size: 10.5, color: "rgba(255,255,255,0.32)" });
+  text(c, T("拖动或右键可调整顺序", "Drag or right-click to reorder"), x + 18, rowY(o.order.length) + 14, { size: 10.5, color: "rgba(255,255,255,0.32)" });
   // 底部
   const by = WY + WH - 70;
   c.fillStyle = o.addPress ? "rgba(255,255,255,0.24)" : "rgba(255,255,255,0.13)"; rr(c, x + 14, by, SIDE - 28, 28, 7); c.fill();
   icon(c, "plus", x + SIDE / 2 - 44, by + 14, 14, "#fff", { inner: "#555" });
-  text(c, "添加服务器", x + SIDE / 2 + 8, by + 18.5, { size: 13, weight: 500, align: "center" });
+  text(c, T("添加服务器", "Add Server"), x + SIDE / 2 + 8, by + 18.5, { size: 13, weight: 500, align: "center" });
   icon(c, "power", x + SIDE / 2 - 62, by + 46, 12, SET.sec);
-  text(c, "退出 ServerIsland", x + SIDE / 2 + 6, by + 50, { size: 12, color: SET.sec, align: "center" });
+  text(c, T("退出 ServerIsland", "Quit ServerIsland"), x + SIDE / 2 + 6, by + 50, { size: 12, color: SET.sec, align: "center" });
   return { rowY, ys, add: [x + SIDE / 2, by + 14] };
 }
 function sectionTitle(c, x, y, title, col, ic) {
@@ -221,24 +223,24 @@ function generalPage(c, t, o = {}) {
   c.strokeStyle = "rgba(255,255,255,0.06)"; c.lineWidth = 0.8; rr(c, x, y, w, gh, 10); c.stroke();
   if (LOGO.complete) c.drawImage(LOGO, x + 12, y + 10, 58, 58);
   text(c, "ServerIsland", x + 82, y + 32, { size: 20, weight: 700, color: SET.text });
-  text(c, "版本 " + (o.version || "0.3.0"), x + 82, y + 50, { size: 11.5, color: SET.sec });
-  text(c, "4 台服务器 · 运行 12 · 排队 20", x + 82, y + 67, { size: 12, color: SET.sec });
+  text(c, T("版本 ", "Version ") + (o.version || "0.3.0"), x + 82, y + 50, { size: 11.5, color: SET.sec });
+  text(c, T("4 台服务器 · 运行 12 · 排队 20", "4 servers · 12 running · 20 pending"), x + 82, y + 67, { size: 12, color: SET.sec });
   drawTako(c, x + w - 40, y + 60, 40, o.mood || "idle", Math.floor(t * 4), { shadow: false });
   const rows = [
-    { label: "语言", kind: "popup", value: "中文" },
-    { custom: o.updateRow || ((rx, ry, rw, rh) => { icon(c, "check", rx + 22, ry + rh / 2, 13, COL.mint); text(c, "已是最新版本（0.3.0）", rx + 38, ry + rh / 2 + 4.5, { size: 13, color: SET.text }); button(c, rx + rw - 12, ry + rh / 2, "检查更新", { align: "right" }); }), h: uh },
-    { label: "自动检查更新", help: true, kind: "toggle", value: true },
+    { label: T("语言", "Language"), kind: "popup", value: T("中文", "English") },
+    { custom: o.updateRow || ((rx, ry, rw, rh) => { icon(c, "check", rx + 22, ry + rh / 2, 13, COL.mint); text(c, T("已是最新版本（0.3.0）", "You're up to date (0.3.0)"), rx + 38, ry + rh / 2 + 4.5, { size: 13, color: SET.text }); button(c, rx + rw - 12, ry + rh / 2, T("检查更新", "Check for Updates"), { align: "right" }); }), h: uh },
+    { label: T("自动检查更新", "Check for Updates Automatically"), help: true, kind: "toggle", value: true },
   ];
   c.fillStyle = SET.line; c.fillRect(x + 12, y + 78, w - 24, 1);
   formGroup(c, x, y + 78, w, rows, t, { bare: true });
   y += gh + 30;
-  sectionTitle(c, x, y, "轮询", "#2F8CFF", "refresh");
+  sectionTitle(c, x, y, T("轮询", "Refresh"), "#2F8CFF", "refresh");
   y += 16;
-  formGroup(c, x, y, w, [{ label: "自动刷新", help: true, kind: "toggle", value: true }, { label: "默认轮询间隔", kind: "popup", value: "1 分钟" }], t);
+  formGroup(c, x, y, w, [{ label: T("自动刷新", "Auto Refresh"), help: true, kind: "toggle", value: true }, { label: T("默认轮询间隔", "Default Interval"), kind: "popup", value: T("1 分钟", "1 min") }], t);
   y += 72 + 30;
-  sectionTitle(c, x, y, "刘海与提醒", "#FF9F0A", "bell");
+  sectionTitle(c, x, y, T("刘海与提醒", "Island & Alerts"), "#FF9F0A", "bell");
   y += 16;
-  formGroup(c, x, y, w, [{ label: "收起时", kind: "popup", value: "始终显示" }, { label: "提示音", help: true, kind: "toggle", value: true }], t);
+  formGroup(c, x, y, w, [{ label: T("收起时", "When Collapsed"), kind: "popup", value: T("始终显示", "Always") }, { label: T("提示音", "Sounds"), help: true, kind: "toggle", value: true }], t);
 }
 // =====================================================================================
 // 1. 添加服务器
@@ -252,14 +254,14 @@ function addSheet(c, t, st) {
   c.restore();
   c.strokeStyle = "rgba(255,255,255,0.12)"; c.lineWidth = 1; rr(c, SHX, SHY, SHW, SHH, 12); c.stroke();
   const x = SHX + 20, w = SHW - 40;
-  text(c, "添加服务器", x, SHY + 36, { size: 17, weight: 700, color: SET.text });
-  const tabs = segment(c, x, SHY + 66, ["从 ~/.ssh/config 选择", "手动填写"], st.tab, { width: w });
+  text(c, T("添加服务器", "Add Server"), x, SHY + 36, { size: 17, weight: 700, color: SET.text });
+  const tabs = segment(c, x, SHY + 66, [T("从 ~/.ssh/config 选择", "From ~/.ssh/config"), T("手动填写", "Enter Manually")], st.tab, { width: w });
   const L = { tabs };
   if (st.tab < 0.5) {
-    text(c, "从 ~/.ssh/config 中选择。连接使用系统 ssh，跳板机、密钥等配置都会生效。", x, SHY + 104, { size: 11.5, color: SET.sec });
+    text(c, T("从 ~/.ssh/config 中选择。连接使用系统 ssh，跳板机、密钥等配置都会生效。", "Pick from ~/.ssh/config. Connections use the system ssh, so ProxyJump, keys, etc. all apply."), x, SHY + 104, { size: 11.5, color: SET.sec });
     const ly = SHY + 116;
     c.fillStyle = "rgba(0,0,0,0.25)"; rr(c, x, ly, w, 176, 8); c.fill();
-    const entries = [["hpc-login", "demo@login.hpc.example.org", true], ["gpu-box", "demo@10.0.0.12", true], ["cluster-b", "demo@cluster-b.example.edu · 端口 2222", false], ["lab-gateway", "demo@gw.example.edu", false]];
+    const entries = [["hpc-login", "demo@login.hpc.example.org", true], ["gpu-box", "demo@10.0.0.12", true], ["cluster-b", T("demo@cluster-b.example.edu · 端口 2222", "demo@cluster-b.example.edu · port 2222"), false], ["lab-gateway", "demo@gw.example.edu", false]];
     L.rows = [];
     entries.forEach(([a, sum, dis], i) => {
       const ry = ly + 8 + i * 41;
@@ -274,26 +276,26 @@ function addSheet(c, t, st) {
       L.rows.push([x + 20, ry + 17]);
     });
     c.strokeStyle = "rgba(255,255,255,0.18)"; c.lineWidth = 1; rr(c, x, ly + 188, w, 26, 6); c.stroke();
-    text(c, "或直接输入 ssh 目标，如 user@10.0.0.2", x + 8, ly + 205.5, { size: 12, font: MONO, color: "rgba(255,255,255,0.3)" });
-    text(c, "默认类型", x, ly + 246, { size: 13, color: SET.text });
-    segment(c, x + w, ly + 242, ["Slurm 集群", "PBS 集群", "直连服务器"], 0, { align: "right" });
-    text(c, "认证方式", x, ly + 282, { size: 13, color: SET.text });
-    popup(c, x + w, ly + 278, "密钥 / ssh-agent", { align: "right" });
-    text(c, "添加后可以在详情页点“自动检测类型”。", x, ly + 316, { size: 11, color: SET.sec });
+    text(c, T("或直接输入 ssh 目标，如 user@10.0.0.2", "Or type an ssh target, e.g. user@10.0.0.2"), x + 8, ly + 205.5, { size: 12, font: MONO, color: "rgba(255,255,255,0.3)" });
+    text(c, T("默认类型", "Type"), x, ly + 246, { size: 13, color: SET.text });
+    segment(c, x + w, ly + 242, [T("Slurm 集群", "Slurm cluster"), T("PBS 集群", "PBS cluster"), T("直连服务器", "Direct server")], 0, { align: "right" });
+    text(c, T("认证方式", "Authentication"), x, ly + 282, { size: 13, color: SET.text });
+    popup(c, x + w, ly + 278, T("密钥 / ssh-agent", "SSH key / agent"), { align: "right" });
+    text(c, T("添加后可以在详情页点“自动检测类型”。", "You can use “Detect Type” on the server page afterwards."), x, ly + 316, { size: 11, color: SET.sec });
   } else {
     const f = st.fields || {};
     const rows = [
-      { label: "显示名称", kind: "field", value: f.name, ph: "比如：实验室集群", caret: st.focus === "name" },
-      { label: "地址", help: true, kind: "field", value: f.addr, ph: "10.0.0.2 / login.example.org", mono: true, caret: st.focus === "addr" },
-      { label: "用户名", kind: "field", value: f.user, ph: "和本机用户名相同时可留空", caret: st.focus === "user" },
-      { label: "端口", kind: "field", value: f.port, ph: "22", caret: st.focus === "port" },
+      { label: T("显示名称", "Name"), kind: "field", value: f.name, ph: T("比如：实验室集群", "e.g. Lab Cluster"), caret: st.focus === "name" },
+      { label: T("地址", "Host"), help: true, kind: "field", value: f.addr, ph: "10.0.0.2 / login.example.org", mono: true, caret: st.focus === "addr" },
+      { label: T("用户名", "User"), kind: "field", value: f.user, ph: T("和本机用户名相同时可留空", "Leave empty to use your local user name"), caret: st.focus === "user" },
+      { label: T("端口", "Port"), kind: "field", value: f.port, ph: "22", caret: st.focus === "port" },
       { custom: (rx, ry, rw, rh) => {
           const cy = ry + rh / 2;
-          const lw = text(c, "私钥文件", rx + 12, cy + 4.5, { size: 13, color: SET.text });
+          const lw = text(c, T("私钥文件", "Key File"), rx + 12, cy + 4.5, { size: 13, color: SET.text });
           c.strokeStyle = SET.sec; c.lineWidth = 1; c.beginPath(); c.arc(rx + 12 + lw + 11, cy, 6, 0, 7); c.stroke(); text(c, "?", rx + 12 + lw + 11, cy + 3.5, { size: 8.5, weight: 600, color: SET.sec, align: "center" });
-          const b = button(c, rx + rw - 12, cy, "选择…", { align: "right" });
+          const b = button(c, rx + rw - 12, cy, T("选择…", "Choose…"), { align: "right" });
           if (f.key) text(c, f.key, b.x - 8, cy + 4.5, { size: 12.5, font: MONO, color: SET.text, align: "right" });
-          else text(c, "默认（ssh-agent / ~/.ssh/id_*）", b.x - 8, cy + 4.5, { size: 12, font: MONO, color: "rgba(255,255,255,0.28)", align: "right" });
+          else text(c, T("默认（ssh-agent / ~/.ssh/id_*）", "Default (ssh-agent / ~/.ssh/id_*)"), b.x - 8, cy + 4.5, { size: 12, font: MONO, color: "rgba(255,255,255,0.28)", align: "right" });
           if (st.focus === "key" && Math.floor(t * 2.4) % 2 === 0) { c.fillStyle = SET.accent; c.fillRect(b.x - 6, cy - 8, 1.6, 16); }
         } },
     ];
@@ -301,17 +303,17 @@ function addSheet(c, t, st) {
     formGroup(c, x, L.g1, w, rows, t);
     L.g2 = L.g1 + 5 * ROW_H + 14;
     const rows2 = [
-      { label: "类型", kind: "segment", options: ["Slurm 集群", "PBS 集群", "直连服务器"], sel: 2 },
-      { label: "认证方式", help: true, kind: "popup", value: st.auth || "密钥 / ssh-agent", hl: st.authHl },
-      { label: "跳板机", help: true, kind: "popup", value: st.jump || "不使用（直接连接）", hl: st.jumpHl },
+      { label: T("类型", "Type"), kind: "segment", options: [T("Slurm 集群", "Slurm cluster"), T("PBS 集群", "PBS cluster"), T("直连服务器", "Direct server")], sel: 2 },
+      { label: T("认证方式", "Authentication"), help: true, kind: "popup", value: st.auth || T("密钥 / ssh-agent", "SSH key / agent"), hl: st.authHl },
+      { label: T("跳板机", "Jump Host"), help: true, kind: "popup", value: st.jump || T("不使用（直接连接）", "None (connect directly)"), hl: st.jumpHl },
     ];
     formGroup(c, x, L.g2, w, rows2, t);
     L.authY = L.g2 + ROW_H * 1.5; L.jumpY = L.g2 + ROW_H * 2.5;
-    text(c, "不会修改 ~/.ssh/config。需要密码的服务器添加后点“登录…”。", x + w, L.g2 + 3 * ROW_H + 24, { size: 11, color: SET.sec, align: "right" });
+    text(c, T("不会修改 ~/.ssh/config。需要密码的服务器添加后点“登录…”。", "~/.ssh/config is not modified. For servers that need a password, click “Log In…” after adding."), x + w, L.g2 + 3 * ROW_H + 24, { size: 11, color: SET.sec, align: "right" });
   }
   // 底部按钮
-  const add = button(c, x + w, SHY + SHH - 30, "添加", { align: "right", primary: st.tab > 0.5 && !!(st.fields && st.fields.addr), press: st.press });
-  button(c, add.x - 10, SHY + SHH - 30, "取消", { align: "right" });
+  const add = button(c, x + w, SHY + SHH - 30, T("添加", "Add"), { align: "right", primary: st.tab > 0.5 && !!(st.fields && st.fields.addr), press: st.press });
+  button(c, add.x - 10, SHY + SHH - 30, T("取消", "Cancel"), { align: "right" });
   L.add = [add.cx, SHY + SHH - 30];
   L.authX = x + w - 60; L.jumpX = x + w - 60;
   return L;
@@ -323,38 +325,38 @@ function hostPage(c, t, st) {
   c.fillStyle = SET.group; rr(c, x, y, w, 70, 10); c.fill();
   c.fillStyle = "#0E1116"; rr(c, x + 12, y + 10, 50, 50, 11); c.fill();
   drawTako(c, x + 37, y + 52, 34, st.online ? "happy" : "idle", Math.floor(t * 4), { shadow: false });
-  text(c, "实验室集群", x + 74, y + 30, { size: 18, weight: 700, color: SET.text });
+  text(c, T("实验室集群", "Lab Cluster"), x + 74, y + 30, { size: 18, weight: 700, color: SET.text });
   text(c, "demo@10.0.0.2", x + 74, y + 46, { size: 11.5, font: MONO, color: SET.sec });
-  const chip = st.online ? ["在线 · 90ms", COL.mint] : ["未登录", COL.amber];
+  const chip = st.online ? [T("在线 · 90ms", "Online · 90ms"), COL.mint] : [T("未登录", "Not logged in"), COL.amber];
   const cw = measure(c, chip[0], { size: 10.5, weight: 600 }) + 14;
   c.fillStyle = alpha(chip[1], 0.18); rr(c, x + 74, y + 52, cw, 16, 8); c.fill();
   text(c, chip[0], x + 81, y + 63.5, { size: 10.5, weight: 600, color: chip[1] });
   if (st.chipPop) burst(c, t, st.chipPop, x + 74 + cw / 2, y + 60, { n: 14, speed: 60, size: 3, grav: 20, seed: 9, dur: 0.7 });
-  text(c, "启用", x + w - 50, y + 26, { size: 11, color: SET.sec, align: "right" }); toggle(c, x + w - 12, y + 22, true);
+  text(c, T("启用", "Enabled"), x + w - 50, y + 26, { size: 11, color: SET.sec, align: "right" }); toggle(c, x + w - 12, y + 22, true);
   y += 70 + 30;
-  sectionTitle(c, x, y, "连接", "#2F8CFF", "server");
+  sectionTitle(c, x, y, T("连接", "Connection"), "#2F8CFF", "server");
   y += 16;
   const L = {};
   const rows = [
-    { label: "类型", kind: "segment", options: ["Slurm 集群", "PBS 集群", "直连服务器"], sel: st.kindSel },
+    { label: T("类型", "Type"), kind: "segment", options: [T("Slurm 集群", "Slurm cluster"), T("PBS 集群", "PBS cluster"), T("直连服务器", "Direct server")], sel: st.kindSel },
     { custom: (rx, ry, rw, rh) => {
-        const b = button(c, rx + 12, ry + rh / 2, st.detecting ? "检测中…" : "自动检测类型", { press: st.detectPress });
+        const b = button(c, rx + 12, ry + rh / 2, st.detecting ? T("检测中…", "Detecting…") : T("自动检测类型", "Detect Type"), { press: st.detectPress });
         L.detect = [b.cx, ry + rh / 2];
-        if (st.detectMsg) { c.save(); c.globalAlpha *= st.detectMsg; icon(c, "check", b.x + b.w + 18, ry + rh / 2, 13, COL.mint); text(c, "检测到 Slurm", b.x + b.w + 30, ry + rh / 2 + 4.5, { size: 12.5, weight: 600, color: COL.mint }); c.restore(); }
+        if (st.detectMsg) { c.save(); c.globalAlpha *= st.detectMsg; icon(c, "check", b.x + b.w + 18, ry + rh / 2, 13, COL.mint); text(c, T("检测到 Slurm", "Slurm detected"), b.x + b.w + 30, ry + rh / 2 + 4.5, { size: 12.5, weight: 600, color: COL.mint }); c.restore(); }
       } },
-    { label: "连接方式", help: true, kind: "segment", options: ["~/.ssh/config 别名", "手动填写"], sel: 1 },
-    { label: "地址", kind: "text", value: "demo@10.0.0.2", mono: true },
-    { label: "跳板机", help: true, kind: "popup", value: "校园网跳板机" },
-    { label: "认证方式", help: true, kind: "popup", value: "动态口令 / 二次验证" },
-    { label: "保持连接", kind: "popup", value: "24 小时" },
+    { label: T("连接方式", "Connect Using"), help: true, kind: "segment", options: [T("~/.ssh/config 别名", "~/.ssh/config alias"), T("手动填写", "Enter Manually")], sel: 1 },
+    { label: T("地址", "Host"), kind: "text", value: "demo@10.0.0.2", mono: true },
+    { label: T("跳板机", "Jump Host"), help: true, kind: "popup", value: T("校园网跳板机", "Campus Gateway") },
+    { label: T("认证方式", "Authentication"), help: true, kind: "popup", value: T("动态口令 / 二次验证", "One-time code / 2FA") },
+    { label: T("保持连接", "Keep Connection"), kind: "popup", value: T("24 小时", "24 hours") },
     { custom: (rx, ry, rw, rh) => {
         const cy = ry + rh / 2;
         const col = st.online ? COL.mint : COL.amber;
         c.fillStyle = col; c.beginPath(); c.arc(rx + 17, cy, 4, 0, 7); c.fill();
-        text(c, st.online ? "已登录 · 连接保持 24 小时" : "未登录", rx + 28, cy + 4.5, { size: 13, color: st.online ? COL.mint : SET.text });
-        const b3 = button(c, rx + rw - 12, cy, "断开", { align: "right", dim: !st.online });
-        const b2 = button(c, b3.x - 8, cy, "终端登录", { align: "right" });
-        const b1 = button(c, b2.x - 8, cy, st.waiting ? "等待输入…" : "登录…", { align: "right", press: st.loginPress });
+        text(c, st.online ? T("已登录 · 连接保持 24 小时", "Logged in · kept for 24 hours") : T("未登录", "Not logged in"), rx + 28, cy + 4.5, { size: 13, color: st.online ? COL.mint : SET.text });
+        const b3 = button(c, rx + rw - 12, cy, T("断开", "Disconnect"), { align: "right", dim: !st.online });
+        const b2 = button(c, b3.x - 8, cy, T("终端登录", "Terminal"), { align: "right" });
+        const b1 = button(c, b2.x - 8, cy, st.waiting ? T("等待输入…", "Waiting…") : T("登录…", "Log In…"), { align: "right", press: st.loginPress });
         L.login = [b1.cx, cy];
       } },
   ];
@@ -371,19 +373,19 @@ function loginDialog(c, t, st) {
   c.fillStyle = "#38383B"; rr(c, x, y, w, h, 14); c.fill(); c.shadowBlur = 0; c.shadowOffsetY = 0;
   c.strokeStyle = "rgba(255,255,255,0.14)"; rr(c, x, y, w, h, 14); c.stroke();
   if (LOGO.complete) c.drawImage(LOGO, x + w / 2 - 30, y + 18, 60, 60);
-  text(c, "登录 实验室集群", x + w / 2, y + 104, { size: 14, weight: 700, color: SET.text, align: "center" });
+  text(c, T("登录 实验室集群", "Log in to Lab Cluster"), x + w / 2, y + 104, { size: 14, weight: 700, color: SET.text, align: "center" });
   text(c, "(demo@10.0.0.2) Verification code:", x + w / 2, y + 128, { size: 11, color: SET.text, align: "center" });
-  text(c, "只会交给 ssh 用于这一次登录，", x + w / 2, y + 152, { size: 11, color: SET.sec, align: "center" });
-  text(c, "ServerIsland 不会保存。", x + w / 2, y + 168, { size: 11, color: SET.sec, align: "center" });
+  text(c, T("只会交给 ssh 用于这一次登录，", "Passed to ssh for this login only;"), x + w / 2, y + 152, { size: 11, color: SET.sec, align: "center" });
+  text(c, T("ServerIsland 不会保存。", "ServerIsland never stores it."), x + w / 2, y + 168, { size: 11, color: SET.sec, align: "center" });
   c.fillStyle = "rgba(0,0,0,0.3)"; rr(c, x + 20, y + 186, w - 40, 26, 6); c.fill();
   c.strokeStyle = SET.accent; c.lineWidth = 2; rr(c, x + 20, y + 186, w - 40, 26, 6); c.stroke();
   if (st.dots) text(c, "●".repeat(st.dots), x + 30, y + 204, { size: 11, color: SET.text, spacing: 2 });
-  else text(c, "动态口令 / 验证码", x + 30, y + 204, { size: 12.5, color: "rgba(255,255,255,0.3)" });
+  else text(c, T("动态口令 / 验证码", "One-time code"), x + 30, y + 204, { size: 12.5, color: "rgba(255,255,255,0.3)" });
   const bw = (w - 52) / 2;
   c.fillStyle = "rgba(255,255,255,0.15)"; rr(c, x + 20, y + 236, bw, 26, 7); c.fill();
-  text(c, "取消", x + 20 + bw / 2, y + 253.5, { size: 13, color: "#fff", align: "center" });
+  text(c, T("取消", "Cancel"), x + 20 + bw / 2, y + 253.5, { size: 13, color: "#fff", align: "center" });
   c.fillStyle = st.press ? "#2A6FE0" : SET.accent; rr(c, x + 32 + bw, y + 236, bw, 26, 7); c.fill();
-  text(c, "登录", x + 32 + bw * 1.5, y + 253.5, { size: 13, weight: 600, color: "#fff", align: "center" });
+  text(c, T("登录", "Log In"), x + 32 + bw * 1.5, y + 253.5, { size: 13, weight: 600, color: "#fff", align: "center" });
   c.restore();
   return { ok: [x + 32 + bw * 1.5, y + 249] };
 }
@@ -403,10 +405,10 @@ function sceneAdd(c, t) {
   const added = t > a5 + 0.3;
   const order = added ? ["hpc", "gpu", "jump", "lab"] : ["hpc", "gpu", "jump"];
   macScene(c, t, cam, [[0, "collapsed"]], islandContent(t, { wings: () => ({}) }), {
-    app: "ServerIsland", menus: ["编辑", "窗口", "帮助"],
+    app: "ServerIsland", menus: [T("编辑", "Edit"), T("窗口", "Window"), T("帮助", "Help")],
     below: () => windowIn(c, t, ch.from + 0.15, () => macWindow(c, WX, WY, WW, WH, { side: SIDE, content: () => {
       SB = sidebar(c, t, { order, sel: added ? "lab" : "general", addPress: pressAt(t, [a1 + 1.3]) > 0.3,
-        over: { lab: { sub: t > a6 + 3.4 ? "运行 2 · 排队 1" : "未登录", dot: t > a6 + 3.4 ? COL.mint : COL.amber } } });
+        over: { lab: { sub: t > a6 + 3.4 ? T("运行 2 · 排队 1", "2 running · 1 pending") : T("未登录", "Not logged in"), dot: t > a6 + 3.4 ? COL.mint : COL.amber } } });
       if (!added) generalPage(c, t);
       else {
         const kindSel = lerp(2, 0, pr(t, a5 + 2.5, a5 + 2.8, easeInOutCubic));
@@ -421,22 +423,22 @@ function sceneAdd(c, t) {
         c.translate(0, -SHH * (1 - kin) - SHH * kout);
         const tab = t < a3 ? 0 : lerp(0, 1, pr(t, a3, a3 + 0.2, easeInOutCubic));
         const f = {
-          name: typed("实验室集群", t, a3 + 0.4, a3 + 0.9), addr: typed("10.0.0.2", t, a3 + 1.0, a3 + 1.6),
+          name: typed(T("实验室集群", "Lab Cluster"), t, a3 + 0.4, a3 + 0.9), addr: typed("10.0.0.2", t, a3 + 1.0, a3 + 1.6),
           user: typed("demo", t, a3 + 1.7, a3 + 2.1), port: typed("22", t, a3 + 2.2, a3 + 2.4), key: typed("~/.ssh/id_ed25519", t, a3 + 2.6, a3 + 3.6),
         };
         const focus = t < a3 + 0.95 ? "name" : t < a3 + 1.65 ? "addr" : t < a3 + 2.15 ? "user" : t < a3 + 2.5 ? "port" : t < a3 + 3.8 ? "key" : null;
         const authDone = t > a4 + 2.2, jumpDone = t > a4 + 5.4;
         L = addSheet(c, t, { tab, cfgPick: t > a2 + 1.6, cfgHl: pr(t, a2 + 0.8, a2 + 1.2), fields: f, focus: t > a3 + 0.3 ? focus : null,
-          auth: authDone ? "动态口令 / 二次验证" : null, jump: jumpDone ? "校园网跳板机" : null,
+          auth: authDone ? T("动态口令 / 二次验证", "One-time code / 2FA") : null, jump: jumpDone ? T("校园网跳板机", "Campus Gateway") : null,
           authHl: win(t, a4, a4 + 2.6, 0.2, 0.3), jumpHl: win(t, a4 + 3.7, a4 + 5.8, 0.2, 0.3), press: pressAt(t, [a5 + 0.3]) > 0.3 });
         // 下拉菜单
         if (t > a4 + 0.4 && t < a4 + 2.25) {
           const hi = Math.min(3, Math.floor(pr(t, a4 + 0.7, a4 + 2.1) * 4));
-          menu(c, L.authX - 80, L.authY - 12 - 24 * 0 - 5, ["密钥 / ssh-agent", "密码", "密钥 + 密码", "动态口令 / 二次验证"], { hi, check: 0, k: pr(t, a4 + 0.4, a4 + 0.55), w: 190 });
+          menu(c, L.authX - 80, L.authY - 12 - 24 * 0 - 5, [T("密钥 / ssh-agent", "SSH key / agent"), T("密码", "Password"), T("密钥 + 密码", "Key + password"), T("动态口令 / 二次验证", "One-time code / 2FA")], { hi, check: 0, k: pr(t, a4 + 0.4, a4 + 0.55), w: 190 });
         }
         if (t > a4 + 4.0 && t < a4 + 5.45) {
           const hi = [0, 2, 3, 4][Math.min(3, Math.floor(pr(t, a4 + 4.25, a4 + 5.3) * 4))];
-          menu(c, L.jumpX - 100, L.jumpY - 17, ["不使用（直接连接）", "-", "HPC 集群", "4090 工作站", "校园网跳板机"], { hi, check: 0, k: pr(t, a4 + 4.0, a4 + 4.15), w: 200 });
+          menu(c, L.jumpX - 100, L.jumpY - 17, [T("不使用（直接连接）", "None (connect directly)"), "-", T("HPC 集群", "HPC Cluster"), T("4090 工作站", "4090 Workstation"), T("校园网跳板机", "Campus Gateway")], { hi, check: 0, k: pr(t, a4 + 4.0, a4 + 4.15), w: 200 });
         }
         c.restore();
       }
@@ -494,7 +496,7 @@ function sceneNotch(c, t) {
   const PH = panelH(cards, true);
   const cam = camKeys(t, [[ch.from, { x: MID, y: SH / 2 + 30, z: 0.98 }], [ch.from + 1.0, { x: MID, y: 96, z: 3.3 }], [n3 + 0.2, { x: MID, y: 96, z: 3.3 }], [n3 + 1.2, { x: MID, y: 333, z: 1.5 }]]);
   const keys = [[0, "collapsed"], [n3 + 0.3, panelSpec(PH)]];
-  const moods = [["working", "有任务在跑"], ["waiting", "只有排队"], ["happy", "任务完成"], ["sad", "出错了"]];
+  const moods = [["working", T("有任务在跑", "Jobs running")], ["waiting", T("只有排队", "Only queued")], ["happy", T("任务完成", "Job done")], ["sad", T("出错了", "Error")]];
   const mi = t < n2 + 0.4 ? -1 : Math.min(3, Math.floor((t - n2 - 0.4) / 1.5));
   const po = {};
   macScene(c, t, cam, keys, islandContent(t, {
@@ -507,8 +509,8 @@ function sceneNotch(c, t) {
     above: (s) => {
       // n1：两翼的说明
       const ka = win(t, n1 + 1.2, n2 + 0.1, 0.35, 0.3), kb = win(t, n1 + 3.6, n2 + 0.1, 0.35, 0.3);
-      callout(c, MID - NOTCH_W / 2 - 60, 62, MID - NOTCH_W / 2 - 40, 26, "Tako + 运行数", ka);
-      callout(c, MID + NOTCH_W / 2 + 40, 62, MID + NOTCH_W / 2 + 22, 26, "任务进度", kb);
+      callout(c, MID - NOTCH_W / 2 - 60, 62, MID - NOTCH_W / 2 - 40, 26, T("Tako + 运行数", "Tako + running count"), ka);
+      callout(c, MID + NOTCH_W / 2 + 40, 62, MID + NOTCH_W / 2 + 22, 26, T("任务进度", "Job progress"), kb);
       // n2：四种心情
       if (t > n2 && t < n3 + 0.4) {
         const out = 1 - pr(t, n3 - 0.1, n3 + 0.3);
@@ -519,11 +521,11 @@ function sceneNotch(c, t) {
       // n3 / n4：卡片说明
       if (cards[0]._y != null && s.name !== "collapsed") {
         const cy = cards[0]._y;
-        highlight(c, CARD_X + 6, cy + 4, 260, 28, win(t, n3 + 1.9, n3 + 3.6), "名称 · 类型 · 运行 / 排队", { r: 9, side: "left", edge: CARD_X - 16, size: 13 });
-        highlight(c, CARD_X + 6, cy + 32, 330, 26, win(t, n3 + 3.6, n4 + 0.1), "CPU · 内存", { r: 9, side: "left", edge: CARD_X - 16, size: 13 });
+        highlight(c, CARD_X + 6, cy + 4, 260, 28, win(t, n3 + 1.9, n3 + 3.6), T("名称 · 类型 · 运行 / 排队", "Name · type · running / pending"), { r: 9, side: "left", edge: CARD_X - 16, size: 13 });
+        highlight(c, CARD_X + 6, cy + 32, 330, 26, win(t, n3 + 3.6, n4 + 0.1), T("CPU · 内存", "CPU · memory"), { r: 9, side: "left", edge: CARD_X - 16, size: 13 });
         const gy = cards[1]._y;
-        highlight(c, CARD_X + 6, gy + 32, 420, 26, win(t, n3 + 4.4, n4 + 0.1), "GPU 每张卡一格", { r: 9, side: "left", edge: CARD_X - 16, size: 13, col: COL.cyan });
-        if (po._idleY != null) highlight(c, CARD_X - 2, po._idleY - 3, CARD_W + 4, 42, win(t, n4 + 0.2, ch.to + 0.5), "没有任务的服务器合并在这里", { r: 16, side: "left", edge: CARD_X - 16, size: 13 });
+        highlight(c, CARD_X + 6, gy + 32, 420, 26, win(t, n3 + 4.4, n4 + 0.1), T("GPU 每张卡一格", "One cell per GPU"), { r: 9, side: "left", edge: CARD_X - 16, size: 13, col: COL.cyan });
+        if (po._idleY != null) highlight(c, CARD_X - 2, po._idleY - 3, CARD_W + 4, 42, win(t, n4 + 0.2, ch.to + 0.5), T("没有任务的服务器合并在这里", "Servers with no jobs fold here"), { r: 16, side: "left", edge: CARD_X - 16, size: 13 });
       }
       if (t > n3 - 0.8) {
         const [cx, cy] = cursorAt(t, [[n3 - 0.8, MID + 260, 240], [n3 + 0.1, MID + 40, 12], [n3 + 1.2, MID + 40, 12], [n3 + 2.4, MID + 250, 520]]);
@@ -537,18 +539,18 @@ function sceneNotch(c, t) {
 // 3. Slurm：数组、排队原因、分区、历史
 // =====================================================================================
 function partitionsPage(c, x, w, t, t0) {
-  pageHeader(c, x + 14, w - 28, "分区空闲资源", "HPC 集群 · 查询于 刚刚 · 按空闲 GPU 排序");
+  pageHeader(c, x + 14, w - 28, T("分区空闲资源", "Free Partition Resources"), T("HPC 集群 · 查询于 刚刚 · 按空闲 GPU 排序", "HPC Cluster · queried just now · sorted by idle GPUs"));
   const k = pr(t, t0, t0 + 1.0, easeOutCubic);
   let sx = x + 14;
-  const sum = [["空闲 GPU", "24", "/ 160", COL.cyan], ["空闲 DCU", "38", "/ 256", COL.cyan], ["空闲 CPU", "1,240", "/ 5,888", COL.mint]];
+  const sum = [[T("空闲 GPU", "Idle GPU"), "24", "/ 160", COL.cyan], [T("空闲 DCU", "Idle DCU"), "38", "/ 256", COL.cyan], [T("空闲 CPU", "Idle CPU"), "1,240", "/ 5,888", COL.mint]];
   for (const [a, b, d, col] of sum) {
     sx += text(c, a, sx, MENU + 46, { size: 11, color: COL.ter }) + 5;
     sx += text(c, b, sx, MENU + 47, { size: 15, weight: 700, color: col }) + 4;
     sx += text(c, d, sx, MENU + 46, { size: 11, color: COL.ter }) + 16;
   }
-  text(c, "同一节点可能属于多个分区，合计会重复计算", x + w - 14, MENU + 46, { size: 9.5, color: COL.ter, align: "right" });
-  const rows = [["gpu-v100", "V100", "GPU", 19, 96, 210, 1152, "节点 空闲 2 · 部分 7 · 满 15"], ["dcu", "Hygon", "DCU", 38, 256, 420, 2048, "节点 空闲 4 · 部分 10 · 满 50"],
-    ["gpu-a100", "A100", "GPU", 5, 64, 64, 512, "节点 空闲 0 · 部分 2 · 满 6"], ["cpu", "", "", 0, 0, 310, 1280, "节点 空闲 6 · 部分 8 · 满 26"], ["bigmem", "", "", 0, 0, 236, 896, "节点 空闲 1 · 部分 3 · 满 3"]];
+  text(c, T("同一节点可能属于多个分区，合计会重复计算", "Nodes in several partitions are counted more than once"), x + w - 14, MENU + 46, { size: 9.5, color: COL.ter, align: "right" });
+  const rows = [["gpu-v100", "V100", "GPU", 19, 96, 210, 1152, T("节点 空闲 2 · 部分 7 · 满 15", "nodes idle 2 · mixed 7 · full 15")], ["dcu", "Hygon", "DCU", 38, 256, 420, 2048, T("节点 空闲 4 · 部分 10 · 满 50", "nodes idle 4 · mixed 10 · full 50")],
+    ["gpu-a100", "A100", "GPU", 5, 64, 64, 512, T("节点 空闲 0 · 部分 2 · 满 6", "nodes idle 0 · mixed 2 · full 6")], ["cpu", "", "", 0, 0, 310, 1280, T("节点 空闲 6 · 部分 8 · 满 26", "nodes idle 6 · mixed 8 · full 26")], ["bigmem", "", "", 0, 0, 236, 896, T("节点 空闲 1 · 部分 3 · 满 3", "nodes idle 1 · mixed 3 · full 3")]];
   let y = MENU + 58;
   rows.forEach(([n, model, acc, gi, gt, ci, ct, nodes], i) => {
     const ki = easeOutCubic(clamp((t - t0 - 0.1 - i * 0.1) * 3));
@@ -557,40 +559,40 @@ function partitionsPage(c, x, w, t, t0) {
     let nx = x + 26 + text(c, n, x + 26, y + 19, { size: 12.5, weight: 700 }) + 7;
     if (n === "cpu") nx += kindDefault(c, nx, y + 15) + 6;
     if (model) text(c, model, nx, y + 19, { size: 10, color: COL.ter });
-    text(c, nodes + "   上限 2-00:00:00", x + w - 26, y + 19, { size: 9.5, color: COL.ter, align: "right" });
+    text(c, nodes + T("   上限 2-00:00:00", "   limit 2-00:00:00"), x + w - 26, y + 19, { size: 9.5, color: COL.ter, align: "right" });
     if (gt) {
       text(c, acc, x + 26, y + 39, { size: 9.5, weight: 600, color: COL.ter });
       bar(c, x + 58, y + 34, 150, gi / gt * k, COL.cyan, 5);
-      text(c, `空闲 ${Math.round(gi * k)}/${gt}`, x + 290, y + 39, { size: 10.5, weight: 600, color: COL.sec, align: "right" });
+      text(c, T(`空闲 ${Math.round(gi * k)}/${gt}`, `idle ${Math.round(gi * k)}/${gt}`), x + 290, y + 39, { size: 10.5, weight: 600, color: COL.sec, align: "right" });
       text(c, "CPU", x + 312, y + 39, { size: 9.5, weight: 600, color: COL.ter });
       bar(c, x + 344, y + 34, 150, ci / ct * k, COL.mint, 5);
     } else {
       text(c, "CPU", x + 26, y + 39, { size: 9.5, weight: 600, color: COL.ter });
       bar(c, x + 58, y + 34, 436, ci / ct * k, COL.mint, 5);
     }
-    text(c, `空闲 ${Math.round(ci * k)}/${ct}`, x + w - 26, y + 39, { size: 10.5, weight: 600, color: COL.sec, align: "right" });
+    text(c, T(`空闲 ${Math.round(ci * k)}/${ct}`, `idle ${Math.round(ci * k)}/${ct}`), x + w - 26, y + 39, { size: 10.5, weight: 600, color: COL.sec, align: "right" });
     c.restore();
     y += 56;
   });
 }
 function kindDefault(c, x, cy) {
-  const w = measure(c, "默认", { size: 9, weight: 700 }) + 10;
+  const w = measure(c, T("默认", "default"), { size: 9, weight: 700 }) + 10;
   c.fillStyle = alpha(COL.violet, 0.18); rr(c, x, cy - 8, w, 14, 7); c.fill();
-  text(c, "默认", x + 5, cy + 2.5, { size: 9, weight: 700, color: COL.violet });
+  text(c, T("默认", "default"), x + 5, cy + 2.5, { size: 9, weight: 700, color: COL.violet });
   return w;
 }
 function historyPage(c, x, w, t, t0) {
-  pageHeader(c, x + 14, w - 28, "历史记录", "HPC 集群 · 最近 24 小时来自 sacct，更早的是本机记录（保留 7 天）", { refresh: false, right: rx => {
+  pageHeader(c, x + 14, w - 28, T("历史记录", "History"), T("HPC 集群 · 最近 24 小时来自 sacct，更早的是本机记录（保留 7 天）", "HPC Cluster · last 24 h from sacct, older from the local record (kept 7 days)"), { refresh: false, right: rx => {
     icon(c, "check", rx - 58, MENU + 4, 13, COL.mint); text(c, "2", rx - 46, MENU + 9, { size: 12, weight: 700, color: COL.mint });
     icon(c, "xmark", rx - 24, MENU + 4, 12, COL.coral); text(c, "2", rx - 12, MENU + 9, { size: 12, weight: 700, color: COL.coral });
   } });
   const rows = [
-    ["check", COL.blue, "relax_Li3PS4_pbe", "8811990", "已完成", COL.blue, "", "2:03:32", "30 分钟前", "/home/demo/projects/Li3PS4/relax"],
-    ["xmark", COL.coral, "phonon_LiCoO2_222", "8811987", "失败", COL.coral, "exit 0:125", "42:18", "1 小时前", "/home/demo/projects/LiCoO2/phonon_222"],
-    ["check", COL.blue, "scf_LiCoO2_kmesh", "8811950", "已完成", COL.blue, "", "55:01", "3 小时前", null],
-    ["minus", COL.ter, "neb_Li_vacancy", "8811901", "已取消", COL.sec, "exit 0:15", "6:52", "8 小时前", null],
-    ["xmark", COL.coral, "aimd_LGPS_1200K", "8811877", "超时", COL.coral, "", "2d 00:00", "16 小时前", null],
-    ["check", COL.blue, "nep_train_LiF", "8810412", "已完成", COL.blue, "", "1d 00:00", "3 天前", "/home/demo/nep/LiF"],
+    ["check", COL.blue, "relax_Li3PS4_pbe", "8811990", T("已完成", "Completed"), COL.blue, "", "2:03:32", T("30 分钟前", "30m ago"), "/home/demo/projects/Li3PS4/relax"],
+    ["xmark", COL.coral, "phonon_LiCoO2_222", "8811987", T("失败", "Failed"), COL.coral, "exit 0:125", "42:18", T("1 小时前", "1h ago"), "/home/demo/projects/LiCoO2/phonon_222"],
+    ["check", COL.blue, "scf_LiCoO2_kmesh", "8811950", T("已完成", "Completed"), COL.blue, "", "55:01", T("3 小时前", "3h ago"), null],
+    ["minus", COL.ter, "neb_Li_vacancy", "8811901", T("已取消", "Cancelled"), COL.sec, "exit 0:15", "6:52", T("8 小时前", "8h ago"), null],
+    ["xmark", COL.coral, "aimd_LGPS_1200K", "8811877", T("超时", "Timed out"), COL.coral, "", "2d 00:00", T("16 小时前", "16h ago"), null],
+    ["check", COL.blue, "nep_train_LiF", "8810412", T("已完成", "Completed"), COL.blue, "", "1d 00:00", T("3 天前", "3d ago"), "/home/demo/nep/LiF"],
   ];
   let y = MENU + 22;
   rows.forEach(([ic, col, name, id, st, stc, ex, dur, ago, dir], i) => {
@@ -637,7 +639,7 @@ function sceneSlurm(c, t) {
         const ry = cards[0]._y;
         // 数组作业的分段图例
         const eosY = cards[0]._rows[1], bw = Math.round(CARD_W * 0.55), bx = CARD_X + 42;
-        const segs = [[COL.mint, "完成", bx + bw * (done / 40) / 2], [COL.coral, "失败", bx + bw * (done / 40) + bw * 0.025], [COL.cyan, "运行中", bx + bw * ((done + 2) / 40) + bw * 0.075]];
+        const segs = [[COL.mint, T("完成", "done"), bx + bw * (done / 40) / 2], [COL.coral, T("失败", "Failed"), bx + bw * (done / 40) + bw * 0.025], [COL.cyan, T("运行中", "Running"), bx + bw * ((done + 2) / 40) + bw * 0.075]];
         segs.forEach(([col, lab, sx], i) => callout(c, sx + (i - 1) * 34, eosY + 44, sx, eosY + 24, lab, win(t, s1 + 1.0 + i * 0.9, s2 + 0.1, 0.25, 0.3), col));
         // 排队原因说明
         if (t > s2 + 0.3 && t < s3 + 0.1) {
@@ -647,9 +649,9 @@ function sceneSlurm(c, t) {
           c.fillStyle = "rgba(24,12,16,0.96)"; rr(c, 0, 0, 400, 70, 12); c.fill();
           c.strokeStyle = alpha(COL.coral, 0.55); c.lineWidth = 1; rr(c, 0, 0, 400, 70, 12); c.stroke();
           c.fillStyle = "rgba(24,12,16,0.96)"; c.beginPath(); c.moveTo(30, 0); c.lineTo(38, -8); c.lineTo(46, 0); c.fill();
-          text(c, "squeue 原文：DependencyNeverSatisfied", 14, 22, { size: 10.5, font: MONO, color: COL.ter });
-          text(c, "依赖的作业失败或被取消了，这个作业不会再开始；", 14, 42, { size: 12, weight: 600, color: COL.coral });
-          text(c, "需要 scancel 后重新提交，或用 scontrol update 修改依赖。", 14, 60, { size: 11, color: COL.sec });
+          text(c, T("squeue 原文：DependencyNeverSatisfied", "squeue says: DependencyNeverSatisfied"), 14, 22, { size: 10.5, font: MONO, color: COL.ter });
+          text(c, T("依赖的作业失败或被取消了，这个作业不会再开始；", "A job it depends on failed or was cancelled, so it will never start;"), 14, 42, { size: 12, weight: 600, color: COL.coral });
+          text(c, T("需要 scancel 后重新提交，或用 scontrol update 修改依赖。", "scancel and resubmit it, or fix the dependency with scontrol update."), 14, 60, { size: 11, color: COL.sec });
           c.restore();
         }
         // 光标：网格 → 返回 → 历史
@@ -668,9 +670,9 @@ function sceneSlurm(c, t) {
 // 4. PBS 与直连服务器
 // =====================================================================================
 function watchPage(c, x, w, t, t0, picked) {
-  pageHeader(c, x + 14, w - 28, "监听进程", "4090 工作站 · 按 GPU 显存和 CPU 排序；监听的进程结束时一定会提醒");
-  const rows = [["python train_mace.py", "41856", "显存 14.5G · CPU 104%", "MACE 训练"], ["nep", "41022", "显存 2.5G · CPU 99%", "NEP 训练"], ["lmp", "41377", "CPU 1580% · 内存 3.1G", "LAMMPS"],
-    ["python preprocess.py", "42310", "CPU 98% · 内存 6.4G", ""], ["jupyter-lab", "3021", "CPU 2% · 内存 820M", ""]];
+  pageHeader(c, x + 14, w - 28, T("监听进程", "Watch a Process"), T("4090 工作站 · 按 GPU 显存和 CPU 排序；监听的进程结束时一定会提醒", "4090 Workstation · sorted by VRAM and CPU; watched processes always alert when they end"));
+  const rows = [["python train_mace.py", "41856", T("显存 14.5G · CPU 104%", "VRAM 14.5G · CPU 104%"), T("MACE 训练", "MACE training")], ["nep", "41022", T("显存 2.5G · CPU 99%", "VRAM 2.5G · CPU 99%"), T("NEP 训练", "NEP training")], ["lmp", "41377", T("CPU 1580% · 内存 3.1G", "CPU 1580% · MEM 3.1G"), "LAMMPS"],
+    ["python preprocess.py", "42310", T("CPU 98% · 内存 6.4G", "CPU 98% · MEM 6.4G"), ""], ["jupyter-lab", "3021", T("CPU 2% · 内存 820M", "CPU 2% · MEM 820M"), ""]];
   let y = MENU + 24;
   const pos = [];
   rows.forEach(([n, pid, res, app], i) => {
@@ -681,14 +683,14 @@ function watchPage(c, x, w, t, t0, picked) {
     const nw = text(c, n, x + 28, y + 19, { size: 12, weight: 600 });
     text(c, "pid " + pid, x + 34 + nw, y + 19, { size: 9.5, font: MONO, color: COL.ter });
     text(c, res + (app ? " · " + app : ""), x + 28, y + 36, { size: 10, color: COL.ter });
-    if (on) text(c, "监听中", x + w - 60, y + 27, { size: 10.5, weight: 700, color: COL.cyan, align: "right" });
+    if (on) text(c, T("监听中", "Watching"), x + w - 60, y + 27, { size: 10.5, weight: 700, color: COL.cyan, align: "right" });
     c.fillStyle = on ? alpha(COL.cyan, 0.2) : "rgba(255,255,255,0.08)"; c.beginPath(); c.arc(x + w - 38, y + 23, 12, 0, 7); c.fill();
     icon(c, on ? "eyeFill" : "eye", x + w - 38, y + 23, 13, on ? COL.cyan : COL.sec);
     c.restore();
     pos.push([x + w - 38, y + 23]);
     y += 52;
   });
-  text(c, "也可以在 设置 → 4090 工作站 → 监听的进程 里手动输入 PID。", x + 14, y + 14, { size: 10, color: COL.ter });
+  text(c, T("也可以在 设置 → 4090 工作站 → 监听的进程 里手动输入 PID。", "You can also enter a PID in Settings → 4090 Workstation → Watched Processes."), x + 14, y + 14, { size: 10, color: COL.ter });
   return pos;
 }
 function sceneDirect(c, t) {
@@ -709,8 +711,8 @@ function sceneDirect(c, t) {
       if (cards[0]._y == null) return;
       const py = cards[0]._y, gy = cards[1]._y;
       highlight(c, CARD_X + 76, py + 6, 40, 22, win(t, p1 + 0.3, p2 - 0.1), "PBS Pro · OpenPBS · Torque", { r: 8, side: "left", edge: CARD_X - 12, size: 11 });
-      highlight(c, CARD_X + 6, gy + 50, CARD_W - 12, 3 * 40 + 6, win(t, p2 + 0.4, p2 + 2.4), "你的进程", { r: 10, side: "left", edge: CARD_X - 12, size: 11 });
-      highlight(c, CARD_X + 300, gy + 32, 130, 26, win(t, p2 + 2.4, p3 + 0.2), "每张 GPU 一格", { r: 9, col: COL.cyan, side: "left", edge: CARD_X - 12, size: 11 });
+      highlight(c, CARD_X + 6, gy + 50, CARD_W - 12, 3 * 40 + 6, win(t, p2 + 0.4, p2 + 2.4), T("你的进程", "Your processes"), { r: 10, side: "left", edge: CARD_X - 12, size: 11 });
+      highlight(c, CARD_X + 300, gy + 32, 130, 26, win(t, p2 + 2.4, p3 + 0.2), T("每张 GPU 一格", "One cell per GPU"), { r: 9, col: COL.cyan, side: "left", edge: CARD_X - 12, size: 11 });
       const e = cards[1]._btn.eye;
       const pts = [[ch.from, MID + 200, 420], [p3 - 0.4, MID + 200, 420], [p3 + 0.3, e[0], e[1]], [p3 + 1.4, e[0], e[1]]];
       if (wp) pts.push([p3 + 2.5, wp[3][0], wp[3][1]], [p3 + 4.0, wp[3][0] - 90, wp[3][1] + 60]);
@@ -740,7 +742,7 @@ function infoBox(c, x, y, w, rows) {
   return h;
 }
 function logBox(c, x, y, w, h, lines, o = {}) {
-  let hx = x + text(c, "日志末尾", x, y, { size: 11, weight: 700, color: COL.sec }) + 8;
+  let hx = x + text(c, T("日志末尾", "Log tail"), x, y, { size: 11, weight: 700, color: COL.sec }) + 8;
   if (o.path) { hx += text(c, o.path, hx, y, { size: 9.5, font: MONO, color: COL.ter }) + 8; icon(c, "copy", hx + 4, y - 4, 10, COL.ter); hx += 16; pill(c, hx + 4, y - 4, "tail -f", { icon: "copy", color: COL.ter, size: 9.5 }); }
   const by = y + 10;
   c.fillStyle = "rgba(255,255,255,0.03)"; rr(c, x, by, w, h, 10); c.fill();
@@ -752,17 +754,17 @@ function logBox(c, x, y, w, h, lines, o = {}) {
 function nepDetail(c, x, w, t, t0) {
   const kx = x + 14, kw = w - 28;
   const gen = Math.round(lerp(7800, 8600, pr(t, t0, t0 + 6)));
-  pageHeader(c, kx, kw, "nep", "4090 工作站 · PID 41022", { status: "运行中", copy: "PID" });
+  pageHeader(c, kx, kw, "nep", T("4090 工作站 · PID 41022", "4090 Workstation · PID 41022"), { status: T("运行中", "Running"), copy: "PID" });
   const ih = infoBox(c, kx, MENU + 28, kw, [
-    { cols: [["软件", "NEP 训练"], ["速度", "26.40 代/秒"]] }, { cols: [["预计剩余", `${Math.floor((20000 - gen) / 26.4 / 60)}:${String(Math.round((20000 - gen) / 26.4 % 60)).padStart(2, "0")}`], ["输出更新", "刚刚"]] },
-    { cols: [["进度", `${gen.toLocaleString()} / 20,000 代（${Math.round(gen / 200)}%）`, COL.mint]] },
+    { cols: [[T("软件", "Software"), T("NEP 训练", "NEP training")], [T("速度", "Speed"), T("26.40 代/秒", "26.40 gen/s")]] }, { cols: [[T("预计剩余", "ETA"), `${Math.floor((20000 - gen) / 26.4 / 60)}:${String(Math.round((20000 - gen) / 26.4 % 60)).padStart(2, "0")}`], [T("输出更新", "Last output"), T("刚刚", "just now")]] },
+    { cols: [[T("进度", "Progress"), T(`${gen.toLocaleString()} / 20,000 代（${Math.round(gen / 200)}%）`, `${gen.toLocaleString()} / 20,000 gen (${Math.round(gen / 200)}%)`), COL.mint]] },
     { cols: [["Loss", `Total ${(0.1815 - (gen - 7800) * 0.000004).toFixed(4)} · Energy 7.40e-04 · Force 0.0710 · Virial 0.0113`]] },
-    { cols: [["工作目录", "/home/demo/projects/Li3PS4/nep-train"]], copy: true, h: 20 }]);
+    { cols: [[T("工作目录", "Directory"), "/home/demo/projects/Li3PS4/nep-train"]], copy: true, h: 20 }]);
   const gy = MENU + 28 + ih + 10;
   const mk = (a0, ex, ph) => { const pts = []; for (let i = 0; i <= 60; i++) { const g = 100 + (gen - 100) * i / 60; pts.push([i / 60, a0 * Math.pow(g / 1000, ex) * (1 + 0.04 * Math.sin(g / 200 + ph))]); } return pts; };
-  chart(c, kx, gy, kw, 116, { title: "Loss", log: true, range: [5e-4, 1.2], labels: ["1.2", "5e-04"], corner: `代 ${gen.toLocaleString()}`, series: [
-    { name: "Total", val: "0.1845", col: COL.mint, pts: mk(0.32, -0.27, 0) }, { name: "能量", val: "7.89e-04", col: COL.cyan, pts: mk(0.004, -0.8, 1) },
-    { name: "力", val: "0.0721", col: COL.amber, pts: mk(0.13, -0.29, 2) }, { name: "维里", val: "0.0114", col: COL.violet, pts: mk(0.03, -0.45, 3) }] });
+  chart(c, kx, gy, kw, 116, { title: "Loss", log: true, range: [5e-4, 1.2], labels: ["1.2", "5e-04"], corner: T(`代 ${gen.toLocaleString()}`, `gen ${gen.toLocaleString()}`), series: [
+    { name: "Total", val: "0.1845", col: COL.mint, pts: mk(0.32, -0.27, 0) }, { name: T("能量", "energy"), val: "7.89e-04", col: COL.cyan, pts: mk(0.004, -0.8, 1) },
+    { name: T("力", "force"), val: "0.0721", col: COL.amber, pts: mk(0.13, -0.29, 2) }, { name: T("维里", "virial"), val: "0.0114", col: COL.violet, pts: mk(0.03, -0.45, 3) }] });
   const ly = gy + 116 + 22;
   const base = Math.floor((gen - 7400) / 100);
   const lines = ["Step     Total-Loss   L1Reg-Loss   L2Reg-Loss   RMSE-E-Train   RMSE-F-Train   RMSE-V-Train"];
@@ -772,9 +774,9 @@ function nepDetail(c, x, w, t, t0) {
 function vaspDetail(c, x, w, t, t0, neb) {
   const kx = x + 14, kw = w - 28;
   if (!neb) {
-    pageHeader(c, kx, kw, "relax_LiCoO2_hse", "HPC 集群 · 作业 #8812101", { status: "运行中", copy: "作业号" });
+    pageHeader(c, kx, kw, "relax_LiCoO2_hse", T("HPC 集群 · 作业 #8812101", "HPC Cluster · Job #8812101"), { status: T("运行中", "Running"), copy: T("作业号", "Job ID") });
     const steps = 18 + Math.floor(pr(t, t0, t0 + 2.4) * 5);
-    const ih = infoBox(c, kx, MENU + 28, kw, [{ cols: [["软件", "VASP 结构优化"], ["已运行", "3:12:16"]] }, { cols: [["进度", `${steps} 离子步`, COL.mint], ["时间上限", "1-00:00:00"]] }, { cols: [["工作目录", "/home/demo/projects/LiCoO2/relax-hse"]], copy: true, h: 20 }]);
+    const ih = infoBox(c, kx, MENU + 28, kw, [{ cols: [[T("软件", "Software"), T("VASP 结构优化", "VASP relaxation")], [T("已运行", "Elapsed"), "3:12:16"]] }, { cols: [[T("进度", "Progress"), T(`${steps} 离子步`, `${steps} ionic steps`), COL.mint], [T("时间上限", "Time limit"), "1-00:00:00"]] }, { cols: [[T("工作目录", "Directory"), "/home/demo/projects/LiCoO2/relax-hse"]], copy: true, h: 20 }]);
     const gy = MENU + 28 + ih + 10, half = (kw - 10) / 2;
     const E = [], F = [], Fm = [];
     let fmin = 9;
@@ -783,25 +785,25 @@ function vaspDetail(c, x, w, t, t0, neb) {
       E.push([fx, i === 0 ? -89.5 : i === 1 ? -89.07 : -90.07 + 0.25 * Math.exp(-i / 3)]);
       const f = 0.08 + 5.4 * Math.exp(-i / 2.6) + 0.12 * Math.abs(Math.sin(i * 1.7)); F.push([fx, f]); fmin = Math.min(fmin, f); Fm.push([fx, fmin]);
     }
-    chart(c, kx, gy, half, 140, { title: "能量 E0 (eV)", range: [-90.1, -89.0], labels: ["-89.07", "-90.07"], series: [{ name: "E0", val: E[E.length - 1][1].toFixed(4), col: COL.mint, pts: E }] });
-    chart(c, kx + half + 10, gy, half, 140, { title: "最大力 (eV/Å)", log: true, range: [0.05, 6], labels: ["5.55", "0.05"], tag: "目标 EDIFFG = -0.02", target: 0.02 < 0.05 ? 0.06 : 0.02, targetLabel: "", series: [
-      { name: "|F|max", val: F[F.length - 1][1].toFixed(4), col: COL.mint, pts: F }, { name: "最低", val: fmin.toFixed(4), col: "#5C8CB0", pts: Fm, dash: true }] });
+    chart(c, kx, gy, half, 140, { title: T("能量 E0 (eV)", "Energy E0 (eV)"), range: [-90.1, -89.0], labels: ["-89.07", "-90.07"], series: [{ name: "E0", val: E[E.length - 1][1].toFixed(4), col: COL.mint, pts: E }] });
+    chart(c, kx + half + 10, gy, half, 140, { title: T("最大力 (eV/Å)", "Max force (eV/Å)"), log: true, range: [0.05, 6], labels: ["5.55", "0.05"], tag: T("目标 EDIFFG = -0.02", "target EDIFFG = -0.02"), target: 0.02 < 0.05 ? 0.06 : 0.02, targetLabel: "", series: [
+      { name: "|F|max", val: F[F.length - 1][1].toFixed(4), col: COL.mint, pts: F }, { name: T("最低", "lowest"), val: fmin.toFixed(4), col: "#5C8CB0", pts: Fm, dash: true }] });
     logBox(c, kx, gy + 140 + 22, kw, 80, [
       `  ${steps - 1} F= -.90072810E+02 E0= -.90072810E+02  d E =-.211E-03  mag=     0.0012`,
       "bond charge predicted", "       N       E                     dE             d eps       ncg     rms",
       "RMM:   1    -0.900729E+02   -0.31E-04   -0.42E-05   1280   0.31E-02",
       `  ${steps} F= -.90072847E+02 E0= -.90072847E+02  d E =-.370E-04  mag=     0.0011`], { path: "/home/demo/projects/LiCoO2/relax-hse/OSZICAR" });
   } else {
-    pageHeader(c, kx, kw, "neb_Li_migration", "HPC 集群 · 作业 #8812420", { status: "运行中", copy: "作业号" });
-    const ih = infoBox(c, kx, MENU + 28, kw, [{ cols: [["软件", "VASP NEB"], ["像点", "5（00 – 04）"]] }, { cols: [["进度", "30 离子步", COL.mint], ["已运行", "5:41:09"]] }, { cols: [["工作目录", "/home/demo/projects/LiCoO2/neb-Li"]], copy: true, h: 20 }]);
+    pageHeader(c, kx, kw, "neb_Li_migration", T("HPC 集群 · 作业 #8812420", "HPC Cluster · Job #8812420"), { status: T("运行中", "Running"), copy: T("作业号", "Job ID") });
+    const ih = infoBox(c, kx, MENU + 28, kw, [{ cols: [[T("软件", "Software"), "VASP NEB"], [T("像点", "Images"), "5（00 – 04）"]] }, { cols: [[T("进度", "Progress"), T("30 离子步", "30 ionic steps"), COL.mint], [T("已运行", "Elapsed"), "5:41:09"]] }, { cols: [[T("工作目录", "Directory"), "/home/demo/projects/LiCoO2/neb-Li"]], copy: true, h: 20 }]);
     const gy = MENU + 28 + ih + 10, half = (kw - 10) / 2;
     const k = pr(t, t0, t0 + 1.2, easeOutCubic);
     const prof = [[0, -0.02], [0.25, 0.30], [0.5, 0.71 * k + 0.3 * (1 - k)], [0.75, 0.30], [1, 0.0]];
-    chart(c, kx, gy, half, 140, { title: "能垒图 (eV)", range: [-0.05, 0.8], labels: ["0.7105", "-0.0218"], target: 0.12, targetLabel: "EDIFFG", series: [
-      { name: "力", barLegend: true, val: "0.0068", col: "#2E8A62", bars: true, pts: [[0.25, 0.1], [0.5, 0.07], [0.75, 0.1]] },
-      { name: "能量", col: COL.mint, pts: prof, dots: true }] });
+    chart(c, kx, gy, half, 140, { title: T("能垒图 (eV)", "Energy profile (eV)"), range: [-0.05, 0.8], labels: ["0.7105", "-0.0218"], target: 0.12, targetLabel: "EDIFFG", series: [
+      { name: T("力", "force"), barLegend: true, val: "0.0068", col: "#2E8A62", bars: true, pts: [[0.25, 0.1], [0.5, 0.07], [0.75, 0.1]] },
+      { name: T("能量", "energy"), col: COL.mint, pts: prof, dots: true }] });
     const B = []; for (let i = 0; i <= 30; i++) B.push([i / 30, 0.71 + 0.9 * Math.exp(-i / 4)]);
-    chart(c, kx + half + 10, gy, half, 140, { title: "能垒 (eV)", range: [0.68, 1.65], labels: ["1.61", "0.7105"], tag: "能垒 0.710 eV · 逆向 0.732", series: [{ name: "能垒", val: "0.7105", col: COL.mint, pts: B }] });
+    chart(c, kx + half + 10, gy, half, 140, { title: T("能垒 (eV)", "Barrier (eV)"), range: [0.68, 1.65], labels: ["1.61", "0.7105"], tag: T("能垒 0.710 eV · 逆向 0.732", "barrier 0.710 eV · reverse 0.732"), series: [{ name: T("能垒", "barrier"), val: "0.7105", col: COL.mint, pts: B }] });
     logBox(c, kx, gy + 140 + 22, kw, 80, ["  30 F= -.45218311E+03 E0= -.45218311E+03  d E =-.120E-04", "  (02) |F|max 0.0068  tangent force 0.0031", "   image  energy(eV)  rel(eV)", "     02   -452.18311    0.7105", "  reached required accuracy - stopping structural energy minimisation"], { path: "/home/demo/projects/LiCoO2/neb-Li/02/OUTCAR" });
   }
 }
@@ -812,41 +814,41 @@ function ruleSheet(c, t, c4) {
   c.strokeStyle = "rgba(255,255,255,0.12)"; c.lineWidth = 1; rr(c, x0, y0, w0, h0, 12); c.stroke();
   const x = x0 + 20, w = w0 - 40;
   let y = y0 + 18;
-  formGroup(c, x, y, w, [{ label: "名称", kind: "field", value: "PyTorch" }, { label: "单位", kind: "field", value: "epoch" }], t);
+  formGroup(c, x, y, w, [{ label: T("名称", "Name"), kind: "field", value: "PyTorch" }, { label: T("单位", "Unit"), kind: "field", value: "epoch" }], t);
   y += 72 + 30;
-  text(c, "从哪里读进度", x, y - 8, { size: 13, weight: 700, color: SET.text });
+  text(c, T("从哪里读进度", "Where to Read Progress"), x, y - 8, { size: 13, weight: 700, color: SET.text });
   formGroup(c, x, y, w, [
-    { label: "文件", help: true, kind: "field", value: typed("*.log", t, c4 + 0.5, c4 + 0.9), ph: "比如 train.log", mono: true, caret: t > c4 + 0.3 && t < c4 + 1.0 },
-    { label: "取当前值", kind: "segment", options: ["关键字", "正则"], sel: 0, width: 240 },
-    { label: "关键字", help: true, kind: "field", value: typed("epoch", t, c4 + 1.2, c4 + 1.7), ph: "比如 epoch", mono: true, caret: t > c4 + 1.0 && t < c4 + 1.8 }], t);
+    { label: T("文件", "File"), help: true, kind: "field", value: typed("*.log", t, c4 + 0.5, c4 + 0.9), ph: T("比如 train.log", "e.g. train.log"), mono: true, caret: t > c4 + 0.3 && t < c4 + 1.0 },
+    { label: T("取当前值", "Current Value"), kind: "segment", options: [T("关键字", "Keyword"), T("正则", "Regex")], sel: 0, width: 240 },
+    { label: T("关键字", "Keyword"), help: true, kind: "field", value: typed("epoch", t, c4 + 1.2, c4 + 1.7), ph: T("比如 epoch", "e.g. epoch"), mono: true, caret: t > c4 + 1.0 && t < c4 + 1.8 }], t);
   y += 108 + 30;
-  text(c, "目标值与结束（都可不填）", x, y - 8, { size: 13, weight: 700, color: SET.text });
+  text(c, T("目标值与结束（都可不填）", "Target & End (optional)"), x, y - 8, { size: 13, weight: 700, color: SET.text });
   formGroup(c, x, y, w, [
-    { label: "固定目标值", help: true, kind: "field", value: typed("200", t, c4 + 2.0, c4 + 2.3), ph: "比如 100（可不填）", caret: t > c4 + 1.9 && t < c4 + 2.5 },
-    { label: "结束标记", help: true, kind: "field", value: "", ph: "比如 Training finished（可不填）" }], t);
+    { label: T("固定目标值", "Fixed Target"), help: true, kind: "field", value: typed("200", t, c4 + 2.0, c4 + 2.3), ph: T("比如 100（可不填）", "e.g. 100 (optional)"), caret: t > c4 + 1.9 && t < c4 + 2.5 },
+    { label: T("结束标记", "End Marker"), help: true, kind: "field", value: "", ph: T("比如 Training finished（可不填）", "e.g. Training finished (optional)") }], t);
   y += 72 + 30;
-  text(c, "测试", x, y - 8, { size: 13, weight: 700, color: SET.text });
+  text(c, T("测试", "Test"), x, y - 8, { size: 13, weight: 700, color: SET.text });
   let tb = null;
   const testing = t > c4 + 3.4 && t < c4 + 4.05, okk = pr(t, c4 + 4.05, c4 + 4.3);
   formGroup(c, x, y, w, [
     { custom: (rx, ry, rw, rh) => {
-        text(c, "服务器", rx + 12, ry + rh / 2 + 4.5, { size: 13, color: SET.text });
-        popup(c, rx + 90, ry + rh / 2, "4090 工作站");
-        tb = button(c, rx + rw - 12, ry + rh / 2, testing ? "测试中…" : "测试", { align: "right", press: pressAt(t, [c4 + 3.4]) > 0.3 });
+        text(c, T("服务器", "Server"), rx + 12, ry + rh / 2 + 4.5, { size: 13, color: SET.text });
+        popup(c, rx + 90, ry + rh / 2, T("4090 工作站", "4090 Workstation"));
+        tb = button(c, rx + rw - 12, ry + rh / 2, testing ? T("测试中…", "Testing…") : T("测试", "Test"), { align: "right", press: pressAt(t, [c4 + 3.4]) > 0.3 });
         text(c, "~/runs/exp1", tb.x - 10, ry + rh / 2 + 4.5, { size: 12.5, font: MONO, color: SET.text, align: "right" });
       } },
     { h: 50, custom: (rx, ry, rw, rh) => {
-        if (okk <= 0) { text(c, "只读：在服务器上读一次文件，不会写入任何东西。", rx + 12, ry + 29, { size: 11.5, color: SET.sec }); return; }
+        if (okk <= 0) { text(c, T("只读：在服务器上读一次文件，不会写入任何东西。", "Read-only: nothing on the server is changed."), rx + 12, ry + 29, { size: 11.5, color: SET.sec }); return; }
         c.save(); c.globalAlpha *= okk;
         c.fillStyle = "#34C759"; c.beginPath(); c.arc(rx + 22, ry + 20, 8, 0, 7); c.fill(); icon(c, "check", rx + 22, ry + 20, 10, "#fff", { lw: 3.4 });
-        text(c, "当前值 37 · 目标值 200（18%）", rx + 38, ry + 25, { size: 14, weight: 600, color: "#34C759" });
-        text(c, "文件：train.log", rx + 12, ry + 43, { size: 10.5, color: SET.sec });
+        text(c, T("当前值 37 · 目标值 200（18%）", "Current 37 · target 200 (18%)"), rx + 38, ry + 25, { size: 14, weight: 600, color: "#34C759" });
+        text(c, T("文件：train.log", "File: train.log"), rx + 12, ry + 43, { size: 10.5, color: SET.sec });
         c.restore();
       } }], t);
   const by = y0 + h0 - 28;
-  button(c, x, by, "删除规则");
-  const sv = button(c, x + w, by, "保存", { align: "right", primary: true });
-  button(c, sv.x - 10, by, "取消", { align: "right" });
+  button(c, x, by, T("删除规则", "Delete Rule"));
+  const sv = button(c, x + w, by, T("保存", "Save"), { align: "right", primary: true });
+  button(c, sv.x - 10, by, T("取消", "Cancel"), { align: "right" });
   return { test: tb ? [tb.cx, y + ROW_H / 2] : null };
 }
 function sceneApps(c, t) {
@@ -869,10 +871,10 @@ function sceneApps(c, t) {
   }), {
     app: inWin ? "ServerIsland" : "Finder",
     below: () => { if (inWin) windowIn(c, t, c4 - 0.5, () => macWindow(c, WX, WY, WW, WH, { side: SIDE, content: () => {
-      sidebar(c, t, { order: ["hpc", "gpu", "jump", "lab"], sel: "rules", over: { lab: { sub: "运行 2 · 排队 1", dot: COL.mint } } });
+      sidebar(c, t, { order: ["hpc", "gpu", "jump", "lab"], sel: "rules", over: { lab: { sub: T("运行 2 · 排队 1", "2 running · 1 pending"), dot: COL.mint } } });
       // 进度识别页（背景）
       let y = WY + 48;
-      sectionTitle(c, MAINX, y + 14, "内置软件", "#7B61FF", "atom");
+      sectionTitle(c, MAINX, y + 14, T("内置软件", "Built-in"), "#7B61FF", "atom");
       formGroup(c, MAINX, y + 30, MAINW, [{ label: "NEP / GNEP", kind: "text", value: "nep.in + loss.out" }, { label: "GPUMD", kind: "text", value: "run.in + thermo.out" }, { label: "VASP", kind: "text", value: "INCAR + OSZICAR" }, { label: "LAMMPS", kind: "text", value: "log.lammps" }], t);
       c.fillStyle = "rgba(0,0,0,0.3)"; c.fillRect(WX, WY, WW, WH);
       RS = ruleSheet(c, t, c4);
@@ -880,7 +882,7 @@ function sceneApps(c, t) {
     above: () => {
       if (!inWin && cards[0]._rows && t < c2 + 0.5) {
         // 各软件的进度行逐个高亮
-        const rows = [[0, 0, "VASP MD"], [0, 1, "VASP 结构优化"], [0, 3, "GPUMD"], [1, 0, "NEP"], [1, 1, "LAMMPS"], [1, 2, "自定义规则"]];
+        const rows = [[0, 0, "VASP MD"], [0, 1, T("VASP 结构优化", "VASP relaxation")], [0, 3, "GPUMD"], [1, 0, "NEP"], [1, 1, "LAMMPS"], [1, 2, T("自定义规则", "Custom rule")]];
         rows.forEach(([ci, ri, lab], i) => {
           const ry = cards[ci]._rows[ri];
           highlight(c, CARD_X + CARD_W - 230, ry - 4, 226, 40, win(t, c1 + 0.6 + i * 0.75, c1 + 1.35 + i * 0.75, 0.15, 0.15), lab, { r: 9, labelX: CARD_X + CARD_W - 230 - measure(c, lab, { size: 12, weight: 700 }) - 26, size: 12 });
@@ -906,10 +908,10 @@ function sceneApps(c, t) {
 // =====================================================================================
 function aimdDetail(c, x, w, t, r3) {
   const kx = x + 14, kw = w - 28;
-  pageHeader(c, kx, kw, "aimd_Li3PS4_900K", "HPC 集群 · 作业 #8812044", { status: "运行中", copy: "作业号" });
+  pageHeader(c, kx, kw, "aimd_Li3PS4_900K", T("HPC 集群 · 作业 #8812044", "HPC Cluster · Job #8812044"), { status: T("运行中", "Running"), copy: T("作业号", "Job ID") });
   const ih = infoBox(c, kx, MENU + 28, kw, [
-    { cols: [["软件", "VASP MD"], ["速度", "0.03 步/秒"]] }, { cols: [["预计剩余", "1d 06:41"], ["输出更新", "刚刚"]] }, { cols: [["已运行", "10:07:00"], ["时间上限", "2-00:00:00"]] },
-    { cols: [["进度", "1,243 / 5,000 步（25%）", COL.mint]] }, { cols: [["工作目录", "/home/demo/projects/Li3PS4/aimd-900K"]], copy: true, h: 20 }, { cols: [["资源", "cpu=128,mem=480G,node=2"]] }]);
+    { cols: [[T("软件", "Software"), "VASP MD"], [T("速度", "Speed"), T("0.03 步/秒", "0.03 steps/s")]] }, { cols: [[T("预计剩余", "ETA"), "1d 06:41"], [T("输出更新", "Last output"), T("刚刚", "just now")]] }, { cols: [[T("已运行", "Elapsed"), "10:07:00"], [T("时间上限", "Time limit"), "2-00:00:00"]] },
+    { cols: [[T("进度", "Progress"), T("1,243 / 5,000 步（25%）", "1,243 / 5,000 steps (25%)"), COL.mint]] }, { cols: [[T("工作目录", "Directory"), "/home/demo/projects/Li3PS4/aimd-900K"]], copy: true, h: 20 }, { cols: [[T("资源", "Resources"), "cpu=128,mem=480G,node=2"]] }]);
   const ly = MENU + 28 + ih + 22;
   logBox(c, kx, ly, kw, 120, [" 1239 T=   910. E= -.49871239E+03 F= -.51231239E+03 E0= -.51231239E+03  EK= 0.13358E+02",
     "bond charge predicted", "       N       E                     dE             d eps       ncg     rms          rms(c)",
@@ -926,20 +928,20 @@ function aimdDetail(c, x, w, t, r3) {
     c.fillStyle = "rgba(255,110,110,0.10)"; rr(c, bx, by - 14, bw, 28, 14); c.fill();
     if (hold > 0) { c.save(); rr(c, bx, by - 14, bw, 28, 14); c.clip(); c.fillStyle = "rgba(255,110,110,0.35)"; c.fillRect(bx, by - 14, bw * hold, 28); c.restore(); }
     icon(c, "hand", bx + 52, by, 12, COL.coral);
-    text(c, hold > 0 && hold < 1 ? "继续按住…" : "按住以取消作业", bx + 64, by + 4.5, { size: 11.5, weight: 600, color: COL.coral });
+    text(c, hold > 0 && hold < 1 ? T("继续按住…", "Keep holding…") : T("按住以取消作业", "Hold to cancel job"), bx + 64, by + 4.5, { size: 11.5, weight: 600, color: COL.coral });
     L.btn = [bx + bw / 2, by];
     c.restore();
   }
   if (conf > 0) {
     c.save(); c.globalAlpha *= conf;
     icon(c, "warn", kx + 12, by - 2, 18, COL.coral);
-    text(c, "确定要在 HPC 集群 上取消「aimd_Li3PS4_900K」吗？", kx + 32, by - 3, { size: 12, weight: 700 });
-    text(c, "将执行：scancel 8812044   执行前会再次核对任务是否还是同一个", kx + 32, by + 13, { size: 9.5, font: MONO, color: COL.ter });
+    text(c, T("确定要在 HPC 集群 上取消「aimd_Li3PS4_900K」吗？", "Cancel \"aimd_Li3PS4_900K\" on HPC Cluster?"), kx + 32, by - 3, { size: 12, weight: 700 });
+    text(c, T("将执行：scancel 8812044   执行前会再次核对任务是否还是同一个", "Will run: scancel 8812044  — the job is re-checked first"), kx + 32, by + 13, { size: 9.5, font: MONO, color: COL.ter });
     const b2w = 72, b1w = 50;
     c.fillStyle = COL.coral; rr(c, kx + kw - b2w, by - 12, b2w, 24, 12); c.fill();
-    text(c, "确认取消", kx + kw - b2w / 2, by + 4, { size: 11, weight: 700, color: "#200", align: "center" });
+    text(c, T("确认取消", "Cancel It"), kx + kw - b2w / 2, by + 4, { size: 11, weight: 700, color: "#200", align: "center" });
     c.fillStyle = "rgba(255,255,255,0.10)"; rr(c, kx + kw - b2w - 10 - b1w, by - 12, b1w, 24, 12); c.fill();
-    text(c, "不了", kx + kw - b2w - 10 - b1w / 2, by + 4, { size: 11, weight: 600, color: COL.sec, align: "center" });
+    text(c, T("不了", "Never mind"), kx + kw - b2w - 10 - b1w / 2, by + 4, { size: 11, weight: 600, color: COL.sec, align: "center" });
     L.no = [kx + kw - b2w - 10 - b1w / 2, by];
     c.restore();
   }
@@ -948,14 +950,14 @@ function aimdDetail(c, x, w, t, r3) {
 function sceneAlerts(c, t) {
   const ch = CH("alerts"), r1 = S("r1"), r2 = S("r2"), r3 = S("r3");
   const muted = t > r2 + 1.4, paused = t > r2 + 3.4;
-  const cards = [hpcCard({ jobs: [0, 2, 3], more: false, muted, paused, banner: paused ? "自动刷新已暂停 · 数据停在 刚刚" : null }), gpuCard({ jobs: [0, 1] })];
+  const cards = [hpcCard({ jobs: [0, 2, 3], more: false, muted, paused, banner: paused ? T("自动刷新已暂停 · 数据停在 刚刚", "Auto refresh paused · data from just now") : null }), gpuCard({ jobs: [0, 1] })];
   const PH0 = panelH([hpcCard({ jobs: [0, 2, 3], more: false }), gpuCard({ jobs: [0, 1] })]), PH1 = panelH(cards), PD = MENU + 8 + 420 + 14;
   const cam = camKeys(t, [[ch.from, { x: MID, y: 220, z: 1.8 }], [ch.from + 0.7, { x: MID, y: 105, z: 2.9 }], [r2 - 0.3, { x: MID, y: 105, z: 2.9 }], [r2 + 0.6, { x: MID, y: 175, z: 2.15 }],
     [r3 + 0.1, { x: MID, y: 175, z: 2.15 }], [r3 + 0.8, { x: MID, y: 262, z: 1.72 }]]);
   const keys = [[0, "collapsed"], [r1 + 0.35, "toast"], [r1 + 2.75, "collapsed"], [r1 + 3.15, "toast"], [r2 - 0.4, "collapsed"], [r2 - 0.05, panelSpec(PH0)], [r2 + 3.4, panelSpec(PH1)], [r3 + 0.4, panelSpec(PD)]];
   const toastOf = () => t < r1 + 2.75
-    ? { ok: true, host: "4090 工作站", title: "NEP 训练完成", sub: "20,000 代 · Total 0.1382 · nep-train" }
-    : { ok: false, host: "4090 工作站", title: "LAMMPS MD 提前结束", sub: "停在 386,000/1.00M 步 · npt-1200K", time: "14:28" };
+    ? { ok: true, host: T("4090 工作站", "4090 Workstation"), title: T("NEP 训练完成", "NEP training finished"), sub: T("20,000 代 · Total 0.1382 · nep-train", "20,000 gen · Total 0.1382 · nep-train") }
+    : { ok: false, host: T("4090 工作站", "4090 Workstation"), title: T("LAMMPS MD 提前结束", "LAMMPS MD ended early"), sub: T("停在 386,000/1.00M 步 · npt-1200K", "stopped at 386,000/1.00M steps · npt-1200K"), time: "14:28" };
   let D = null;
   macScene(c, t, cam, keys, islandContent(t, {
     wings: () => ({ mood: t > r1 + 3 && t < r2 ? "sad" : t > r1 && t < r1 + 3 ? "happy" : "working", run: 11 }),
@@ -968,14 +970,14 @@ function sceneAlerts(c, t) {
     above: (s) => {
       // 提示音标签
       const note = (lab, col, a, b) => { const k = win(t, a, b, 0.2, 0.3); if (k <= 0) return; c.save(); c.globalAlpha *= k; const kk = easeOutBack(pr(t, a, a + 0.35)); c.translate(MID + 255, 62); c.scale(kk, kk); c.fillStyle = "rgba(10,12,22,0.92)"; rr(c, -44, -14, 88, 28, 14); c.fill(); c.strokeStyle = col; c.lineWidth = 1; rr(c, -44, -14, 88, 28, 14); c.stroke(); text(c, "♪ " + lab, 0, 5, { size: 13, weight: 700, color: col, align: "center" }); c.restore(); };
-      note("叮咚", COL.mint, r1 + 0.5, r1 + 2.7);
-      note("咚咚", COL.coral, r1 + 3.3, r2 - 0.4);
+      note(T("叮咚", "Ding"), COL.mint, r1 + 0.5, r1 + 2.7);
+      note(T("咚咚", "Dong"), COL.coral, r1 + 3.3, r2 - 0.4);
       burst(c, t, r1 + 0.45, MID - 150, MENU + 40, { n: 26, speed: 120, size: 3.5, grav: 70, seed: 21, dur: 1.1 });
       if (cards[0]._btn && t > r2 && t < r3 + 0.4) {
         const b = cards[0]._btn.bell, p = cards[0]._btn.pause;
         const tip = (lab, x, y, a, bb) => { const k = win(t, a, bb, 0.2, 0.3); if (k <= 0) return; c.save(); c.globalAlpha *= k; const lw = measure(c, lab, { size: 10.5, weight: 600 }) + 20; c.fillStyle = "rgba(30,30,34,0.97)"; rr(c, x - lw / 2, y, lw, 24, 8); c.fill(); c.strokeStyle = alpha(COL.amber, 0.6); c.lineWidth = 0.8; rr(c, x - lw / 2, y, lw, 24, 8); c.stroke(); text(c, lab, x, y + 16, { size: 10.5, weight: 600, color: COL.amber, align: "center" }); c.restore(); };
-        tip("已静音：不弹提示、不发通知、不响铃", b[0] - 40, b[1] + 16, r2 + 1.5, r2 + 3.2);
-        tip("暂停自动刷新：不再连接这台服务器", p[0] - 40, p[1] + 16, r2 + 3.5, r3 + 0.3);
+        tip(T("已静音：不弹提示、不发通知、不响铃", "Muted: no pop-ups, notifications or sounds"), b[0] - 40, b[1] + 16, r2 + 1.5, r2 + 3.2);
+        tip(T("暂停自动刷新：不再连接这台服务器", "Auto refresh paused: this server is not contacted"), p[0] - 40, p[1] + 16, r2 + 3.5, r3 + 0.3);
         const [cx, cy] = cursorAt(t, [[r2, MID + 200, 200], [r2 + 1.3, b[0], b[1]], [r2 + 2.6, b[0], b[1]], [r2 + 3.3, p[0], p[1]], [r3 + 0.4, p[0], p[1]]]);
         [r2 + 1.4, r2 + 3.4].forEach(ck => ripple(c, t, ck, cx, cy));
         drawCursor(c, cx, cy, 0.5, pressAt(t, [r2 + 1.4, r2 + 3.4]));
@@ -989,11 +991,12 @@ function sceneAlerts(c, t) {
         const k = win(t, r3 + 0.3, ch.to + 0.5, 0.3, 0.3);
         if (k > 0) {
           c.save(); c.globalAlpha *= k;
-          const lab = "设置 → 危险操作 → 允许在刘海里取消任务（默认关闭）";
-          const lw = measure(c, lab, { size: 11, weight: 600 }) + 22;
-          c.fillStyle = "rgba(30,30,34,0.97)"; rr(c, MID - lw / 2, 470, lw, 28, 14); c.fill();
-          c.strokeStyle = alpha(COL.coral, 0.6); c.lineWidth = 1; rr(c, MID - lw / 2, 470, lw, 28, 14); c.stroke();
-          text(c, lab, MID, 488.5, { size: 11, weight: 600, color: COL.coral, align: "center" });
+          // 放在面板左边的空白里（底部是字幕）
+          const ls = [T("设置 → 危险操作 →", "Settings → Danger Zone →"), T("允许在刘海里取消任务", "Allow Cancelling from the Island"), T("默认关闭", "off by default")];
+          const bw = Math.max(...ls.map(l => measure(c, l, { size: 11, weight: 600 }))) + 24, bx = CARD_X - 30 - bw, byy = (D.btn || D.no || [0, 380])[1] - 40;
+          c.fillStyle = "rgba(30,30,34,0.97)"; rr(c, bx, byy, bw, 66, 12); c.fill();
+          c.strokeStyle = alpha(COL.coral, 0.6); c.lineWidth = 1; rr(c, bx, byy, bw, 66, 12); c.stroke();
+          ls.forEach((l, i) => text(c, l, bx + 12, byy + 20 + i * 18, { size: 11, weight: 600, color: i === 2 ? COL.sec : COL.coral }));
           c.restore();
         }
       }
@@ -1014,8 +1017,8 @@ function terminalWin(c, t, v1) {
   c.fillStyle = "rgba(22,24,30,0.97)"; rr(c, x, y, w, h, 12); c.fill(); c.shadowBlur = 0; c.shadowOffsetY = 0;
   c.fillStyle = "rgba(255,255,255,0.06)"; rr(c, x, y, w, 30, 12); c.fill();
   ["#FF5F57", "#FEBC2E", "#28C840"].forEach((col, i) => { c.fillStyle = col; c.beginPath(); c.arc(x + 18 + i * 20, y + 15, 6, 0, 7); c.fill(); });
-  text(c, "ServerIsland · HPC 集群", x + w / 2, y + 20, { size: 12.5, weight: 600, color: COL.sec, align: "center" });
-  const L = [["", "ServerIsland → HPC 集群", COL.mint, v1 + 1.6], ["", "Last login: Mon Oct 19 14:20:11 2026 from 10.0.0.8", COL.sec, v1 + 2.0], ["[demo@login01 ~]$ ", typed("squeue --me", t, v1 + 2.6, v1 + 3.4), "#fff", v1 + 2.2],
+  text(c, T("ServerIsland · HPC 集群", "ServerIsland · HPC Cluster"), x + w / 2, y + 20, { size: 12.5, weight: 600, color: COL.sec, align: "center" });
+  const L = [["", T("ServerIsland → HPC 集群", "ServerIsland → HPC Cluster"), COL.mint, v1 + 1.6], ["", "Last login: Mon Oct 19 14:20:11 2026 from 10.0.0.8", COL.sec, v1 + 2.0], ["[demo@login01 ~]$ ", typed("squeue --me", t, v1 + 2.6, v1 + 3.4), "#fff", v1 + 2.2],
     ["", "  JOBID PARTITION     NAME  ST      TIME  NODES", COL.sec, v1 + 3.7], ["", "8812044       cpu aimd_Li3  R  10:07:00      2", COL.sec, v1 + 3.75], ["", "8812230  gpu-v100 gpumd_ka  R     45:10      1", COL.sec, v1 + 3.8],
     ["[demo@login01 ~]$ ", "", "#fff", v1 + 3.9]];
   let last = 0;
@@ -1035,7 +1038,7 @@ function miniIsland(c, x, y, names, k) {
   c.save(); c.globalAlpha *= clamp(k);
   c.fillStyle = "#000"; rr(c, x, y, 190, 34 + names.length * 34, 18); c.fill();
   drawTako(c, x + 20, y + 25, 13, "working", 0, { shadow: false });
-  text(c, "刘海里的顺序", x + 34, y + 21, { size: 11, weight: 600, color: COL.sec });
+  text(c, T("刘海里的顺序", "Order in the island"), x + 34, y + 21, { size: 11, weight: 600, color: COL.sec });
   names.forEach(([n, p]) => {
     const yy = y + 32 + p * 34;
     c.fillStyle = "rgba(255,255,255,0.07)"; rr(c, x + 10, yy, 170, 28, 9); c.fill();
@@ -1060,7 +1063,7 @@ function sceneNew(c, t) {
     wings: () => ({}),
     panel: (x, w, s) => { cards[0].hl = { terminal: Math.max(win(t, v1 + 0.1, v1 + 1.2, 0.2, 0.2) * 0.6, pressAt(t, [v1 + 0.9])) }; panelBody(c, x, w, t, cards); T0 = cards[0]._btn.terminal; },
   }), {
-    app: phaseWin ? "ServerIsland" : t > v1 + 1.2 ? "终端" : "Finder", menus: phaseWin ? ["编辑", "窗口", "帮助"] : undefined,
+    app: phaseWin ? "ServerIsland" : t > v1 + 1.2 ? T("终端", "Terminal") : "Finder", menus: phaseWin ? [T("编辑", "Edit"), T("窗口", "Window"), T("帮助", "Help")] : undefined,
     below: () => {
       if (t < v2 + 0.2) terminalWin(c, t, v1);
       if (!phaseWin) return;
@@ -1081,18 +1084,18 @@ function sceneNew(c, t) {
           const k = pr(t, v2 + 4.05, v2 + 4.45, easeInOutCubic);
           pos = (id) => lerp(yOf(ord2, id), yOf(ord3, id), k);
         }
-        const SB = sidebar(c, t, { order: moved ? ord2.concat() : order, pos: pos || undefined, drag, sel, ctx: !moved && t > v2 + 2.6 && t < v2 + 4.05 ? "lab" : null, over: { lab: { sub: "运行 2 · 排队 1", dot: COL.mint } } });
+        const SB = sidebar(c, t, { order: moved ? ord2.concat() : order, pos: pos || undefined, drag, sel, ctx: !moved && t > v2 + 2.6 && t < v2 + 4.05 ? "lab" : null, over: { lab: { sub: T("运行 2 · 排队 1", "2 running · 1 pending"), dot: COL.mint } } });
         if (upd) {
           const ver = t > v3 + 4.4 ? "0.3.0" : "0.2.0";
           const st = t < v3 + 0.4 ? "avail" : t < v3 + 2.6 ? "down" : t < v3 + 3.2 ? "verified" : t < v3 + 4.4 ? "ready" : "done";
           generalPage(c, t, { version: ver, updateH: st === "done" ? 44 : 92, mood: st === "done" ? "happy" : "idle", updateRow: (rx, ry, rw, rh) => {
             const cy = ry + 22;
-            if (st === "done") { icon(c, "check", rx + 22, ry + rh / 2, 13, COL.mint); text(c, "已是最新版本（0.3.0）", rx + 38, ry + rh / 2 + 4.5, { size: 13, color: SET.text }); button(c, rx + rw - 12, ry + rh / 2, "检查更新", { align: "right" }); burst(c, t, v3 + 4.8, rx + 120, ry + rh / 2, { n: 20, speed: 90, size: 4, grav: 40, seed: 31 }); return; }
+            if (st === "done") { icon(c, "check", rx + 22, ry + rh / 2, 13, COL.mint); text(c, T("已是最新版本（0.3.0）", "You're up to date (0.3.0)"), rx + 38, ry + rh / 2 + 4.5, { size: 13, color: SET.text }); button(c, rx + rw - 12, ry + rh / 2, T("检查更新", "Check for Updates"), { align: "right" }); burst(c, t, v3 + 4.8, rx + 120, ry + rh / 2, { n: 20, speed: 90, size: 4, grav: 40, seed: 31 }); return; }
             icon(c, "download", rx + 22, cy, 15, SET.accent);
-            const title = st === "avail" ? "有新版本 v0.3.0（当前 0.2.0）" : st === "down" ? "正在下载并核对 v0.3.0（5M）…" : st === "verified" ? "SHA-256 与 GitHub 上的一致" : "v0.3.0 已准备好，马上重新打开…";
+            const title = st === "avail" ? T("有新版本 v0.3.0（当前 0.2.0）", "Version 0.3.0 is available (you have 0.2.0)") : st === "down" ? T("正在下载并核对 v0.3.0（5M）…", "Downloading and verifying v0.3.0 (5M)…") : st === "verified" ? T("SHA-256 与 GitHub 上的一致", "SHA-256 matches GitHub") : T("v0.3.0 已准备好，马上重新打开…", "v0.3.0 is ready; reopening…");
             text(c, title, rx + 38, cy + 4.5, { size: 13, weight: 500, color: st === "verified" ? COL.mint : SET.text });
-            ["- 一键更新", "- 服务器排序", "- 卡片上的终端按钮"].forEach((s, i) => text(c, s, rx + 38, cy + 24 + i * 16, { size: 11, color: SET.sec }));
-            if (st === "avail") { const b = button(c, rx + rw - 12, cy, "更新说明", { align: "right" }); const b2 = button(c, b.x - 8, cy, "更新到 v0.3.0", { align: "right", primary: true, press: pressAt(t, [v3 + 0.4]) > 0.3 }); SB.upd = [b2.cx, cy]; }
+            [T("- 一键更新", "- One-click updates"), T("- 服务器排序", "- Reorder servers"), T("- 卡片上的终端按钮", "- Terminal button on cards")].forEach((s, i) => text(c, s, rx + 38, cy + 24 + i * 16, { size: 11, color: SET.sec }));
+            if (st === "avail") { const b = button(c, rx + rw - 12, cy, T("更新说明", "Release Notes"), { align: "right" }); const b2 = button(c, b.x - 8, cy, T("更新到 v0.3.0", "Update to v0.3.0"), { align: "right", primary: true, press: pressAt(t, [v3 + 0.4]) > 0.3 }); SB.upd = [b2.cx, cy]; }
             else if (st === "down") { const k = pr(t, v3 + 0.5, v3 + 2.5); bar(c, rx + rw - 160, cy - 2, 140, k, SET.accent, 5); }
             else { icon(c, "check", rx + rw - 24, cy, 14, COL.mint); }
           } });
@@ -1102,13 +1105,13 @@ function sceneNew(c, t) {
         // 右键菜单
         if (t > v2 + 2.65 && t < v2 + 4.05) {
           const ry = SB.ys.lab + 20;
-          menu(c, WX + 150, ry, ["移到最上面", "上移", "下移", "移到最下面"], { hi: t > v2 + 3.3 ? 0 : -1, disabled: [2, 3], k: pr(t, v2 + 2.65, v2 + 2.8), w: 150 });
+          menu(c, WX + 150, ry, [T("移到最上面", "Move to Top"), T("上移", "Move Up"), T("下移", "Move Down"), T("移到最下面", "Move to Bottom")], { hi: t > v2 + 3.3 ? 0 : -1, disabled: [2, 3], k: pr(t, v2 + 2.65, v2 + 2.8), w: 150 });
         }
         c.globalAlpha *= 1;
         sceneNew._sb = SB;
       } }); c.restore(); });
       // 右侧的小刘海，显示同步后的顺序
-      const nm = { hpc: "HPC 集群", gpu: "4090 工作站", lab: "实验室集群" };
+      const nm = { hpc: T("HPC 集群", "HPC Cluster"), gpu: T("4090 工作站", "4090 Workstation"), lab: T("实验室集群", "Lab Cluster") };
       const o1 = ["hpc", "gpu", "lab"], o2 = ["gpu", "hpc", "lab"], o3 = ["lab", "gpu", "hpc"];
       const k1 = pr(t, v2 + 1.8, v2 + 2.2, easeInOutCubic), k2 = pr(t, v2 + 4.1, v2 + 4.5, easeInOutCubic);
       const names = ["hpc", "gpu", "lab"].map(id => [nm[id], lerp(lerp(o1.indexOf(id), o2.indexOf(id), k1), o3.indexOf(id), k2)]);
@@ -1184,7 +1187,7 @@ function sceneCross(c, t) {
             ring(c, MID + 22, 15, 6.5, 0.62); text(c, "62%", MID + 33, 19.5, { size: 11, weight: 600, color: COL.mint });
           } else { c.save(); c.globalAlpha *= clamp((s.since - 0.06) * 4); panelBody(c, x, w, t, cards, { since: s.since }); c.restore(); }
         });
-        highlight(c, MID - 80, -4, 160, 40, win(t, w1 + 0.3, w1 + 1.4, 0.25, 0.2), "虚拟灵动岛", { below: true, r: 12, size: 11 });
+        highlight(c, MID - 80, -4, 160, 40, win(t, w1 + 0.3, w1 + 1.4, 0.25, 0.2), T("虚拟灵动岛", "Virtual island"), { below: true, r: 12, size: 11 });
       } else {
         // 桌面小章鱼 + 浮动面板（四角圆角，没有耳朵）
         const px = SW - 220, py = SH - 64;
@@ -1203,8 +1206,8 @@ function sceneCross(c, t) {
           c.translate(fx - (MID - pw / 2), fy - 6); panelBody(c, MID - pw / 2 + 14, pw - 28, t, cards);
           c.restore();
         }
-        highlight(c, px - 50, py - 100, 120, 110, win(t, w2 + 0.9, w2 + 2.4, 0.2, 0.3), "桌面小章鱼", { r: 18, size: 18 });
-        highlight(c, SW - 160, SH - 44, 40, 40, win(t, w2 + 2.6, ch.to + 0.5, 0.2, 0.3), "托盘图标", { r: 8, size: 18, labelX: SW - 210 });
+        highlight(c, px - 50, py - 100, 120, 110, win(t, w2 + 0.9, w2 + 2.4, 0.2, 0.3), T("桌面小章鱼", "Desktop octopus"), { r: 18, size: 18 });
+        highlight(c, SW - 160, SH - 44, 40, 40, win(t, w2 + 2.6, ch.to + 0.5, 0.2, 0.3), T("托盘图标", "Tray icon"), { r: 8, size: 18, labelX: SW - 210 });
       }
     } });
   });
@@ -1221,13 +1224,13 @@ function sceneOutro(c, t) {
   drawWord(c, W / 2, 500, 12, pr(t, ch.from + 0.4, ch.from + 2.0), 1, 5);
   const kt = pr(t, o1 + 1.0, o1 + 1.8, easeOutCubic);
   c.save(); c.globalAlpha *= kt;
-  text(c, "把服务器装进刘海里", W / 2, 610 + 12 * (1 - kt), { size: 44, weight: 600, align: "center", spacing: 6 });
+  text(c, T("把服务器装进刘海里", "Your servers, in the notch"), W / 2, 610 + 12 * (1 - kt), { size: 44, weight: 600, align: "center", spacing: 6 });
   c.restore();
   const kv = pr(t, o1 + 1.6, o1 + 2.4, easeOutCubic);
   c.save(); c.globalAlpha *= kv;
   c.fillStyle = "rgba(91,230,181,0.16)"; rr(c, W / 2 - 220, 650, 440, 50, 25); c.fill();
-  text(c, "v0.3.0 · 免费开源 · GPL-3.0", W / 2, 684, { size: 23, weight: 700, color: COL.mint, align: "center" });
-  text(c, "macOS 14+ · Windows · Linux · 服务器上什么都不用装", W / 2, 770, { size: 26, color: "rgba(255,255,255,0.72)", align: "center" });
+  text(c, T("v0.3.0 · 免费开源 · GPL-3.0", "v0.3.0 · Free & open source · GPL-3.0"), W / 2, 684, { size: 23, weight: 700, color: COL.mint, align: "center" });
+  text(c, T("macOS 14+ · Windows · Linux · 服务器上什么都不用装", "macOS 14+ · Windows · Linux · nothing to install on the server"), W / 2, 770, { size: 26, color: "rgba(255,255,255,0.72)", align: "center" });
   text(c, "github.com/zhyan0603/ServerIsland", W / 2, 822, { size: 26, weight: 600, color: COL.mint, align: "center", font: MONO });
   c.restore();
   const p = hop(t, o1 + 2.6 + Math.floor(Math.max(0, t - o1 - 2.6) / 1.2) * 1.2, o1 + 3.0 + Math.floor(Math.max(0, t - o1 - 2.6) / 1.2) * 1.2, [W / 2 + 470, 470], [W / 2 + 470, 470], 40);
@@ -1248,13 +1251,27 @@ function drawSubtitle(c, t) {
     if (t < L.start - 0.12 || t > end) continue;
     const a = Math.min(pr(t, L.start - 0.12, L.start + 0.08), 1 - pr(t, end - 0.15, end));
     c.save(); c.globalAlpha = a;
-    const fs = 38, tw = measure(c, L.text, { size: fs, weight: 500 });
-    const bw = tw + 56, bh = 64, by = H - 46 - bh;
+    const fs = 38, lines = wrapSub(c, L.text, fs, 1560);
+    const tw = Math.max(...lines.map(l => measure(c, l, { size: fs, weight: 500 })));
+    const bw = tw + 56, bh = 64 + (lines.length - 1) * 50, by = H - 46 - bh;
     c.fillStyle = "rgba(6,8,16,0.72)"; rr(c, W / 2 - bw / 2, by, bw, bh, 18); c.fill();
     c.shadowColor = "rgba(0,0,0,0.6)"; c.shadowBlur = 6;
-    text(c, L.text, W / 2, by + 44, { size: fs, weight: 500, align: "center", color: "#fff" });
+    lines.forEach((l, i) => text(c, l, W / 2, by + 44 + i * 50, { size: fs, weight: 500, align: "center", color: "#fff" }));
     c.restore();
   }
+}
+// 字幕太长时拆成两行：在中间附近的空格 / 标点处断开（英文版的长句会用到）
+function wrapSub(c, str, fs, maxW) {
+  if (measure(c, str, { size: fs, weight: 500 }) <= maxW) return [str];
+  const mid = str.length / 2;
+  let best = -1;
+  for (let i = 1; i < str.length - 1; i++) {
+    if (!/[\s，；、：—]/.test(str[i])) continue;
+    if (best < 0 || Math.abs(i - mid) < Math.abs(best - mid)) best = i;
+  }
+  if (best < 0) best = Math.floor(mid);
+  const keep = /\s/.test(str[best]) ? 0 : 1;
+  return [str.slice(0, best + keep).trim(), str.slice(best + keep).trim()];
 }
 function drawChapterTag(c, t) {
   const chs = TM.chapters.filter(ch => ch.title);
@@ -1319,7 +1336,7 @@ if (location.search.includes("play")) {
   const fit = () => { const s = Math.min(innerWidth / W, innerHeight / H); document.getElementById("stage").style.transform = `scale(${s})`; };
   fit(); addEventListener("resize", fit);
   const audio = new Audio("../out/tutorial/audio.wav");
-  const hint = document.createElement("div"); hint.id = "hint"; hint.textContent = "点击播放 / 暂停 · 方向键 ←→ 跳 3 秒"; document.body.appendChild(hint);
+  const hint = document.createElement("div"); hint.id = "hint"; hint.textContent = T("点击播放 / 暂停 · 方向键 ←→ 跳 3 秒", "Click to play / pause · ←→ skip 3 s"); document.body.appendChild(hint);
   let playing = false;
   addEventListener("click", () => { playing = !playing; playing ? audio.play() : audio.pause(); });
   addEventListener("keydown", e => { if (e.key === "ArrowRight") audio.currentTime += 3; if (e.key === "ArrowLeft") audio.currentTime -= 3; });

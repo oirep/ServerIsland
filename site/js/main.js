@@ -26,6 +26,13 @@
         v.pause(); v.src = src; v.poster = lang === "zh" ? "assets/promo-poster.jpg" : "assets/promo-poster-en.jpg";
       }
     });
+    // 手册里的视频教程：中文 / 英文各一版，换语言时换片源（正在播的会停下）
+    $$("video.js-tutorial").forEach(v => {
+      const src = lang === "zh" ? "assets/tutorial.mp4" : "assets/tutorial-en.mp4";
+      if (!v.getAttribute("src") || !v.getAttribute("src").endsWith(src.split("/")[1])) {
+        v.pause(); v.src = src; v.poster = lang === "zh" ? "assets/tutorial-poster.jpg" : "assets/tutorial-poster-en.jpg";
+      }
+    });
     if (save) { try { localStorage.setItem("si-lang", lang); } catch (e) { /* 隐私模式下忽略 */ } }
     island.refreshText();
   }
@@ -45,6 +52,25 @@
       map.get(e.target.id)?.classList.add("active");
     }), { rootMargin: "-80px 0px -70% 0px" });
     map.forEach((_, id) => { const el = document.getElementById(id); if (el) io.observe(el); });
+  })();
+
+  // ------------------------------------------------------------ 手册：视频教程的章节跳转，播放时高亮当前章节
+  (function chapters() {
+    const v = $("video.js-tutorial"), box = $(".js-chapters");
+    if (!v || !box) return;
+    const btns = $$("button", box);
+    // 两种语言的配音时长不同，章节时间也不同
+    const chapterT = b => Number(isZh() ? b.dataset.tZh : b.dataset.tEn);
+    btns.forEach(b => b.addEventListener("click", () => {
+      const go = () => { v.currentTime = chapterT(b); v.play().catch(() => {}); };
+      // preload="none" 时还没有元数据，先加载再跳
+      if (v.readyState >= 1) go(); else { v.addEventListener("loadedmetadata", go, { once: true }); v.load(); }
+    }));
+    v.addEventListener("timeupdate", () => {
+      let cur = null;
+      btns.forEach(b => { if (v.currentTime >= chapterT(b) - 0.6) cur = b; });
+      btns.forEach(b => b.classList.toggle("active", b === cur));
+    });
   })();
 
   // ------------------------------------------------------------ 版本、GitHub 和下载
