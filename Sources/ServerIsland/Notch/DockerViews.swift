@@ -352,6 +352,15 @@ enum DockerFormat {
     }
 }
 
+/// 搜索只筛选本机已有列表，不随输入触发 SSH；多个词可分别匹配名称、镜像或 Compose 信息。
+enum DockerContainerSearch {
+    static func matches(_ item: DockerContainer, query: String) -> Bool {
+        let terms = query.split(whereSeparator: \.isWhitespace).map(String.init)
+        let fields = [item.name, item.id, item.image, item.composeProject, item.composeService]
+        return terms.allSatisfy { term in fields.contains { $0.localizedStandardContains(term) } }
+    }
+}
+
 struct DockerPage: View {
     var host: HostConfig
     @ObservedObject var engine: MonitorEngine
@@ -363,12 +372,46 @@ struct DockerPage: View {
     @State private var showControlError = false
     @State private var listError: String?
     @State private var manualRefreshID: UUID?
+    @State private var query = ""
+    @State private var searching = false
 
     private var snapshot: DockerSnapshot? { engine.snapshots[host.id]?.docker }
     private var selected: DockerContainer? { snapshot?.containers.first { $0.id == selectedID } }
+    private var filteredContainers: [DockerContainer] {
+        host.dockerSort.sorted((snapshot?.containers ?? []).filter { DockerContainerSearch.matches($0, query: query) },
+                               favorites: Set(host.dockerFavorites))
+    }
     private var subtitle: String {
         guard selectedID == nil, let snapshot, snapshot.error == nil else { return host.displayName }
-        return host.displayName + " · " + L("\(snapshot.running)/\(snapshot.total) 运行中", "\(snapshot.running)/\(snapshot.total) running")
+        let count = host.displayName + " · " + L("\(snapshot.running)/\(snapshot.total) 运行中", "\(snapshot.running)/\(snapshot.total) running")
+        return query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? count
+            : count + " · " + L("找到 \(filteredContainers.count) 项", "\(filteredContainers.count) matches")
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass").font(.system(size: 10)).foregroundStyle(Theme.tertiary)
+            ZStack(alignment: .leading) {
+                if query.isEmpty {
+                    Text(L("搜索容器", "Search containers"))
+                        .font(Theme.rounded(11.5)).foregroundStyle(Theme.tertiary)
+                        .lineLimit(1).allowsHitTesting(false)
+                }
+                DockerSearchInput(text: $query, focused: $searching,
+                                  label: L("搜索 Docker 容器", "Search Docker containers"))
+            }
+            .frame(height: 18)
+            if !query.isEmpty {
+                Button { query = "" } label: {
+                    Image(systemName: "xmark.circle.fill").font(.system(size: 10)).foregroundStyle(Theme.tertiary)
+                        .contentShape(Rectangle())
+                }.buttonStyle(.plain).help(L("清除搜索", "Clear Search"))
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 5)
+        .background(Capsule().fill(Color.white.opacity(searching ? 0.12 : 0.07)))
+        .frame(width: 170)
+        .help(L("按容器名称、ID、镜像或 Compose 项目/服务搜索；多个词用空格分隔", "Search name, ID, image or Compose project/service; separate terms with spaces"))
     }
 
     var body: some View {
@@ -386,6 +429,7 @@ struct DockerPage: View {
                             .lineLimit(1).truncationMode(.middle)
                     }
                     Spacer(minLength: 8)
+                    if selectedID == nil { searchField }
                     if manualRefreshID != nil { ProgressView().controlSize(.mini) }
                     if selectedID == nil {
                         DockerListControls(mode: host.dockerAllView, sort: host.dockerSort,
@@ -415,10 +459,11 @@ struct DockerPage: View {
                                 if snapshot.truncated || snapshot.sampleLimited {
                                     DockerNote(text: L("最多列出 200 个容器，每次采集前 16 个运行容器的资源；未采样指标显示 —", "Lists up to 200 containers; samples the first 16 running containers. Unavailable metrics show —."))
                                 }
-                                DockerContainerCollection(containers: host.dockerSort.sorted(snapshot.containers, favorites: Set(host.dockerFavorites)), mode: host.dockerAllView,
+                                DockerContainerCollection(containers: filteredContainers, mode: host.dockerAllView,
                                                           now: context.date, groupStopped: true, favorites: Set(host.dockerFavorites),
                                                           onFavorite: { engine.toggleDockerFavorite(host: host.id, name: $0.name) }) { selectedID = $0.id }
                                 if snapshot.containers.isEmpty { DockerNote(text: L("暂无容器", "No containers")) }
+                                else if filteredContainers.isEmpty { DockerNote(text: L("没有匹配的容器", "No matching containers")) }
                             } else {
                                 DockerNote(text: L("等待采集 Docker 指标…", "Waiting for Docker metrics…"))
                             }
@@ -467,7 +512,7 @@ struct DockerPage: View {
                 }
                 .allowsHitTesting(pendingControl != nil)
             }
-            .onChange(of: selectedID) { _ in manualRefreshID = nil }
+            .onChange(of: selectedID) { _ in manualRefreshID = nil; searching = false }
             .onChange(of: selected?.id) { _ in pendingControl = nil }
             .onChange(of: selected?.state) { _ in pendingControl = nil }
             .alert(L("容器操作", "Container Action"), isPresented: $showControlError) {

@@ -56,6 +56,7 @@ final class IslandController {
         panel.contentView = IslandHostingView(rootView: IslandRootView(vm: vm, engine: engine, store: store))
         panel.allowsKey = { [weak self] in
             if case .jobs = self?.vm.page { return true }
+            if case .docker = self?.vm.page { return true }
             return false
         }
         self.panel = panel

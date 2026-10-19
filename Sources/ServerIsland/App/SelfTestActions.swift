@@ -121,6 +121,11 @@ enum SelfTestActions {
         store.settings.islandAlerts = false; store.settings.soundEnabled = false
         store.settings.systemNotifications = false
         let engine = MonitorEngine(store: store)
+        let connecting = IslandLayout.parts(host, HostSnapshot())
+        check(connecting.connecting && connecting.actions
+              && IslandLayout.cardHeight(connecting) == IslandLayout.cardPad * 2 + IslandLayout.cardHeader
+                 + IslandLayout.sectionGap + IslandLayout.actionMetricsRow,
+              "Action 布局：连接提示与 Action 同行，卡片不再为 Action 另留一行")
         engine.runHostAction(host: host, action: disabled)
         check(engine.runningActions.isEmpty, "Action 启用：禁用项不能启动执行")
         engine.runHostAction(host: host, action: HostAction(name: "缺少命令"), testRun: true)

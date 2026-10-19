@@ -59,10 +59,12 @@ struct HostCard: View {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini).scaleEffect(0.7)
                     Text(L("正在连接…", "Connecting…")).font(Theme.rounded(11)).foregroundStyle(Theme.tertiary)
+                        .fixedSize(horizontal: true, vertical: false)
+                    if p.actions { actionStrip }
                 }
-                .frame(height: IslandLayout.emptyRow)
+                .frame(height: p.actions ? IslandLayout.actionMetricsRow : IslandLayout.emptyRow)
             }
-            if p.metrics {
+            if p.metrics && !p.connecting {
                 gap
                 metrics.frame(height: p.actions ? IslandLayout.actionMetricsRow : IslandLayout.metricsRow)
                     .opacity(host.paused && !p.actions ? 0.45 : 1)
@@ -238,17 +240,21 @@ struct HostCard: View {
             }
             .fixedSize(horizontal: true, vertical: false)
             if !host.enabledActions.isEmpty {
-                ViewThatFits(in: .horizontal) {
-                    ForEach(Array((0...host.enabledActions.count).reversed()), id: \.self) { count in
-                        actionButtons(visibleCount: count)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                actionStrip
             } else {
                 Spacer(minLength: 0)
             }
         }
+    }
+
+    /// 连接提示与正常指标都使用同一套剩余宽度规则，不再为连接中的 Action 单独增加一行。
+    private var actionStrip: some View {
+        ViewThatFits(in: .horizontal) {
+            ForEach(Array((0...host.enabledActions.count).reversed()), id: \.self) { count in
+                actionButtons(visibleCount: count).fixedSize(horizontal: true, vertical: false)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
     /// 从全部按钮到仅菜单逐级尝试，只折叠剩余宽度容纳不下的后续项，保留用户配置顺序。
