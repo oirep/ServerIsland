@@ -24,3 +24,14 @@ node render.mjs --from 10 --to 16  # 只渲染其中一段
 - **文案**：`index.html` 里的 `CAPTIONS`（字幕）和 `CHIPS`（功能卡）。
 - **节奏或卡点**：改 `timeline.js` 的 `cues`。改完需要重新运行 `music.py`，再渲染视频。
 - **镜头**：每个场景函数开头的 `camKeys([...])`，格式为 `[拍, {x, y, z}]` 的关键帧。
+
+## 使用教程视频（`tutorial/`）
+
+另一支约 3 分钟的中文教程（配音 + 字幕），和上面的宣传片互不影响：
+
+```bash
+pip install edge-tts           # 第一次：神经网络中文配音
+python3 tutorial/audio.py          # 配音、时间轴、混音 → out/tutorial/audio.wav
+node tutorial/render.mjs           # → out/tutorial/ServerIsland-教程-v0.3.0.mp4
+```
+说明见 `references/promo-video.md` 的"使用教程视频"一节。

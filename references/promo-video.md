@@ -106,3 +106,54 @@ node promo/render.mjs --from 10 --to 16      # 只渲染一段 → out/part-10-1
 - 画面上的所有文字都写成 `T("中文", "English")`，地址带 `?en` 时用英文；功能卡片 `CHIPS` 是整段二选一。
 - 英文比中文长的地方要留意：菜单栏按实际宽度排、片尾版本胶囊加宽、排队原因气泡按文字宽度自适应。
 - 新增画面文字时记得同时写英文；检查方法：`node promo/render.mjs --en --stills …`。
+
+## 使用教程视频（`promo/tutorial/`，2026-10-19）
+
+和宣传片分开的第二支视频：**中文、横屏 1920×1080、30fps、约 3 分 15 秒**，带中文配音（微软神经网络语音，edge-tts）和字幕，逐项演示 v0.3.0 的功能和用法。成品 `promo/out/tutorial/ServerIsland-教程-v0.3.0.mp4`（不进 git）。没有竖屏版和英文版。
+
+### 文件
+
+| 文件 | 作用 |
+|---|---|
+| `tutorial/script.js` | **旁白脚本**：配音引擎和声音（`engine` / `voice` / `rate`）、章节、每句字幕（`text`）、配音读法（`tts`，比如 Tako 写成“塔可”）、每句至少占多少秒（`min`，给动画留时间）、音效 cues（锚在某一句开始后的若干秒） |
+| `tutorial/audio.py` | 逐句调用 edge-tts 合成配音（默认 `zh-CN-XiaoxiaoNeural`，语速 +8%；按文本缓存在 `out/tutorial/tts/`），**按实际时长排出时间轴写进 `timing.js`**；再合成 92 BPM 的轻柔背景乐（配音出现时压低到 40%）、叠加音效（叮咚 / 咚咚用 App 的 `Resources/Sounds`），输出 `out/tutorial/audio.wav` |
+| `tutorial/timing.js` | audio.py 生成，不要手改：每句的起止时间、各章范围、音效时刻 |
+| `tutorial/kit.js` | 绘图工具。Tako、刘海形状、壁纸、光标、粒子从 `index.html`（宣传片）复制过来，时间单位改成秒；卡片、二级页面、设置窗口（侧栏、分组表单、分段控件、下拉菜单、开关）按 `--render-preview` 的截图重画 |
+| `tutorial/index.html` | 各章的场景函数 + 字幕 + 章节标签。动画都写成 `S("a3") + 0.4`（第 a3 句开始后 0.4 秒），所以改了文案或语速、重跑 audio.py 后画面自动跟着对齐 |
+| `tutorial/render.mjs` | 逐帧截图送进 FFmpeg（libx264 CRF 16，AAC 192k，响度 -16 LUFS）。puppeteer-core 用 `promo/node_modules` 里那份 |
+
+### 命令
+
+```bash
+pip install edge-tts                                    # 第一次（或者装在任意 venv 里，再用 EDGE_TTS=<venv>/bin/edge-tts 指过去）
+python3 promo/tutorial/audio.py                         # 配音 + timing.js + out/tutorial/audio.wav（需要联网，首次约 1 分钟，之后有缓存）
+node promo/tutorial/render.mjs                          # 完整视频（约 6,000 帧，十几分钟）
+node promo/tutorial/render.mjs --stills 13,42,90        # 只导出这些秒数的静帧 → out/tutorial/still-*.png
+node promo/tutorial/render.mjs --from 60 --to 80        # 只渲染一段
+open "promo/tutorial/index.html?play"                   # 浏览器里带声音预览（点击播放，←→ 跳 3 秒）
+```
+audio.py 会打印每句的开始时间、语音时长，以及哪些句子比 `min` 长（那一句的动画会被拉长，通常没问题）。
+
+### 章节（时间是当前配音下的实际值）
+
+| 章 | 时间 | 内容 |
+|---|---|---|
+| 开场 | 0:00–0:19 | **先给看灵动岛本身**：收起的两翼 → "NEP 训练完成"弹窗 + 叮咚 → 光标悬停、面板展开；然后标题卡和 8 个章节 |
+| 01 添加服务器 | 0:19–0:50 | 设置窗口 → "添加服务器"；从 ~/.ssh/config 勾选别名；切到"手动填写"逐字输入名称 / 地址 / 用户名 / 端口 / 私钥；认证方式下拉（4 种）、跳板机下拉；添加后"自动检测类型"→ 检测到 Slurm；"登录…"弹出动态口令对话框 → 在线 |
+| 02 刘海与卡片 | 0:50–1:14 | 两翼的说明标签；四种心情卡片依次弹出（两翼的 Tako 跟着变）；悬停展开，高亮卡片标题 / CPU 内存 / GPU 格子；空闲服务器合并成一行 |
+| 03 Slurm 集群 | 1:14–1:36 | 数组作业分段条推进并标注完成 / 失败 / 运行中；`DependencyNeverSatisfied` 的说明气泡；点网格图标 → 分区空闲资源（含 DCU）；返回 → 点时钟图标 → 历史记录（7 天） |
+| 04 PBS 与直连 | 1:36–1:51 | PBS 卡片；直连服务器的进程和 GPU 格子；点眼睛图标 → 监听进程页，选中一个进程 |
+| 05 计算软件进度 | 1:51–2:16 | 逐行高亮 VASP MD / 结构优化 / GPUMD / NEP / LAMMPS / 自定义规则；NEP 详情页（loss 曲线、日志末尾滚动）；VASP 结构优化（能量 + 最大力）→ NEB（能垒图 + 能垒收敛）；设置里的自定义规则编辑器，点"测试"出结果 |
+| 06 提醒与安全 | 2:16–2:36 | 完成弹窗 + 叮咚、提前结束弹窗 + 咚咚；点铃铛静音、点暂停（卡片出现"自动刷新已暂停"）；详情页按住 1.5 秒 → 二次确认（最后点"不了"） |
+| 07 v0.3.0 新功能 | 2:36–2:54 | 卡片上的终端按钮 → 终端窗口里 ssh 登录；设置侧栏拖动排序 + 右键"移到最上面"，旁边的小刘海同步换顺序；一键更新（下载核对 → SHA-256 一致 → 退出重开 → 已是最新）。轮询开销的优化属于内部改进，按维护者的意见不在视频里介绍 |
+| 08 Windows / Linux | 2:54–3:05 | Windows 风格桌面：顶部虚拟灵动岛展开；切到桌面小章鱼（徽章、浮动面板）和托盘图标 |
+| 结尾 | 3:05–3:15 | logo、像素字、v0.3.0 · 免费开源、GitHub 地址 |
+
+### 修改指南
+
+- **改旁白**：只改 `script.js` 的 `text` / `tts`，重跑 audio.py；如果某句比原来长很多，相应的动画会整体往后挪，不用手动改时间。
+- **改动画**：在 `index.html` 对应的 `sceneXxx` 里改，时间一律写成相对某句开始的偏移。光标路线用 `cursorAt(t, [[秒, x, y], ...])`，点击用 `pressAt` + `ripple`，并在 `script.js` 的 cues 里加一个 `click`，声音才对得上。
+- **界面要和真实 App 一致**：改之前先 `.build/debug/ServerIsland --render-preview <目录> zh` 看截图（卡片头部按钮顺序、详情页字段、设置页文案都照着它）。演示数据只用 `DemoData.swift` 里的虚构信息。
+- **检查**：`--stills` 抽帧看有没有错字、遮挡、对不齐；字幕在底部 970–1034 px，镜头构图时把重要内容放在它上面。
+- **配音**：最早用 macOS 自带的 `say -v Tingting`，维护者反馈"一个字一个字地蹦、没有语气"，改成了 edge-tts（微软 Edge "大声朗读"背后的神经网络语音，免费、需要联网，文本会发给微软的服务）。可选声音：`zh-CN-XiaoxiaoNeural`（女，温和，默认）、`YunxiNeural`（男，阳光）、`XiaoyiNeural`（女，活泼）、`YunyangNeural`（男，新闻播报），对比样音在 `out/tutorial/voices/`。换声音只改 `script.js` 的 `voice`，重跑 audio.py 和 render.mjs。没有网络时把 `engine` 改成 `"say"`（用 `sayVoice` / `sayRate`）。
+- edge-tts 走的是 Edge 浏览器朗读功能的非公开接口，没有正式的商用授权条款。如果以后要更稳妥的授权或更有感情的配音，可以换成付费的正式服务（Azure 语音、火山引擎 / 豆包语音、阿里云 CosyVoice 等，同一批神经网络声音或更好），或者维护者自己录音：把每句录成 `out/tutorial/tts/` 里的 wav 再接入 `tts()` 即可。
