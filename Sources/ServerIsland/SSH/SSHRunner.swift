@@ -279,14 +279,15 @@ enum SSHRunner {
         }
     }
 
-    /// 在终端里 ssh 到某个目录（详情页"在终端中打开"）。目录来自服务器返回的数据，用单引号转义。
-    static func openShellInTerminal(host: HostConfig, directory: String) {
+    /// 在终端里 ssh 到某个目录（详情页"在终端中打开"）；directory 为 nil 时直接登录（卡片上的终端按钮）。
+    /// 目录来自服务器返回的数据，用单引号转义。主连接还在时直接复用，不用再输密码。
+    static func openShellInTerminal(host: HostConfig, directory: String? = nil) {
         ensureControlDirectory()
         let file = URL(fileURLWithPath: controlDirectory).appendingPathComponent("shell-\(UUID().uuidString.prefix(8)).command")
-        let remote = "cd " + shellQuote(directory) + " && exec $SHELL -l"
+        let remote = directory.map { " " + shellQuote("cd " + shellQuote($0) + " && exec $SHELL -l") } ?? ""
         let script = """
         #!/bin/bash
-        exec ssh \(configArgs(host).map(shellQuote).joined(separator: " ")) -t -o ControlPath='\(controlPath(for: host))' \(shellQuote(target(host))) \(shellQuote(remote))
+        exec ssh \(configArgs(host).map(shellQuote).joined(separator: " ")) -t -o ControlPath='\(controlPath(for: host))' \(shellQuote(target(host)))\(remote)
         """
         do {
             try script.write(to: file, atomically: true, encoding: .utf8)

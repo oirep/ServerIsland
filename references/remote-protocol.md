@@ -36,6 +36,15 @@
 
 ## 轮询脚本（`RemoteScript.build`）的各段
 
+**同一份数据一个周期只取一次**（2026-10-19）：各段都在同一个 shell 里执行，前面取到的东西存进 shell 变量，后面的段直接用。
+- `SI_JW`（Slurm）：默认的 squeue 命令换成 `RemoteScript.squeueWithWorkdir`，在原来的列后面接上 `|@@SI:WD|%T|%Z`。`squeue` 段去掉这一截输出（和原来的格式完全一样），`SI_JW` 留下 `作业号|状态|工作目录`，给 `workdirs` 和计算软件识别用。**调度系统每个周期只查一次**（以前是 3 次：列表、工作目录、运行中作业的目录）。用户自定义了 squeue 命令时不动它，`workdirs` 段另外查一次 `%i|%T|%Z`。
+- `SI_PQ`（PBS）：`qstat` 段把 `qstat -f` 全文存下来，`workdirs`（`si_pbs d`）和计算软件识别（`si_pbs w`）都从它转换（以前 qselect + qstat -f 跑 3 遍）。
+- `SI_PT`：`RemoteScript.processScan` 把自己的进程遍历一遍，每行 `PID|所属作业号|当前目录`（作业号只在调度系统的机器上读 environ；只为计算软件识别时只留属于作业的进程）。`slurmpids`、`workdirs`、计算软件识别都用它（以前遍历 2～3 遍，每个进程都要起 tr / awk / readlink）。这一步不在任何段里，报错丢掉（以前读不了的 environ 会把 Permission denied 漏进 slurmpids 段）。
+- `SI_GA`：`gpuapps` 段的 nvidia-smi 输出，计算软件识别直接取里面的 PID（以前再调用一次 nvidia-smi）。
+- `si_rc 码`：让段的退出码等于被存进变量的那条命令的退出码。
+- **磁盘**（`disk` 段）：引擎隔 `MonitorEngine.diskInterval`（300 秒）才带上这一段，中间沿用上次的结果；手动刷新、改设置时总是查。
+- **计算软件识别跳过没变的目录**：见下文"文件没变时不重读"。
+
 | 段 | 条件 | 命令 |
 |---|---|---|
 | `cpu` | showCPU | `head -n1 /proc/stat; nproc; cat /proc/loadavg` |
@@ -45,10 +54,10 @@
 | `qstat` | PBS 且 watchJobs | `commands.qstat`（默认 `qselect -u` + `qstat -f -t`）的输出经 `si_pbs q` 转换成和 squeue 一样的行（见下文 PBS） |
 | `workdirs` | watchJobs（2026-10-18 起总是有：工作目录写进历史记录） | `@@SI:HOME 家目录`，再加 `id\|工作目录`：Slurm 用 `squeue -o '%i\|%Z'`，PBS 用 `si_pbs d`，进程用 `readlink /proc/PID/cwd` |
 | `procs` | 直连；或 Slurm / PBS 且 slurmAlsoProcesses | `ps -u … -o pid=,etimes=,pcpu=,rss=,args= --sort=-pcpu \| head -300` |
-| `slurmpids` | Slurm / PBS 且 slurmAlsoProcesses | 属于作业的进程（用 `si_jobid` 判断：`SLURM_JOB_ID` / `SLURM_ARRAY_*` / `PBS_JOBID`），这些进程不再单独列出 |
+| `slurmpids` | Slurm / PBS 且 slurmAlsoProcesses | 属于作业的进程（`SI_PT` 里作业号不为空的；作业号用 `si_jobid` 判断：`SLURM_JOB_ID` / `SLURM_ARRAY_*` / `PBS_JOBID`），这些进程不再单独列出 |
 | `apps` | detectApps 且 watchJobs | 计算软件识别（见下文） |
 | `watch` | 直连且有监听的 PID | `ps -p <pids>`（不加 `-u`） |
-| `disk` | showDisk | `df -P -k ~` |
+| `disk` | showDisk，且距上次查磁盘已满 5 分钟（或手动刷新） | `df -P -k ~` |
 | `progress` | readProgressFiles | 逐个 `cat` 进度文件 `~/.serverisland/progress/*.json`（每个最多 4KB） |
 
 squeue 的解析是**从两端按位置取列**，所以作业名里有 `|` 也能正确解析；也兼容没有 `%F|%K` 两列的老格式。数组作业从 `%F`/`%K` 识别，没有这两列时从编号 `123_5` 或 `123_[7-99%10]` 里拆出来。排队的一整段元素数量以编号里的 `_[...]` 为准（`%K` 在有的 Slurm 版本里不带方括号）。
@@ -89,8 +98,8 @@ squeue 的解析是**从两端按位置取列**，所以作业名里有 `|` 也�
 参考的是 GPUMDkit Web Console（GPUMDkit 仓库里 `Scripts/utils/server/server.py` 的 `training_status` 和 `simulation_status`），但不做实时刷新，跟着普通轮询走。
 
 1. **候选目录**：
-   - Slurm：`squeue -t R -o '%i|%Z'`，也就是作业的提交目录；
-   - 本机进程，满足任一条件：进程名匹配 `pgrep -x '<appProcessNames>'`（默认 `gpumd|nep|gnep`）、在 nvidia-smi 的计算进程里、CPU ≥ 50%、或者（Slurm 机器上）属于 Slurm 作业。取它们的 `readlink /proc/<pid>/cwd`；
+   - Slurm：`SI_JW` 里状态是 RUNNING 的作业的提交目录（PBS 是 `SI_PQ` 经 `si_pbs w`）；
+   - 本机进程，满足任一条件：进程名匹配 `pgrep -x '<appProcessNames>'`（默认 `gpumd|nep|gnep`）、在 nvidia-smi 的计算进程里（`SI_GA`）、CPU ≥ 50%、或者（Slurm 机器上）属于 Slurm 作业。目录取自 `SI_PT`（`readlink /proc/<pid>/cwd`）。不列出普通进程的集群上只看属于作业的进程。直连服务器上不读作业号（以前带 SLURM_JOB_ID 的进程会被记到一个列表里没有的作业号上，进度显示不出来）；
    - 进程属于哪个 Slurm 作业：用 shell 函数 `si_jobid` 读 `/proc/<pid>/environ` 里的 `SLURM_JOB_ID`（数组元素则用 `SLURM_ARRAY_JOB_ID_SLURM_ARRAY_TASK_ID`）。**不要用 cgroup 判断**：有些 Slurm 安装不会把 job_N 写进 cgroup。
    - 用 `awk '!seen[$2]++'` 按目录去重，每个目录只算一个任务。
 2. **由目录里的文件决定软件类型**（`dirBody`）：
@@ -149,9 +158,17 @@ squeue 的解析是**从两端按位置取列**，所以作业名里有 `|` 也�
 - 画图：点数超过 400 时等间隔抽样；loss 用对数坐标。
 - 实测：一台工作站上 579 行的 loss.out 第一次传 72 KB / 0.07 s，之后没有新行时只传 131 字节。
 
+### 文件没变时不重读（2026-10-19）
+
+- GPUMD、VASP、VASP NEB、LAMMPS 和自定义规则的分支，在读文件之前先算签名：`stat -c '%Y.%s'`（修改时间.大小）这种软件会读的全部文件，拼成一行（自定义规则用 `%n %Y %s`，带上 si_pick 选中的文件名）。输出 `sig=签名`。
+- 引擎（`MonitorEngine.appCache`）按目录记住上一轮带签名的结果，下一轮把 `目录 → 签名` 传给 `AppDetectors.script`，生成 `si_same` 函数（`case` 比较，目录和签名都 shellQuote）。签名一样就只输出 `@@SI:DIR`、`kind=`、`same=1`，不再 tail / grep / awk；解析成 `AppProgress.unchanged`，`resolveApps` 换成上一轮的结果（修改时间也是上一轮的，所以"没有新输出"的判断不变）。
+- 签名为空（stat 失败）时总是重读；自定义规则一改就清空缓存；任务结束时的最终状态（`finalStateScript`）和设置页的测试总是完整读取（`si_same` 恒为假）。
+- NEP / GNEP 只读 `tail -n 1`，本来就很轻，不做这一步。
+- 收益主要在文件长时间不更新的时候（VASP 一个离子步要很久、作业卡住、输出间隔比轮询间隔长）；NEB 每个像点都要 `tail -n 25000 OUTCAR`，省得最多。
+
 ### 新增一种软件（比如 VASP、LAMMPS）
 1. 在 `AppProgress.Kind` 里加一个 case，补上 `title`、`unit`、`summary`；
-2. 在 `AppDetectors.dirBody` 里加一个 `elif` 分支：用特征文件判断，输出 `@@SI:DIR`、`kind=…`、`total=…`、`last=…`、`mtime=…` 等 key=value；
+2. 在 `AppDetectors.dirBody` 里加一个 `elif` 分支：用特征文件判断，输出 `@@SI:DIR`、`kind=…`、`total=…`、`last=…`、`mtime=…` 等 key=value；要读大文件的话照着 VASP 分支加上 `sg=…` / `si_same` / `sig=`（签名要覆盖这个分支读的所有文件）；
 3. 在 `AppDetectors.parse` 的 `switch kind` 里解析这些字段；
 4. 在 `SelfTest` 里加一条样例输出的解析测试，再用 `--final-state <alias> <目录>` 在真实目录上验证。
 5. **只读文件末尾或小文件**（tail、awk、grep -c），不要整读大文件。

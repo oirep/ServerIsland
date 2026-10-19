@@ -138,6 +138,7 @@
 | Shared/Localization.swift、Format.swift | ServerIsland.Core/Lang.cs、Text.cs |
 | Shared/Theme.swift、Components.swift | ServerIsland.Desktop/Ui/Hue.cs、Kit.cs、Icons.cs |
 | Shared/Pet.swift | ServerIsland.Desktop/Ui/PetView.cs |
+| Shared/UpdateChecker.swift、UpdateInstaller.swift | ServerIsland.Core/UpdateChecker.cs、UpdateInstaller.cs |
 | Notch/IslandLayout.swift、NotchGeometry.swift | ServerIsland.Desktop/Island/IslandLayout.cs、IslandSurface.cs（NotchShape） |
 | Notch/IslandController.swift | ServerIsland.Desktop/Island/IslandWindow.cs |
 | Notch/IslandView.swift | ServerIsland.Desktop/Island/IslandViews.cs、IslandState.cs |

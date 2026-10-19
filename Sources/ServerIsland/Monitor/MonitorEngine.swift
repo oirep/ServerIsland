@@ -20,6 +20,13 @@ final class MonitorEngine: ObservableObject {
     private var eventQueue: [IslandEvent] = []
     private var eventDismissTask: Task<Void, Never>?
     private var diskAlerted: [UUID: Set<String>] = [:]
+    /// 上次查磁盘的时间。磁盘占用变化慢，自动轮询时隔 `diskInterval` 才查一次；手动刷新时总是查。
+    private var diskCheckedAt: [UUID: Date] = [:]
+    static let diskInterval: TimeInterval = 300
+    /// 计算软件识别的上次结果（主机 → 目录 → 进度，带文件签名）。文件没变时服务器只回 `same=1`，这里沿用。
+    /// 自定义规则改了以后整个清掉。
+    private var appCache: [UUID: [String: AppProgress]] = [:]
+    private var appCacheRules: [ProgressRule] = []
     let history: HistoryStore
     /// 数组作业的累计进度（key: 主机|主编号）。
     struct ArrayTrack {
@@ -184,6 +191,7 @@ final class MonitorEngine: ObservableObject {
         loops[host.id] = nil
         runningConfig[host.id] = host
         failures[host.id] = 0
+        diskCheckedAt[host.id] = nil
         if snapshots[host.id] == nil { snapshots[host.id] = HostSnapshot() }
         let id = host.id
         let auto = autoPolls(host)
@@ -238,8 +246,14 @@ final class MonitorEngine: ObservableObject {
         // 渲染预览图时不连接任何真实服务器（虚构的主机用 setPreviewSnapshot 给定状态）。
         if IslandPreview.active { return }
         snapshots[id]?.isRefreshing = true
+        if appCacheRules != ProgressRule.active {
+            appCache = [:]
+            appCacheRules = ProgressRule.active
+        }
+        let withDisk = Date().timeIntervalSince(diskCheckedAt[id] ?? .distantPast) >= Self.diskInterval
         let result = await SSHRunner.run(host: host, remoteCommand: host.commands.shell,
-                                         script: RemoteScript.build(for: host))
+                                         script: RemoteScript.build(for: host, appSignatures: (appCache[id] ?? [:]).compactMapValues(\.signature),
+                                                                    includeDisk: withDisk))
         guard !Task.isCancelled else { snapshots[id]?.isRefreshing = false; return }
 
         var snap = snapshots[id] ?? HostSnapshot()
@@ -359,7 +373,7 @@ final class MonitorEngine: ObservableObject {
             snap.gpus = Parsers.gpus(sec.lines)
         }
 
-        let apps: [String: AppProgress] = parsed.sections["apps"].map { AppDetectors.parse($0.lines) } ?? [:]
+        let apps = resolveApps(host.id, parsed.sections["apps"].map { AppDetectors.parse($0.lines) })
         var jobs: [RemoteJob] = []
         switch host.kind {
         case .slurm, .pbs:
@@ -408,8 +422,13 @@ final class MonitorEngine: ObservableObject {
         if host.watchJobs {
             jobs = applyWorkdirs(host: host, jobs: jobs, section: parsed.sections["workdirs"])
         }
-        if host.showDisk, let sec = parsed.sections["disk"], sec.exitCode == 0 {
-            snap.disks = Parsers.disks(sec.lines)
+        if host.showDisk {
+            if let sec = parsed.sections["disk"] {
+                if sec.exitCode == 0 { snap.disks = Parsers.disks(sec.lines) }
+                diskCheckedAt[host.id] = Date()
+            } else {
+                snap.disks = previous.disks   // 这一轮没查磁盘
+            }
         }
 
         if let sec = parsed.sections["progress"] {
@@ -457,6 +476,21 @@ final class MonitorEngine: ObservableObject {
         snap.jobs = jobs.sorted { order($0) < order($1) }
         snap.warnings = Array(warnings.prefix(2))
         return snap
+    }
+
+    /// 服务器说文件没变（`same=1`）的目录换成上次的结果，再记下这一轮带签名的结果。
+    private func resolveApps(_ id: UUID, _ parsed: [String: AppProgress]?) -> [String: AppProgress] {
+        guard let parsed else { appCache[id] = nil; return [:] }
+        let old = appCache[id] ?? [:]
+        var out: [String: AppProgress] = [:], cache: [String: AppProgress] = [:]
+        for (jobID, p) in parsed {
+            let app = p.unchanged ? old[p.dir] : p
+            guard let app else { continue }
+            out[jobID] = app
+            if app.signature != nil { cache[app.dir] = app }
+        }
+        appCache[id] = cache
+        return out
     }
 
     /// 工作目录和目录过滤。工作目录按任务号缓存：某一次没查到（网络抖动、刚提交的作业）时沿用上次的结果，

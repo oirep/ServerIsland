@@ -186,5 +186,19 @@ public static class SelfTestApps
 
         check(ProgressRule.IsSafeFileName("logs/*.log") && !ProgressRule.IsSafeFileName("a;rm -rf ~")
               && !ProgressRule.IsSafeFileName("../x") && !ProgressRule.IsSafeFileName("$(id)"), "规则文件名只允许安全字符");
+
+        // 文件没变时跳过重读：si_same 只在目录和签名都对上时成立；same=1 解析成"沿用上次"，sig= 记成签名
+        var same = AppDetectors.SameFunction(new Dictionary<string, string> { ["/w/it's a|b"] = "1.2 3.4 ", ["/w/x"] = "9.9 " }) + """
+
+            si_same "/w/it's a|b" "1.2 3.4 " && echo hit1; si_same "/w/it's a|b" "1.2 3.5 " || echo miss1
+            si_same "/w/y" "9.9 " || echo miss2; si_same "/w/x" "" || echo miss3
+
+            """;
+        check(Bash(same).Trim().Split('\n').SequenceEqual(["hit1", "miss1", "miss2", "miss3"]), "跳过重读：签名比较（目录带引号和 |）");
+        var skip = AppDetectors.Parse(["@@SI:DIR 7|/w/a", "kind=vasp", "same=1", "@@SI:DIR 8|/w/b", "kind=lammps", "sig=5.6 ",
+                                       "total=100", "first=0", "last=50", "bad=0", "@@SI:DIR 9|/w/c", "kind=lammps", "sig=",
+                                       "total=100", "first=0", "last=50", "bad=0"]);
+        check(skip.GetValueOrDefault("7") is { Unchanged: true, Dir: "/w/a" } && skip.GetValueOrDefault("8") is { Signature: "5.6 ", Current: 50 }
+              && skip.GetValueOrDefault("9") is { Signature: null }, "跳过重读：解析 same=1 和签名");
     }
 }

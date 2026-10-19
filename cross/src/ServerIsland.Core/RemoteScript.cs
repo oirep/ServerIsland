@@ -15,11 +15,18 @@ public static class RemoteScript
     static string SectionText(string name, string body) =>
         $"printf '{Marker}SEC {name}\\n'\n{{ {body}\n}} 2>&1\nprintf '{Marker}RC %s\\n' \"$?\"";
 
-    public static string Build(HostConfig host)
+    /// 默认的 squeue 命令后面再接上状态和工作目录（用 `|@@SI:WD|` 隔开），一次查询同时给任务列表、工作目录和计算软件识别用。
+    public const string SqueueWithWorkdir = """squeue -u "$(id -un)" -h -o '%i|%j|%T|%M|%l|%D|%R|%P|%F|%K|@@SI:WD|%T|%Z'""";
+
+    /// 一个周期里的数据尽量只取一次，存在 shell 变量里给后面的段用（说明见 Swift 版 RemoteScript.build）：
+    /// `SI_JW` / `SI_PQ`（调度系统只查询一次）、`SI_PT`（进程只遍历一遍）、`SI_GA`（nvidia-smi 的计算进程）。
+    /// `appSignatures`：上次识别结果的文件签名（目录 → 签名），文件没变的目录不再重读。`includeDisk`：磁盘由引擎决定隔几分钟查一次。
+    public static string Build(HostConfig host, IReadOnlyDictionary<string, string>? appSignatures = null, bool includeDisk = true)
     {
         var c = host.Commands;
         var lines = new List<string> { $"printf '{Marker}BEGIN\\n'" };
         if (c.Preamble.Trim().Length > 0) lines.Add(c.Preamble);
+        lines.Add("""si_rc() { return "$1"; }""");
         void Sec(string name, string body) => lines.Add(SectionText(name, body));
 
         if (host.ShowCPU) Sec("cpu", "head -n 1 /proc/stat; nproc; cat /proc/loadavg");
@@ -30,41 +37,40 @@ public static class RemoteScript
             // 没有 nvidia-smi 的机器直接跳过，不算错误。
             Sec("gpu", $"if command -v nvidia-smi >/dev/null 2>&1; then {c.Gpu}; else echo '{Marker}NA'; fi");
             if (listsProcesses && host.WatchJobs)
-                Sec("gpuapps", $"if command -v nvidia-smi >/dev/null 2>&1; then {c.GpuApps}; else echo '{Marker}NA'; fi");
+                Sec("gpuapps", """if command -v nvidia-smi >/dev/null 2>&1; then SI_GA=$(""" + c.GpuApps
+                    + """); SI_RC=$?; [ -z "$SI_GA" ] || printf '%s\n' "$SI_GA"; si_rc $SI_RC; else echo '""" + Marker + "NA'; fi");
         }
         if (host.WatchJobs)
         {
             if (host.Kind == HostKind.Slurm)
             {
-                Sec("squeue", c.Squeue);
-                if (host.SlurmAlsoProcesses)
-                {
-                    Sec("procs", c.Processes);
-                    // 属于 Slurm 作业的进程（环境变量里有 SLURM_JOB_ID）由作业行显示，不再重复列出。
-                    Sec("slurmpids", AppDetectors.JobIDFunction + """for p in $(pgrep -u "$(id -un)"); do [ -n "$(si_jobid $p)" ] && echo $p; done; true""");
-                }
+                if (c.Squeue == CommandSet.Defaults.Squeue)
+                    Sec("squeue", $$"""
+                        SI_Q=$({{SqueueWithWorkdir}} 2>&1); SI_RC=$?
+                        [ -z "$SI_Q" ] || printf '%s\n' "$SI_Q" | sed 's/|@@SI:WD|.*$//'
+                        SI_JW=$(printf '%s\n' "$SI_Q" | sed -n 's/^\([^|]*\)|.*|@@SI:WD|/\1|/p')
+                        si_rc $SI_RC
+                        """);
+                else Sec("squeue", c.Squeue);
             }
             else if (host.Kind == HostKind.Pbs)
-            {
-                Sec("qstat", PbsFunction + $"if command -v qstat >/dev/null 2>&1; then {{ {c.Qstat}\n}} | si_pbs q; else echo 'qstat: command not found'; false; fi");
-                if (host.SlurmAlsoProcesses)
-                {
-                    Sec("procs", c.Processes);
-                    // 属于 PBS 作业的进程（环境变量里有 PBS_JOBID）由作业行显示，不再重复列出。
-                    Sec("slurmpids", AppDetectors.JobIDFunction + """for p in $(pgrep -u "$(id -un)"); do [ -n "$(si_jobid $p)" ] && echo $p; done; true""");
-                }
-            }
-            else Sec("procs", c.Processes);
+                Sec("qstat", PbsFunction + $"if command -v qstat >/dev/null 2>&1; then SI_PQ=$({{ {c.Qstat}\n}}); printf '%s\\n' \"$SI_PQ\" | si_pbs q; else echo 'qstat: command not found'; false; fi");
+            if (listsProcesses || (host.Kind.IsScheduler() && host.DetectApps))
+                lines.Add(AppDetectors.JobIDFunction + ProcessScan(host));
+            if (listsProcesses) Sec("procs", c.Processes);
+            // 属于作业的进程（环境变量里有 SLURM_JOB_ID / PBS_JOBID）由作业行显示，不再重复列出。
+            if (host.Kind.IsScheduler() && host.SlurmAlsoProcesses)
+                Sec("slurmpids", """printf '%s\n' "$SI_PT" | awk -F'|' '$2 != "" { print $1 }'""");
+            Sec("workdirs", WorkdirScript(host));
+            if (host.DetectApps) Sec("apps", AppDetectors.Script(host, appSignatures));
         }
-        if (host.WatchJobs) Sec("workdirs", WorkdirScript(host));
-        if (host.DetectApps && host.WatchJobs) Sec("apps", AppDetectors.Script(host));
         if (host.Kind == HostKind.Direct && host.Watched.Count > 0)
         {
             var pids = string.Join(",", host.Watched.Select(w => w.Pid).Where(p => Text.Int(p) != null));
             // 不加 -u：监听的进程不受过滤规则影响。不存在的 PID 会让 ps 返回非 0，属于正常情况。
             if (pids.Length > 0) Sec("watch", $"ps -o pid=,etimes=,pcpu=,rss=,args= -p {pids}; true");
         }
-        if (host.ShowDisk) Sec("disk", c.Disk);
+        if (host.ShowDisk && includeDisk) Sec("disk", c.Disk);
         if (host.ReadProgressFiles)
         {
             Sec("progress", $$"""
@@ -223,15 +229,34 @@ public static class RemoteScript
         """;
 
     /// 每个任务的工作目录（写进历史记录，也用于目录过滤）：作业用调度系统记录的工作目录，进程用当前目录。输出 `id|目录`，另有一行 `@@SI:HOME 家目录`。
+    /// 用的是前面的段留下的 `SI_JW` / `SI_PQ` / `SI_PT`（见 Build）；自定义了 squeue 命令时单独查一次工作目录。
     public static string WorkdirScript(HostConfig host)
     {
         const string me = "\"$(id -un)\"";
         var s = $"printf '{Marker}HOME %s\\n' \"$HOME\"\n";
-        if (host.Kind == HostKind.Slurm) s += $"squeue -u {me} -h -o '%i|%Z' 2>/dev/null\n";
-        else if (host.Kind == HostKind.Pbs) s += PbsFunction + $"{{ {host.Commands.Qstat}\n}} 2>/dev/null | si_pbs d\n";
+        if (host.Kind == HostKind.Slurm)
+        {
+            if (host.Commands.Squeue != CommandSet.Defaults.Squeue) s += $"SI_JW=$(squeue -u {me} -h -o '%i|%T|%Z' 2>/dev/null)\n";
+            s += """printf '%s\n' "$SI_JW" | sed -n 's/^\([^|]*\)|[^|]*|/\1|/p'""" + "\n";
+        }
+        else if (host.Kind == HostKind.Pbs) s += """printf '%s\n' "$SI_PQ" | si_pbs d""" + "\n";
         if (host.Kind == HostKind.Direct || host.SlurmAlsoProcesses)
-            s += $"for p in $(pgrep -u {me}); do d=$(readlink /proc/$p/cwd 2>/dev/null) && printf '%s|%s\\n' \"$p\" \"$d\"; done\n";
+            s += """printf '%s\n' "$SI_PT" | sed -n 's/^\([0-9]*\)|[^|]*|\(..*\)$/\1|\2/p'""" + "\n";
         return s + "true";
+    }
+
+    /// 自己的进程只遍历一遍：`SI_PT` 每行 `PID|所属作业号|当前目录`（说明见 Swift 版 processScan）。
+    public static string ProcessScan(HostConfig host)
+    {
+        const string me = "\"$(id -un)\"";
+        bool lists = host.Kind == HostKind.Direct || host.SlurmAlsoProcesses;
+        var body = (host.Kind.IsScheduler(), lists) switch
+        {
+            (true, true) => "j=$(si_jobid $p); d=$(readlink /proc/$p/cwd 2>/dev/null)",
+            (true, false) => "j=$(si_jobid $p); [ -n \"$j\" ] || continue; d=$(readlink /proc/$p/cwd 2>/dev/null)",
+            _ => "j=; d=$(readlink /proc/$p/cwd 2>/dev/null) || continue",
+        };
+        return $"SI_PT=$(for p in $(pgrep -u {me}); do {body}; printf '%s|%s|%s\\n' \"$p\" \"$j\" \"$d\"; done 2>/dev/null)\n";
     }
 
     /// PBS（PBS Pro / OpenPBS / Torque）：把 `qstat -f` 的全文转换成和 squeue / sacct 一样的行（说明见 Swift 版 RemoteScript.pbsFunction）。

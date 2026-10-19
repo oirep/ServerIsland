@@ -191,6 +191,7 @@ public sealed class IslandViews(MonitorEngine engine, ConfigStore store, IslandS
             SetInterval = s => engine.SetHostInterval(id, s),
             ToggleMute = () => engine.ToggleMute(id),
             TerminalLogin = () => Shell.OpenLoginInTerminal(host),
+            Terminal = () => Shell.OpenShellInTerminal(host),
             CanTerminalLogin = engine.Ssh is OpenSshTransport && OpenSshTransport.SupportsControlMaster,
             GlobalInterval = store.Settings.DefaultInterval,
             GlobalAuto = store.Settings.AutoRefresh,

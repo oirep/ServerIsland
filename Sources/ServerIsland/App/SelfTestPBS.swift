@@ -212,6 +212,11 @@ enum SelfTestPBS {
               "更新：解析 GitHub Release（去掉 v、选对安装包、说明跳过标题）")
         check(UpdateChecker.parse(Data(#"{"tag_name":"v1","html_url":"https://x.org/r","assets":[]}"#.utf8), assetSuffix: ".dmg")?.downloadURL.absoluteString == "https://x.org/r",
               "更新：没有对应安装包时打开 Release 页面")
+        let withDigest = #"{"tag_name":"v0.3.0","html_url":"https://x.org/r","assets":[{"name":"ServerIsland-0.3.0.dmg","browser_download_url":"https://x.org/m.dmg","size":5213343,"digest":"sha256:4FE94B94"},{"name":"ServerIsland-0.3.0-win-x64.zip","browser_download_url":"https://x.org/w.zip","digest":"md5:1"}]}"#
+        let dmgRel = UpdateChecker.parse(Data(withDigest.utf8), assetSuffix: ".dmg")
+        check(dmgRel?.digest == "4fe94b94" && dmgRel?.size == 5213343 && UpdateChecker.parse(Data(withDigest.utf8), assetSuffix: "win-x64.zip")?.digest == nil
+              && parsed?.digest == nil && UpdateInstaller.unsupportedReason(parsed!) != nil,
+              "更新：取出安装包的 SHA-256（不是 sha256 的不用；没有校验信息时不自动安装）")
         check(UpdateChecker.summary("<p align=\"center\">\n<img src=\"x\">\n</p>\n<h1>v1</h1>\nIntro line\n- **A**: one\n- B") == "- **A**: one\n- B",
               "更新：说明摘要跳过 HTML，优先取列表项")
 

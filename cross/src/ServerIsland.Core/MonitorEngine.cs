@@ -32,6 +32,13 @@ public sealed partial class MonitorEngine
     readonly Queue<IslandEvent> _eventQueue = new();
     CancellationTokenSource? _eventDismiss;
     readonly Dictionary<Guid, HashSet<string>> _diskAlerted = [];
+    /// 上次查磁盘的时间。磁盘占用变化慢，自动轮询时隔 DiskInterval 才查一次；手动刷新时总是查。
+    readonly Dictionary<Guid, DateTime> _diskCheckedAt = [];
+    public static readonly TimeSpan DiskInterval = TimeSpan.FromSeconds(300);
+    /// 计算软件识别的上次结果（主机 → 目录 → 进度，带文件签名）。文件没变时服务器只回 `same=1`，这里沿用。
+    /// 自定义规则改了以后整个清掉。
+    readonly Dictionary<Guid, Dictionary<string, AppProgress>> _appCache = [];
+    string _appCacheRules = "";
     readonly SynchronizationContext? _context;
 
     /// 数组作业的累计进度（key: 主机|主编号）。
@@ -48,6 +55,24 @@ public sealed partial class MonitorEngine
     /// 目录过滤用：每台服务器上各任务的工作目录。
     sealed class WorkdirCache { public string? Home; public Dictionary<string, string> Dirs = []; }
     readonly Dictionary<Guid, WorkdirCache> _workdirs = [];
+
+    /// 服务器说文件没变（`same=1`）的目录换成上次的结果，再记下这一轮带签名的结果。
+    Dictionary<string, AppProgress> ResolveApps(Guid id, Dictionary<string, AppProgress>? parsed)
+    {
+        if (parsed == null) { _appCache.Remove(id); return []; }
+        var old = _appCache.GetValueOrDefault(id) ?? [];
+        var outMap = new Dictionary<string, AppProgress>();
+        var cache = new Dictionary<string, AppProgress>();
+        foreach (var (jobID, p) in parsed)
+        {
+            var app = p.Unchanged ? old.GetValueOrDefault(p.Dir) : p;
+            if (app == null) continue;
+            outMap[jobID] = app;
+            if (app.Signature != null) cache[app.Dir] = app;
+        }
+        _appCache[id] = cache;
+        return outMap;
+    }
 
     /// 工作目录和目录过滤。工作目录按任务号缓存：某一次没查到（网络抖动、刚提交的作业）时沿用上次的结果，
     /// 不会让任务忽隐忽现、误发"已结束"的提醒。设了目录过滤时，查不到目录的任务不显示。
@@ -254,6 +279,7 @@ public sealed partial class MonitorEngine
         var cfg = host.Clone();
         _runningConfig[host.Id] = cfg;
         _failures[host.Id] = 0;
+        _diskCheckedAt.Remove(host.Id);
         if (!Snapshots.ContainsKey(host.Id)) Snapshots[host.Id] = new HostSnapshot();
         bool auto = AutoPolls(cfg);
         if (!pollNow && !auto)
@@ -301,7 +327,12 @@ public sealed partial class MonitorEngine
         // 渲染预览图时不连接任何真实服务器（虚构的主机用 SetSnapshot 给定状态）。
         if (NoNetwork) return;
         if (Snapshots.TryGetValue(id, out var cur)) { cur.IsRefreshing = true; NotifyChanged(); }
-        var result = await Run(host, RemoteScript.Build(host));
+        var rules = System.Text.Json.JsonSerializer.Serialize(ProgressRule.Active, Json.Options);
+        if (rules != _appCacheRules) { _appCache.Clear(); _appCacheRules = rules; }
+        var signatures = (_appCache.GetValueOrDefault(id) ?? []).Where(kv => kv.Value.Signature != null)
+            .ToDictionary(kv => kv.Key, kv => kv.Value.Signature!);
+        var withDisk = DateTime.Now - _diskCheckedAt.GetValueOrDefault(id, DateTime.MinValue) >= DiskInterval;
+        var result = await Run(host, RemoteScript.Build(host, signatures, withDisk));
         if (ct.IsCancellationRequested)
         {
             if (Snapshots.TryGetValue(id, out var s0)) { s0.IsRefreshing = false; NotifyChanged(); }
@@ -337,7 +368,7 @@ public sealed partial class MonitorEngine
 
         _failures[id] = 0;
         var previous = snap;
-        snap = Build(host, parsed);
+        snap = Build(host, parsed, previous);
         snap.Latency = result.Duration;
         snap.LastUpdate = DateTime.Now;
         snap.Health = HostHealth.Ok;
@@ -403,7 +434,7 @@ public sealed partial class MonitorEngine
         DebugLog.Log($"[{host.DisplayName}] 补记 ServerIsland 未运行时结束的任务：{string.Join(" ", gone.Select(j => j.Id))}");
     }
 
-    HostSnapshot Build(HostConfig host, RemoteScript.Parsed parsed)
+    HostSnapshot Build(HostConfig host, RemoteScript.Parsed parsed, HostSnapshot? previous = null)
     {
         var snap = new HostSnapshot();
         var warnings = new List<string>();
@@ -440,7 +471,7 @@ public sealed partial class MonitorEngine
         }
         if (host.ShowGPU && Check("gpu", "GPU") is { NotAvailable: false } gpuSec) snap.Gpus = Parsers.Gpus(gpuSec.Lines);
 
-        var apps = parsed.Get("apps") is { } appsSec ? AppDetectors.Parse(appsSec.Lines) : [];
+        var apps = ResolveApps(host.Id, parsed.Get("apps") is { } appsSec ? AppDetectors.Parse(appsSec.Lines) : null);
         var jobs = new List<RemoteJob>();
         if (host.Kind.IsScheduler())
         {
@@ -485,7 +516,15 @@ public sealed partial class MonitorEngine
         // 只看指定目录：按工作目录过滤作业和进程（手动监听的进程不受影响）。
         // 工作目录：记到每个任务上（写进历史记录）；设了"只看这些目录"时再按目录过滤
         if (host.WatchJobs) jobs = ApplyWorkdirs(host, jobs, parsed.Get("workdirs"));
-        if (host.ShowDisk && parsed.Get("disk") is { ExitCode: 0 } diskSec) snap.Disks = Parsers.Disks(diskSec.Lines);
+        if (host.ShowDisk)
+        {
+            if (parsed.Get("disk") is { } diskSec)
+            {
+                if (diskSec.ExitCode == 0) snap.Disks = Parsers.Disks(diskSec.Lines);
+                _diskCheckedAt[host.Id] = DateTime.Now;
+            }
+            else if (previous != null) snap.Disks = previous.Disks;   // 这一轮没查磁盘
+        }
 
         if (parsed.Get("progress") is { } progSec)
         {

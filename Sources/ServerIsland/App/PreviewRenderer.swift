@@ -162,6 +162,15 @@ enum PreviewRenderer {
         }
         store.settings.hosts[0].auth = .interactive
         settingsShot("settings-general", .general, dark: true)
+        // 自动更新的几种状态（自查用）
+        let demoRelease = UpdateChecker.Release(version: "0.3.0", pageURL: AppLinks.repo, downloadURL: AppLinks.repo,
+                                                notes: "- 一键更新\n- 服务器排序", digest: "0", size: 5_213_343)
+        for (name, st) in [("available", UpdateChecker.State.available(demoRelease)), ("downloading", .downloading(demoRelease)),
+                           ("failed", .installFailed(demoRelease, L("请先把 ServerIsland 拖到“应用程序”文件夹再更新", "Move ServerIsland to the Applications folder first")))] {
+            UpdateChecker.shared.setPreviewState(st)
+            settingsShot("settings-update-" + name, .general, dark: true, height: 420)
+        }
+        UpdateChecker.shared.setPreviewState(.idle)
         settingsShot("settings-host", .host(store.settings.hosts[0].id), dark: true)
         // 整页（自查用：页面下方的目录过滤、日志保留等）
         settingsShot("settings-general-full", .general, dark: true, height: 2000)

@@ -75,6 +75,7 @@ public sealed class CardActions
     public Action<int?> SetInterval = _ => { };
     public Action ToggleMute = () => { };
     public Action TerminalLogin = () => { };
+    public Action Terminal = () => { };
     public int GlobalInterval = 60;
     public bool GlobalAuto = true;
     public bool LoggingIn;
@@ -211,6 +212,7 @@ public static class HostCardView
                 : host.Kind == HostKind.Slurm
                     ? SmallIconButton("grid", L("分区空闲资源（按需查询 sinfo）", "Free partition resources (sinfo, on demand)"), a.Partitions, size: 10)
                     : null,
+            SmallIconButton("terminal", L("在终端中打开这台服务器（ssh 登录）", "Open this server in a terminal (ssh)"), a.Terminal),
             SmallIconButton("history", L("历史记录：结束的任务、目录", "History: finished jobs and their folders"), a.History),
             IntervalMenu(host, a, state),
             SmallIconButton(host.Paused ? "play" : "pause",

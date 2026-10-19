@@ -42,6 +42,23 @@ enum SettingsPage: Hashable {
 }
 
 struct SettingsView: View {
+    /// 右键菜单：调整服务器的顺序（刘海里也按这个顺序显示）。
+    @ViewBuilder
+    private func orderMenu(_ id: UUID) -> some View {
+        let hosts = store.settings.hosts
+        let i = hosts.firstIndex { $0.id == id } ?? 0
+        Button(L("移到最上面", "Move to Top")) { moveHost(id, to: 0) }.disabled(i == 0)
+        Button(L("上移", "Move Up")) { moveHost(id, to: i - 1) }.disabled(i == 0)
+        Button(L("下移", "Move Down")) { moveHost(id, to: i + 1) }.disabled(i >= hosts.count - 1)
+        Button(L("移到最下面", "Move to Bottom")) { moveHost(id, to: hosts.count - 1) }.disabled(i >= hosts.count - 1)
+    }
+
+    private func moveHost(_ id: UUID, to target: Int) {
+        guard let i = store.settings.hosts.firstIndex(where: { $0.id == id }) else { return }
+        let h = store.settings.hosts.remove(at: i)
+        store.settings.hosts.insert(h, at: min(max(target, 0), store.settings.hosts.count))
+    }
+
     @ObservedObject var store: ConfigStore
     @ObservedObject var engine: MonitorEngine
     @State private var selection: SettingsPage? = .general
@@ -66,12 +83,22 @@ struct SettingsView: View {
                                symbol: "wand.and.stars", tint: .indigo)
                         .tag(SettingsPage.rules)
                 }
-                Section(L("服务器", "Servers")) {
+                Section {
                     ForEach(store.settings.hosts) { host in
                         HostSidebarRow(host: host, snap: engine.snapshots[host.id])
                             .tag(SettingsPage.host(host.id))
+                            .contextMenu { orderMenu(host.id) }
                     }
                     .onMove { from, to in store.settings.hosts.move(fromOffsets: from, toOffset: to) }
+                    // 侧栏样式的列表不画 footer，提示放成一行不能选中的小字
+                    if store.settings.hosts.count > 1 {
+                        Text(L("拖动或右键可调整顺序", "Drag or right-click to reorder"))
+                            .font(.caption2).foregroundStyle(.tertiary)
+                            .help(L("刘海里也按这个顺序显示", "The island uses the same order"))
+                            .selectionDisabled()
+                    }
+                } header: {
+                    Text(L("服务器", "Servers"))
                 }
             }
             .listStyle(.sidebar)
@@ -222,38 +249,55 @@ enum AppLinks {
 }
 
 extension GeneralSettingsView {
-    /// 检查更新：按钮 + 状态；有新版本时显示"下载"和更新说明。
+    /// 检查更新：按钮 + 状态；有新版本时显示"更新"（自动下载、替换、重新打开）和更新说明。
     var updateRow: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "arrow.down.circle.fill").foregroundStyle(.blue)
             VStack(alignment: .leading, spacing: 2) {
                 Text(updateTitle)
-                if case .available(let r) = updates.state, !r.notes.isEmpty {
+                if case .installFailed(_, let why) = updates.state {
+                    Text(why).font(.caption).foregroundStyle(Theme.coral)
+                } else if let r = updates.state.release, !r.notes.isEmpty {
                     Text(r.notes).font(.caption).foregroundStyle(.secondary).lineLimit(4)
                 } else if let t = updates.lastChecked {
                     Text(L("上次检查：", "Last checked: ") + Format.relative(t)).font(.caption).foregroundStyle(.secondary)
                 }
             }
             Spacer()
-            if case .available(let r) = updates.state {
+            switch updates.state {
+            case .available(let r):
+                Button(L("更新到 v\(r.version)", "Update to v\(r.version)")) { Task { await updates.install(r) } }
+                    .buttonStyle(.borderedProminent)
+                    .help(L("下载并核对新版本，替换后自动重新打开", "Download and verify the new version, replace this app and reopen it"))
+                Button(L("更新说明", "Release Notes")) { NSWorkspace.shared.open(r.pageURL) }
+            case .downloading, .installing:
+                ProgressView().controlSize(.small)
+            case .installFailed(let r, _):
                 Button(L("下载 v\(r.version)", "Download v\(r.version)")) { NSWorkspace.shared.open(r.downloadURL) }
                     .buttonStyle(.borderedProminent)
                 Button(L("更新说明", "Release Notes")) { NSWorkspace.shared.open(r.pageURL) }
+            default:
+                Button(updates.state == .checking ? L("检查中…", "Checking…") : L("检查更新", "Check for Updates")) {
+                    Task { await updates.check() }
+                }
+                .disabled(updates.state == .checking)
             }
-            Button(updates.state == .checking ? L("检查中…", "Checking…") : L("检查更新", "Check for Updates")) {
-                Task { await updates.check() }
-            }
-            .disabled(updates.state == .checking)
         }
     }
 
     private var updateTitle: String {
+        let current = UpdateChecker.currentVersion ?? "dev"
         switch updates.state {
-        case .idle: return L("当前版本 ", "Current version ") + (UpdateChecker.currentVersion ?? "dev")
+        case .idle: return L("当前版本 ", "Current version ") + current
         case .checking: return L("正在检查 GitHub 上的最新版本…", "Checking GitHub for the latest version…")
         case .upToDate(let v): return L("已是最新版本（\(v)）", "You're up to date (\(v))")
-        case .available(let r): return L("有新版本 v\(r.version)（当前 \(UpdateChecker.currentVersion ?? "dev")）", "Version \(r.version) is available (you have \(UpdateChecker.currentVersion ?? "dev"))")
+        case .available(let r): return L("有新版本 v\(r.version)（当前 \(current)）", "Version \(r.version) is available (you have \(current))")
         case .failed(let m): return L("检查失败：", "Check failed: ") + m
+        case .downloading(let r):
+            let size = r.size.map { "（\(Format.bytes(Double($0)))）" } ?? ""
+            return L("正在下载并核对 v\(r.version)\(size)…", "Downloading and verifying v\(r.version)\(size)…")
+        case .installing(let r): return L("v\(r.version) 已准备好，马上重新打开…", "v\(r.version) is ready; reopening…")
+        case .installFailed(let r, _): return L("没能自动更新到 v\(r.version)", "Couldn't update to v\(r.version) automatically")
         }
     }
 }

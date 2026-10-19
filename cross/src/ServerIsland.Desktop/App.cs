@@ -84,6 +84,7 @@ public sealed class App : Application
         DispatcherTimer.Run(() => { DebugLog.Prune(_store.Settings.LogRetentionDays); return true; }, TimeSpan.FromHours(6));
         // 自动检查更新：启动 20 秒后一次，之后每 24 小时一次（演示模式、界面走查不检查）。
         UpdateChecker.CurrentVersion = AppInfo.Version;
+        if (!demo) UpdateInstaller.CleanupOld();
         UpdateChecker.Changed += () => Dispatcher.UIThread.Post(() => _tray?.Update());
         if (!demo && Preview.UiSmoke.Directory == null)
         {
@@ -100,7 +101,24 @@ public sealed class App : Application
         _store.Settings.NotifiedUpdateVersion = r.Version;
         _store.Touch();
         _engine.Emit(new IslandEvent(EventKind.Info, L($"ServerIsland 有新版本 v{r.Version}", $"ServerIsland v{r.Version} is available"),
-            L("在托盘图标或 设置 → 通用 里下载", "Download it from the tray icon or Settings → General"), "ServerIsland"));
+            L("在托盘图标或 设置 → 通用 里一键更新", "Update from the tray icon or Settings → General"), "ServerIsland"));
+    }
+
+    /// 自动更新：下载、核对、替换程序文件，再启动新程序（它会等这个进程退出）并退出。失败时设置页显示原因和下载按钮。
+    public async void InstallUpdate(UpdateChecker.Release r)
+    {
+        ShowSettings();
+        if (await UpdateChecker.InstallAsync(r) is not { } exe) return;
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo(exe) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(exe) ?? "" };
+            psi.ArgumentList.Add("--after-update");
+            psi.ArgumentList.Add(Environment.ProcessId.ToString());
+            System.Diagnostics.Process.Start(psi);
+            DebugLog.Log($"自动更新：已换成 v{r.Version}，启动新程序后退出");
+        }
+        catch (Exception e) { DebugLog.Log("自动更新：启动新程序失败（下次打开就是新版本）：" + e.Message); }
+        Quit();
     }
 
     bool _refreshQueued;
@@ -252,7 +270,7 @@ public sealed class TrayController
         menu.Items.Add(new NativeMenuItemSeparator());
         if (UpdateChecker.State == UpdateChecker.StateKind.Available && UpdateChecker.Latest is { } r)
         {
-            menu.Items.Add(Item(L($"下载新版本 v{r.Version}…", $"Download v{r.Version}…"), () => Shell.OpenUrl(r.DownloadUrl)));
+            menu.Items.Add(Item(L($"更新到 v{r.Version}…", $"Update to v{r.Version}…"), () => _app.InstallUpdate(r)));
             menu.Items.Add(new NativeMenuItemSeparator());
         }
         menu.Items.Add(Item(L("打开面板", "Open Panel"), _app.TogglePanel));

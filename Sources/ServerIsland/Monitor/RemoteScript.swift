@@ -5,12 +5,22 @@ import Foundation
 enum RemoteScript {
     static let marker = "@@SI:"
 
-    static func build(for host: HostConfig) -> String {
+    /// 默认的 squeue 命令后面再接上状态和工作目录（用 `|@@SI:WD|` 隔开），一次查询同时给任务列表、工作目录和计算软件识别用。
+    static let squeueWithWorkdir = #"squeue -u "$(id -un)" -h -o '%i|%j|%T|%M|%l|%D|%R|%P|%F|%K|@@SI:WD|%T|%Z'"#
+
+    /// 一个周期里的数据尽量只取一次，存在 shell 变量里给后面的段用（各段都在同一个 shell 里执行）：
+    /// - `SI_JW`（Slurm）：`作业号|状态|工作目录`；`SI_PQ`（PBS）：`qstat -f` 全文。调度系统每个周期只查询一次。
+    /// - `SI_PT`：自己的每个进程 `PID|所属作业号|当前目录`，只遍历一遍 /proc。
+    /// - `SI_GA`：nvidia-smi 的计算进程，计算软件识别直接用。
+    /// `appSignatures`：上次识别结果的文件签名（目录 → 签名），文件没变的目录不再重读（见 `AppDetectors.script`）。
+    /// `includeDisk`：磁盘占用变化慢，由引擎决定隔几分钟查一次。
+    static func build(for host: HostConfig, appSignatures: [String: String] = [:], includeDisk: Bool = true) -> String {
         let c = host.commands
         var lines: [String] = ["printf '\(marker)BEGIN\\n'"]
         if !c.preamble.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             lines.append(c.preamble)
         }
+        lines.append(#"si_rc() { return "$1"; }"#)
         func section(_ name: String, _ body: String) {
             lines.append("printf '\(marker)SEC \(name)\\n'")
             lines.append("{ \(body)\n} 2>&1")
@@ -28,36 +38,45 @@ enum RemoteScript {
             // 没有 nvidia-smi 的机器直接跳过，不算错误。
             section("gpu", "if command -v nvidia-smi >/dev/null 2>&1; then \(c.gpu); else echo '\(marker)NA'; fi")
             if listsProcesses && host.watchJobs {
-                section("gpuapps", "if command -v nvidia-smi >/dev/null 2>&1; then \(c.gpuApps); else echo '\(marker)NA'; fi")
+                section("gpuapps", #"if command -v nvidia-smi >/dev/null 2>&1; then SI_GA=$("# + c.gpuApps
+                        + #"); SI_RC=$?; [ -z "$SI_GA" ] || printf '%s\n' "$SI_GA"; si_rc $SI_RC; else echo '"# + marker + "NA'; fi")
             }
         }
         if host.watchJobs {
             switch host.kind {
             case .slurm:
-                section("squeue", c.squeue)
-                if host.slurmAlsoProcesses {
-                    section("procs", c.processes)
-                    // 属于 Slurm 作业的进程（环境变量里有 SLURM_JOB_ID）由作业行显示，不再重复列出。
-                    section("slurmpids", AppDetectors.jobIDFunction + #"for p in $(pgrep -u "$(id -un)"); do [ -n "$(si_jobid $p)" ] && echo $p; done; true"#)
+                if c.squeue == CommandSet.defaults.squeue {
+                    section("squeue", """
+                    SI_Q=$(\(squeueWithWorkdir) 2>&1); SI_RC=$?
+                    [ -z "$SI_Q" ] || printf '%s\\n' "$SI_Q" | sed 's/|@@SI:WD|.*$//'
+                    SI_JW=$(printf '%s\\n' "$SI_Q" | sed -n 's/^\\([^|]*\\)|.*|@@SI:WD|/\\1|/p')
+                    si_rc $SI_RC
+                    """)
+                } else {
+                    section("squeue", c.squeue)
                 }
             case .pbs:
                 section("qstat", pbsFunction + """
-                if command -v qstat >/dev/null 2>&1; then { \(c.qstat)
-                } | si_pbs q; else echo 'qstat: command not found'; false; fi
+                if command -v qstat >/dev/null 2>&1; then SI_PQ=$({ \(c.qstat)
+                }); printf '%s\\n' "$SI_PQ" | si_pbs q; else echo 'qstat: command not found'; false; fi
                 """)
-                if host.slurmAlsoProcesses {
-                    section("procs", c.processes)
-                    // 属于 PBS 作业的进程（环境变量里有 PBS_JOBID）由作业行显示，不再重复列出。
-                    section("slurmpids", AppDetectors.jobIDFunction + #"for p in $(pgrep -u "$(id -un)"); do [ -n "$(si_jobid $p)" ] && echo $p; done; true"#)
-                }
-            case .direct: section("procs", c.processes)
+            case .direct:
+                break
             }
-        }
-        if host.watchJobs {
+            if listsProcesses || (host.kind.isScheduler && host.detectApps) {
+                lines.append(AppDetectors.jobIDFunction + processScan(host: host))
+            }
+            if listsProcesses {
+                section("procs", c.processes)
+            }
+            if host.kind.isScheduler && host.slurmAlsoProcesses {
+                // 属于作业的进程（环境变量里有 SLURM_JOB_ID / PBS_JOBID）由作业行显示，不再重复列出。
+                section("slurmpids", #"printf '%s\n' "$SI_PT" | awk -F'|' '$2 != "" { print $1 }'"#)
+            }
             section("workdirs", workdirScript(host: host))
-        }
-        if host.detectApps && host.watchJobs {
-            section("apps", AppDetectors.script(host: host))
+            if host.detectApps {
+                section("apps", AppDetectors.script(host: host, signatures: appSignatures))
+            }
         }
         if host.kind == .direct && !host.watched.isEmpty {
             let pids = host.watched.map(\.pid).filter { Int($0) != nil }.joined(separator: ",")
@@ -66,7 +85,7 @@ enum RemoteScript {
                 section("watch", "ps -o pid=,etimes=,pcpu=,rss=,args= -p \(pids); true")
             }
         }
-        if host.showDisk {
+        if host.showDisk && includeDisk {
             section("disk", c.disk)
         }
         if host.readProgressFiles {
@@ -224,21 +243,39 @@ enum RemoteScript {
     """
 
     /// 每个任务的工作目录（写进历史记录，也用于目录过滤）：作业用调度系统记录的工作目录，进程用当前目录。输出 `id|目录`，另有一行 `@@SI:HOME 家目录`。
+    /// 用的是前面的段留下的 `SI_JW` / `SI_PQ` / `SI_PT`（见 `build`）；自定义了 squeue 命令时单独查一次工作目录。
     static func workdirScript(host: HostConfig) -> String {
         let me = "\"$(id -un)\""
         var s = "printf '\(marker)HOME %s\\n' \"$HOME\"\n"
         switch host.kind {
         case .slurm:
-            s += "squeue -u \(me) -h -o '%i|%Z' 2>/dev/null\n"
+            if host.commands.squeue != CommandSet.defaults.squeue {
+                s += "SI_JW=$(squeue -u \(me) -h -o '%i|%T|%Z' 2>/dev/null)\n"
+            }
+            s += #"printf '%s\n' "$SI_JW" | sed -n 's/^\([^|]*\)|[^|]*|/\1|/p'"# + "\n"
         case .pbs:
-            s += pbsFunction + "{ \(host.commands.qstat)\n} 2>/dev/null | si_pbs d\n"
+            s += #"printf '%s\n' "$SI_PQ" | si_pbs d"# + "\n"
         case .direct:
             break
         }
         if host.kind == .direct || host.slurmAlsoProcesses {
-            s += "for p in $(pgrep -u \(me)); do d=$(readlink /proc/$p/cwd 2>/dev/null) && printf '%s|%s\\n' \"$p\" \"$d\"; done\n"
+            s += #"printf '%s\n' "$SI_PT" | sed -n 's/^\([0-9]*\)|[^|]*|\(..*\)$/\1|\2/p'"# + "\n"
         }
         return s + "true"
+    }
+
+    /// 自己的进程只遍历一遍：`SI_PT` 每行 `PID|所属作业号|当前目录`。作业号只在调度系统的机器上读（/proc/PID/environ）；
+    /// 不列出普通进程时（只为计算软件识别），只保留属于作业的进程。
+    static func processScan(host: HostConfig) -> String {
+        let me = "\"$(id -un)\""
+        let lists = host.kind == .direct || host.slurmAlsoProcesses
+        let body: String
+        switch (host.kind.isScheduler, lists) {
+        case (true, true): body = "j=$(si_jobid $p); d=$(readlink /proc/$p/cwd 2>/dev/null)"
+        case (true, false): body = "j=$(si_jobid $p); [ -n \"$j\" ] || continue; d=$(readlink /proc/$p/cwd 2>/dev/null)"
+        case (false, _): body = "j=; d=$(readlink /proc/$p/cwd 2>/dev/null) || continue"
+        }
+        return "SI_PT=$(for p in $(pgrep -u \(me)); do \(body); printf '%s|%s|%s\\n' \"$p\" \"$j\" \"$d\"; done 2>/dev/null)\n"
     }
 
     /// PBS（PBS Pro / OpenPBS / Torque）：把 `qstat -f` 的全文转换成和 squeue / sacct 一样的行，后面的解析、数组合并、提醒全部沿用 Slurm 的。

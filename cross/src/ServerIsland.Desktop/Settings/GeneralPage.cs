@@ -121,33 +121,48 @@ public sealed class GeneralPage(SettingsWindow window, SettingsKit k, ConfigStor
         Grid.SetColumn(starButtons, 2);
         star.Children.Add(starButtons);
 
-        // 检查更新：状态 + 按钮；有新版本时显示"下载"和更新说明。状态变化时只重画这一行。
+        // 检查更新：状态 + 按钮；有新版本时显示"更新"（自动下载、替换、重新启动）和更新说明。状态变化时只重画这一行。
         var updateHost = new ContentControl();
         void FillUpdate()
         {
             var r = UpdateChecker.Latest;
-            var title = UpdateChecker.State switch
+            var state = UpdateChecker.State;
+            var size = r?.Size is { } bytes ? $"（{Format.Bytes(bytes)}）" : "";
+            var title = state switch
             {
                 UpdateChecker.StateKind.Checking => L("正在检查 GitHub 上的最新版本…", "Checking GitHub for the latest version…"),
                 UpdateChecker.StateKind.UpToDate => L($"已是最新版本（{UpdateChecker.Message}）", $"You're up to date ({UpdateChecker.Message})"),
                 UpdateChecker.StateKind.Available => L($"有新版本 v{r!.Version}（当前 {AppInfo.Version}）", $"Version {r!.Version} is available (you have {AppInfo.Version})"),
                 UpdateChecker.StateKind.Failed => L("检查失败：", "Check failed: ") + UpdateChecker.Message,
+                UpdateChecker.StateKind.Downloading => L($"正在下载并核对 v{r!.Version}{size}", $"Downloading and verifying v{r!.Version}{size}")
+                    + (UpdateChecker.Progress is { } pr ? $" {Format.Percent(pr)}" : "…"),
+                UpdateChecker.StateKind.Installing => L($"v{r!.Version} 已装好，马上重新启动…", $"v{r!.Version} is installed; restarting…"),
+                UpdateChecker.StateKind.InstallFailed => L($"没能自动更新到 v{r!.Version}", $"Couldn't update to v{r!.Version} automatically"),
                 _ => L("当前版本 ", "Current version ") + AppInfo.Version,
             };
-            var sub = UpdateChecker.State == UpdateChecker.StateKind.Available && r!.Notes.Length > 0 ? r.Notes
+            var sub = state == UpdateChecker.StateKind.InstallFailed ? UpdateChecker.Message
+                : state is UpdateChecker.StateKind.Available or UpdateChecker.StateKind.Downloading && r!.Notes.Length > 0 ? r!.Notes
                 : UpdateChecker.LastChecked is { } t ? L("上次检查：", "Last checked: ") + Format.Relative(t) : "";
             var texts = new StackPanel { Spacing = 1, Children = { k.Text(title) } };
             if (sub.Length > 0) texts.Children.Add(k.Caption(sub));
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
-            if (UpdateChecker.State == UpdateChecker.StateKind.Available && r != null)
+            if (state == UpdateChecker.StateKind.Available && r != null)
+            {
+                buttons.Children.Add(k.Button(L($"更新到 v{r.Version}", $"Update to v{r.Version}"), () => (Application.Current as App)?.InstallUpdate(r), accent: true));
+                buttons.Children.Add(k.Button(L("更新说明", "Release Notes"), () => Shell.OpenUrl(r.PageUrl)));
+            }
+            else if (state == UpdateChecker.StateKind.InstallFailed && r != null)
             {
                 buttons.Children.Add(k.Button(L($"下载 v{r.Version}", $"Download v{r.Version}"), () => Shell.OpenUrl(r.DownloadUrl), accent: true));
                 buttons.Children.Add(k.Button(L("更新说明", "Release Notes"), () => Shell.OpenUrl(r.PageUrl)));
             }
-            var checkBtn = k.Button(UpdateChecker.State == UpdateChecker.StateKind.Checking ? L("检查中…", "Checking…") : L("检查更新", "Check for Updates"),
-                () => _ = UpdateChecker.CheckAsync());
-            checkBtn.IsEnabled = UpdateChecker.State != UpdateChecker.StateKind.Checking;
-            buttons.Children.Add(checkBtn);
+            else if (state is not (UpdateChecker.StateKind.Downloading or UpdateChecker.StateKind.Installing))
+            {
+                var checkBtn = k.Button(state == UpdateChecker.StateKind.Checking ? L("检查中…", "Checking…") : L("检查更新", "Check for Updates"),
+                    () => _ = UpdateChecker.CheckAsync());
+                checkBtn.IsEnabled = state != UpdateChecker.StateKind.Checking;
+                buttons.Children.Add(checkBtn);
+            }
             var g = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
             g.Children.Add(new Icon("arrowDown", 16, Color.Parse("#0A84FF").B()) { VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 10, 0) });
             Grid.SetColumn(texts, 1);

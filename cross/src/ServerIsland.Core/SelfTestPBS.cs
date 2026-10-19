@@ -258,6 +258,11 @@ public static class SelfTestPBS
         check(parsed?.Version == "0.3.0" && parsed.DownloadUrl == "https://example.org/m.dmg" && parsed.Notes == "- PBS\n- Folder filter"
               && UpdateChecker.Parse(rel, "win-x64.zip")?.DownloadUrl == "https://example.org/w.zip", "更新：解析 GitHub Release（去掉 v、选对安装包、说明跳过标题）");
         check(UpdateChecker.Parse("""{"tag_name":"v1","html_url":"https://x.org/r","assets":[]}""", ".dmg")?.DownloadUrl == "https://x.org/r", "更新：没有对应安装包时打开 Release 页面");
+        var withDigest = """{"tag_name":"v0.3.0","html_url":"https://x.org/r","assets":[{"name":"ServerIsland-0.3.0.dmg","browser_download_url":"https://x.org/m.dmg","size":5213343,"digest":"sha256:4FE94B94"},{"name":"ServerIsland-0.3.0-win-x64.zip","browser_download_url":"https://x.org/w.zip","digest":"md5:1"}]}""";
+        var dmgRel = UpdateChecker.Parse(withDigest, ".dmg");
+        check(dmgRel?.Digest == "4fe94b94" && dmgRel.Size == 5213343 && UpdateChecker.Parse(withDigest, "win-x64.zip")?.Digest == null
+              && parsed?.Digest == null && UpdateInstaller.UnsupportedReason(parsed!) != null,
+              "更新：取出安装包的 SHA-256（不是 sha256 的不用；没有校验信息时不自动安装）");
         check(UpdateChecker.Summary("<p align=\"center\">\n<img src=\"x\">\n</p>\n<h1>v1</h1>\nIntro line\n- **A**: one\n- B") == "- **A**: one\n- B",
               "更新：说明摘要跳过 HTML，优先取列表项");
 

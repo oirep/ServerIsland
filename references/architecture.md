@@ -51,9 +51,9 @@ SwiftUI（IslandRootView、SettingsView），通过 @ObservedObject 订阅 engin
 - 循环里：
   - 睡眠标记（`isAsleep`）最多保持 2 分钟，作为错过唤醒通知时的保险；
   - 失败退避：`base × 2^(n-1)`，最多 15 分钟。
-- `pollOnce`：`SSHRunner.run` → `classify`（ssh 本身的错误：超时、拒绝、需要登录…）→ `RemoteScript.parse` → `build()` → 写入快照 → `detectEvents` → `initializeArrays`。
+- `pollOnce`：`RemoteScript.build`（带上 `appCache` 里的文件签名；距上次查磁盘满 `diskInterval` 才带磁盘段）→ `SSHRunner.run` → `classify`（ssh 本身的错误：超时、拒绝、需要登录…）→ `RemoteScript.parse` → `build()` → 写入快照 → `detectEvents` → `initializeArrays`。
 - `build()` 的顺序：
-  1. CPU（两次 `/proc/stat` 采样做差）、内存、GPU、磁盘；
+  1. CPU（两次 `/proc/stat` 采样做差）、内存、GPU、磁盘（这一轮没查时沿用上次）；
   2. 任务：Slurm 用 squeue；直连用 ps（加上计算软件识别到的 pid）；Slurm 且 `slurmAlsoProcesses` 时，再加上不属于任何作业的进程；
   3. 手动监听的 PID：用启动时间（`startedAt` 与 etimes 推算值相差 30 秒以内）识别 PID 被复用的情况；
   4. 计算软件进度合并到对应任务；用两次采样估算速度和剩余时间；输出长时间（≥ max(10 分钟, 5 × 轮询间隔)）不更新时标出"没有新输出"；
@@ -105,7 +105,17 @@ SwiftUI（IslandRootView、SettingsView），通过 @ObservedObject 订阅 engin
 
 - `GET https://api.github.com/repos/zhyan0603/ServerIsland/releases/latest`（不含草稿和预发布），`tag_name` 去掉 v 后按数字逐段比较；安装包按后缀选（Mac `.dmg`、Windows `win-x64.zip`、Linux `linux-x64.tar.gz`），找不到就打开 Release 页面。更新说明取正文里的列表项（跳过 HTML 和标题），最多 4 行。
 - 自动检查：`autoCheckUpdates`（默认开），启动 20 秒后一次、之后每 24 小时一次；同一个新版本只在刘海提醒一次（Mac 记在 UserDefaults 的 `notifiedUpdateVersion`，C# 记在设置的 `notifiedUpdateVersion`）。调试构建没有版本号，不检查。
-- 只提示下载，不自动替换程序。Release 的安装包文件名要保持 `ServerIsland-<版本>.dmg` / `-win-x64.zip` / `-linux-x64.tar.gz`。
+- Release 的安装包文件名要保持 `ServerIsland-<版本>.dmg` / `-win-x64.zip` / `-linux-x64.tar.gz`。同时记下附件的 `digest`（GitHub 自动给出的 `sha256:…`）和 `size`。
+
+## 自动更新（`Shared/UpdateInstaller.swift`，C# 版 `UpdateInstaller.cs`，2026-10-19）
+
+点"更新到 v…"（设置 → 通用，或菜单栏 / 托盘菜单）后：下载 → 核对 SHA-256 → 替换 → 重新打开。没用 Sparkle：不需要额外的签名密钥、appcast 和发布步骤，Release 照旧上传三个附件就行；完整性由 GitHub 给的 SHA-256 保证（和用浏览器下载同样可信）。任何一步失败都不动旧程序，设置页显示原因并改为"下载 v…"按钮。
+
+- **做不到时直接提示、改为下载**（`unsupportedReason`）：附件没有 digest；调试构建 / `dotnet run`；Mac 上 App 不在可写的文件夹里（在 DMG 里运行、被"App 转移"、没有权限）；Windows / Linux 上程序所在文件夹不可写；Mac 上的 C# 试用版。
+- **Mac**：`URLSession` 下载到 `~/Library/Caches/ServerIsland/Update/` → 核对 SHA-256 → `hdiutil attach -nobrowse -readonly` → `ditto` 复制出 App → 检查包名、版本号（必须等于要装的版本）、`codesign --verify --deep --strict` → 去掉 `com.apple.quarantine`（所以更新后不会再被"仍要打开"拦一次）→ 卸载 DMG。然后写出 `swap.sh` 并启动它，App 退出；脚本等旧进程退出（最多 30 秒）→ 旧 App 改名为同一文件夹里的 `.ServerIsland-old-xxxx.app` → 新 App 移进来（失败就改回去）→ `open` 新版 → 删掉旧版和临时目录。
+- **Windows / Linux**：`HttpClient` 下载到临时目录（`ServerIsland-update-<用户名>`，带进度）→ 核对 SHA-256 → 解压（zip / tar.gz）→ 检查里面有 `ServerIsland.exe` / `ServerIsland` → 把程序文件夹里同名的旧文件改名成 `.old`、新文件移进来（Windows 不让覆盖正在运行的 exe，但允许改名；中途失败就改回去）→ 启动新程序（`--after-update <旧 PID>`），旧程序退出。新程序先等旧进程退出再抢"只运行一个"的锁；启动时删掉 `.old` 和临时目录（`CleanupOld`）。Linux 上新程序补上可执行权限。
+- **ad-hoc 签名的副作用（Mac）**：每次编译出来的签名都不同，更新后系统可能再问一次"是否允许访问钥匙串"（记住了密码的服务器），点"始终允许"即可。以后有了 Developer ID（方案 B）就不会了。
+- 测试：两个版本都有 `--test-update <目录>`，在临时目录里用假的安装包走一遍（校验 / 版本号 / 包名不对时拒绝、替换正在运行的程序、等旧进程退出、清理）；Mac 版可以再加 `<真实的.dmg> <版本号>` 对正式安装包做一次核对和检查。CI（`cross.yml`）在 Windows 和 Linux 上都跑 `--test-update`。
 
 ## SSH 与登录（`SSH/`）
 

@@ -41,7 +41,7 @@ App 是非沙盒的，因为要读 `~/.ssh`、调用 ssh，所以**上不了 Mac
 2. 执行一次：`xcrun notarytool store-credentials serverisland --apple-id … --team-id …`。
 3. `SIGN_IDENTITY="Developer ID Application: … (TEAMID)" NOTARY_PROFILE=serverisland ./scripts/make_dmg.sh`。
    - 这样会使用 hardened runtime 和时间戳签名，然后提交公证，最后执行 stapler。
-4. 还可以考虑接入 Sparkle 自动更新（尚未实现）。
+4. 自动更新已经自己实现了（见 `architecture.md` 的"自动更新"），不需要 Sparkle。有了 Developer ID 以后，更新时就不会再弹钥匙串的询问。
 
 ## 版本号
 
@@ -66,3 +66,9 @@ cross/scripts/build_mac_preview.sh --run # 在 Mac 上试用跨平台版（不�
 ## 发布新版本与"检查更新"
 
 App 里的"检查更新"读 GitHub 的 `releases/latest`：发布时 **tag 写成 `v<版本号>`**（和 `Info.plist`、`cross/Directory.Build.props` 的版本一致），**不要勾"预发布"**（预发布不会被检查到），附件保持 `ServerIsland-<版本>.dmg`、`ServerIsland-<版本>-win-x64.zip`、`ServerIsland-<版本>-linux-x64.tar.gz` 这三个名字。正文里用 `- ` 开头的列表写主要变化，App 会取前 4 条显示。
+
+**自动更新依赖这几点**（2026-10-19 起）：
+- 附件必须直接上传到 Release（GitHub 会自动给每个附件算 SHA-256，App 用它核对下载的文件）；没有 digest 的附件不会自动安装，只提供下载。
+- DMG 里的 App 的 `CFBundleShortVersionString` 必须和 tag 的版本号一致，否则 Mac 版会拒绝安装。
+- Windows zip 里要有 `ServerIsland.exe`，Linux tar.gz 里要有 `ServerIsland`（`cross/scripts/publish.sh` 就是这样打包的）。
+- 发布前可以用 `.build/debug/ServerIsland --test-update <临时目录> build/ServerIsland-<版本>.dmg <版本>` 检查一下 DMG 能不能通过 App 的核对。

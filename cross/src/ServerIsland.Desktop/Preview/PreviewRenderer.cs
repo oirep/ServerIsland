@@ -314,6 +314,23 @@ public static class PreviewRenderer
             Save(sw, "settings-rules" + suffix);
             sw.Close();
         }
+        // 自动更新的几种状态（自查用）
+        {
+            var rel = new UpdateChecker.Release("0.3.0", AppInfo.Repo, AppInfo.Repo, "- 一键更新\n- 服务器排序", "0", 45_101_361);
+            var uw = new SettingsWindow(store, engine, prompter) { RequestedThemeVariant = ThemeVariant.Dark, Width = 900, Height = 420 };
+            uw.Show();
+            foreach (var (name, ust, msg, pr) in new[] {
+                ("available", UpdateChecker.StateKind.Available, "", (double?)null),
+                ("downloading", UpdateChecker.StateKind.Downloading, "", 0.37),
+                ("failed", UpdateChecker.StateKind.InstallFailed, L("没有权限替换 C:\\Program Files\\ServerIsland 里的程序，请手动下载安装", "No permission"), null) })
+            {
+                UpdateChecker.SetPreviewState(ust, msg, rel, pr);
+                uw.Select(SettingsPageKind.General);
+                Save(uw, "settings-update-" + name);
+            }
+            UpdateChecker.SetPreviewState(UpdateChecker.StateKind.Idle);
+            uw.Close();
+        }
         // 整页（自查用：页面下方的日志保留、目录过滤等）
         {
             var full = new SettingsWindow(store, engine, prompter) { RequestedThemeVariant = ThemeVariant.Dark, Width = 900, Height = 2600 };

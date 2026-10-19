@@ -85,8 +85,17 @@ static class Program
             return Preview.PreviewRenderer.Run(args[ri + 1], lang);
         }
 
+        // 开发用：在临时目录里走一遍自动更新（假的安装包，不碰真正的程序）
+        if (Index(args, "--test-update") is { } tu && tu + 1 < args.Length)
+        {
+            Lang.Setting = AppLanguage.Zh;
+            return UpdateInstallerTest.Run(args[tu + 1]) ? 0 : 1;
+        }
         if (Index(args, "--ui-smoke") is { } ui && ui + 1 < args.Length) Preview.UiSmoke.Directory = args[ui + 1];
         Demo = args.Contains("--demo") || Preview.UiSmoke.Directory != null || Environment.GetEnvironmentVariable("SERVERISLAND_DEMO") == "1";
+        // 自动更新后由旧程序启动：先等旧程序退出，再去抢"只运行一个"的锁
+        if (Index(args, "--after-update") is { } au && au + 1 < args.Length && int.TryParse(args[au + 1], out var oldPid))
+            UpdateInstaller.WaitForExit(oldPid);
         if (!Demo && !SingleInstance.TryAcquire()) return 0;   // 已经在运行
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args, Avalonia.Controls.ShutdownMode.OnExplicitShutdown);
         return 0;

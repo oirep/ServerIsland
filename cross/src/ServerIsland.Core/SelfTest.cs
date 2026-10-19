@@ -402,6 +402,9 @@ public static class SelfTest
             var pbs = new HostConfig("z", kind: HostKind.Pbs) { SlurmAlsoProcesses = true, AllowCancel = true, PathFilter = "~/LLZO\n/scratch/demo" };
             var filtered = new HostConfig("y") { Watched = [new WatchedProcess { Pid = "4242" }], PathFilter = "~/runs" };
             var pbsJob = new RemoteJob("1003_2", "it's \"scan\"", JobState.Running, JobSource.Slurm);
+            var cluster = new HostConfig("c", kind: HostKind.Slurm);
+            var custom = new HostConfig("c", kind: HostKind.Slurm);
+            custom.Commands.Squeue = "squeue -u \"$(id -un)\" -h -o '%i|%j|%T|%M|%l|%D|%R|%P'";
             return
             [
                 ("poll-slurm.sh", RemoteScript.Build(slurm)),
@@ -427,6 +430,9 @@ public static class SelfTest
                 ("cancel-pbs.sh", RemoteScript.CancelScript(pbs, pbsJob, null, false)!),
                 ("sacct-pbs.sh", RemoteScript.SacctScript(pbs, ["1001", "1003_2"])),
                 ("curve-neb.sh", AppCurves.Script(new AppCurves.Source("/home/u/neb run", AppCurves.CurveKind.Neb), 0, "")),
+                ("poll-slurm-cached.sh", RemoteScript.Build(slurm, new Dictionary<string, string> { ["/home/u/it's run"] = "1.2 3.4 ", ["/home/u/a"] = "/home/u/a/x.log 1 2 " }, includeDisk: false)),
+                ("poll-cluster.sh", RemoteScript.Build(cluster)),
+                ("poll-cluster-custom.sh", RemoteScript.Build(custom)),
             ];
         }
         finally { ProgressRule.Active = saved; }

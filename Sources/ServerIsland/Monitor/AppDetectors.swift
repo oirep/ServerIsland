@@ -41,6 +41,10 @@ struct AppProgress: Equatable {
     /// 自定义规则的名称和单位。
     var customName = ""
     var customUnit = ""
+    /// 识别时读过的文件的签名（修改时间 + 大小）。下次轮询把它发给服务器，文件没变就不再重读。nil：这种软件不做这一步。
+    var signature: String?
+    /// 服务器说文件没变（`same=1`）：引擎用上次的结果替换这一条。
+    var unchanged = false
 
     var title: String {
         switch kind {
@@ -149,37 +153,50 @@ enum AppDetectors {
 
     """#
 
-    static func script(host: HostConfig) -> String {
+    /// 是轮询脚本的一段，用前面留下的 `SI_JW` / `SI_PQ`、`SI_PT`、`SI_GA` 和 `si_pick` / `si_jobid` / `si_pbs`（见 `RemoteScript.build`）。
+    /// `signatures`：上次识别时的文件签名（目录 → 签名）。签名没变的目录只输出 `same=1`，引擎沿用上次的结果。
+    static func script(host: HostConfig, signatures: [String: String] = [:]) -> String {
         let me = "\"$(id -un)\""
         let names = host.appProcessNames.replacingOccurrences(of: "'", with: "")
-        // 候选进程：名字匹配，或者正在用 GPU，或者 CPU ≥ 50%。真正判断是哪种软件靠工作目录里的文件。
+        // 候选进程：名字匹配，或者正在用 GPU，或者 CPU ≥ 50%，或者属于作业。真正判断是哪种软件靠工作目录里的文件。
+        // 属于作业的进程映射回作业号（单机 Slurm 能拿到作业真正运行的目录）。
         let showLocal = host.kind == .direct || (host.kind.isScheduler && host.slurmAlsoProcesses)
-        let candidates = """
-          for p in $( { pgrep -u \(me) -x '\(names)'
-                        command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-compute-apps=pid --format=csv,noheader
-                        ps -u \(me) -o pid=,pcpu= | awk '$2 >= 50 {print $1}'
-                        \(host.kind.isScheduler ? "for q in $(pgrep -u \(me)); do [ -n \"$(si_jobid $q)\" ] && echo $q; done" : "")
-                      } 2>/dev/null | sort -un | head -n 60 ); do
-            d=$(readlink /proc/$p/cwd 2>/dev/null) || continue
-            # 属于 Slurm 作业的进程映射回作业号（单机 Slurm 能拿到作业真正运行的目录）
-            j=$(si_jobid $p)
-            if [ -n "$j" ]; then printf '%s|%s\\n' "$j" "$d"; \(showLocal ? "else printf '%s|%s\\n' \"$p\" \"$d\";" : "") fi
-          done
+        let candidates = showLocal ? """
+          SI_C=$( { pgrep -u \(me) -x '\(names)'
+                    printf '%s\\n' "$SI_GA" | awk -F, '$1 + 0 > 0 { print $1 + 0 }'
+                    ps -u \(me) -o pid=,pcpu= | awk '$2 >= 50 {print $1}'
+                    \(host.kind.isScheduler ? #"printf '%s\n' "$SI_PT" | awk -F'|' '$2 != "" { print $1 }'"# : "")
+                  } 2>/dev/null | sort -un | head -n 60 | tr '\\n' ' ')
+          printf '%s\\n' "$SI_PT" | awk -F'|' -v c="$SI_C" 'BEGIN { n = split(c, a, " "); for (i = 1; i <= n; i++) w[a[i]] = 1 }
+            ($1 in w) && $3 != "" { print ($2 != "" ? $2 : $1) "|" substr($0, length($1) + length($2) + 3) }'
+        """ : """
+          printf '%s\\n' "$SI_PT" | awk -F'|' '$2 != "" && $3 != "" { print $2 "|" substr($0, length($1) + length($2) + 3) }' | head -n 60
         """
         let slurm: String
         switch host.kind {
-        case .slurm: slurm = "squeue -u \(me) -h -t R -o '%i|%Z' 2>/dev/null | head -n 40"
-        case .pbs: slurm = "{ \(host.commands.qstat)\n} 2>/dev/null | si_pbs w | head -n 40"
+        case .slurm: slurm = #"printf '%s\n' "$SI_JW" | sed -n 's/^\([^|]*\)|RUNNING|/\1|/p' | head -n 40"#
+        case .pbs: slurm = #"printf '%s\n' "$SI_PQ" | si_pbs w | head -n 40"#
         case .direct: slurm = ""
         }
         return """
-        \(jobIDFunction)\(host.kind == .pbs ? RemoteScript.pbsFunction : "")
+        \(sameFunction(signatures))
         { \(slurm)
         \(candidates)
         } | awk -F'|' '!seen[$2]++' | while IFS='|' read -r id d; do
         \(dirBody(rules: ProgressRule.active.filter(\.isUsable)))
         done; true
         """
+    }
+
+    /// `si_same 目录 签名`：签名和上次一样时返回 0（文件没变，不用重读）。签名为空（stat 失败）时总是重读。
+    static func sameFunction(_ signatures: [String: String]) -> String {
+        guard !signatures.isEmpty else { return "si_same() { false; }" }
+        let q = SSHRunner.shellQuote
+        var s = "si_same() { [ -n \"$2\" ] || return 1; case \"$1\" in\n"
+        for (d, g) in signatures.sorted(by: { $0.key.utf8.lexicographicallyPrecedes($1.key.utf8) }) {
+            s += "  \(q(d))) [ \"$2\" = \(q(g)) ];;\n"
+        }
+        return s + "  *) false;;\nesac; }"
     }
 
     /// 任务结束时再读一次最终状态（只读这一个目录），避免"最后一次采样还没到目标"被误判为提前结束。
@@ -190,7 +207,7 @@ enum AppDetectors {
     /// 只对一个目录跑识别。设置页"测试规则"用 `rules: [规则], builtin: false`。
     static func directoryScript(id: String, dir: String, rules: [ProgressRule], builtin: Bool) -> String {
         """
-        \(jobIDFunction)
+        \(jobIDFunction)\(sameFunction([:]))
         id=\(SSHRunner.shellQuote(id)); d=\(SSHRunner.shellQuote(dir))
         case "$d" in "~"/*) d="$HOME/${d#\\~/}";; esac
         for _ in 1; do
@@ -217,18 +234,24 @@ enum AppDetectors {
         f="$d/$(si_pick "$d" '\(r.file)')"
             printf '\(marker)DIR %s|%s\\n' "$id" "$d"; echo kind=custom; echo rule=\(r.id.uuidString)
         """
+        if r.totalFile.isEmpty {
+            body += "\n    sg=$(stat -c '%n %Y %s' \"$f\" 2>/dev/null | tr '\\n' ' ')"
+        } else {
+            body += "\n    tf=$(si_pick \"$d\" '\(r.totalFile)'); sg=$(stat -c '%n %Y %s' \"$f\" ${tf:+\"$d/$tf\"} 2>/dev/null | tr '\\n' ' ')"
+        }
+        body += "\n    if si_same \"$d\" \"$sg\"; then echo same=1; else echo \"sig=$sg\""
         if r.match == .keyword {
             body += "\n    grep -aiF -- \(q(r.pattern)) \"$f\" | tail -n 5 | cut -c1-300 | sed 's/^/tail=/'"
         } else {
             body += "\n    tail -n 40 \"$f\" | cut -c1-300 | sed 's/^/tail=/'"
         }
         if !r.totalFile.isEmpty {
-            body += "\n    tf=$(si_pick \"$d\" '\(r.totalFile)'); [ -n \"$tf\" ] && grep -aiF -m 1 -- \(q(r.totalKeyword)) \"$d/$tf\" | cut -c1-300 | sed 's/^/totalline=/'"
+            body += "\n    [ -n \"$tf\" ] && grep -aiF -m 1 -- \(q(r.totalKeyword)) \"$d/$tf\" | cut -c1-300 | sed 's/^/totalline=/'"
         }
         if !r.doneMarker.isEmpty {
             body += "\n    if tail -n 50 \"$f\" | grep -qaF -- \(q(r.doneMarker)); then echo done=1; else echo done=0; fi"
         }
-        body += "\n    echo \"mtime=$(stat -c %Y \"$f\" 2>/dev/null)\""
+        body += "\n    echo \"mtime=$(stat -c %Y \"$f\" 2>/dev/null)\"; fi"
         return "[ -n \"$(si_pick \"$d\" '\(r.file)')\" ]; then\n    " + body
     }
 
@@ -275,15 +298,19 @@ enum AppDetectors {
             echo "last=$(tail -n 1 "$d/loss.out")"; echo "mtime=$(stat -c %Y "$d/loss.out" 2>/dev/null)"
           elif [ -f "$d/run.in" ] && { [ -f "$d/neighbor.out" ] || [ -f "$d/thermo.out" ]; }; then
             printf '\(marker)DIR %s|%s\\n' "$id" "$d"; echo kind=gpumd
+            sg=$(stat -c '%Y.%s' "$d/run.in" "$d/neighbor.out" "$d/thermo.out" 2>/dev/null | tr '\\n' ' ')
+            if si_same "$d" "$sg"; then echo same=1; else echo "sig=$sg"
             awk '$1=="run" && $2~/^[0-9]+$/ {s+=$2} END {if (s>0) print "total="s}' "$d/run.in"
             awk '$1=="dump_thermo" && $2~/^[0-9]+$/ && $2>0 {print "interval="$2; exit}' "$d/run.in"
             if [ -f "$d/neighbor.out" ]; then
               echo "neighbor=$(tail -n 1 "$d/neighbor.out")"; echo "mtime=$(stat -c %Y "$d/neighbor.out" 2>/dev/null)"
             else
               echo "thermo_rows=$(grep -cv '^[[:space:]]*#' "$d/thermo.out")"; echo "mtime=$(stat -c %Y "$d/thermo.out" 2>/dev/null)"
-            fi
+            fi; fi
           elif [ -f "$d/INCAR" ] && [ -f "$d/01/OSZICAR" ] && grep -qiE '^[[:space:]]*IMAGES[[:space:]]*=[[:space:]]*[1-9]' "$d/INCAR"; then
             printf '\(marker)DIR %s|%s\\n' "$id" "$d"; echo kind=vasp; echo neb=1
+            sg=$(stat -c '%Y.%s' "$d/INCAR" "$d"/[0-9][0-9]/OSZICAR "$d"/[0-9][0-9]/OUTCAR 2>/dev/null | tr '\\n' ' ')
+            if si_same "$d" "$sg"; then echo same=1; else echo "sig=$sg"
             \(vaspIncarAwk) "$d/INCAR"
             tail -n 3000 "$d/01/OSZICAR" | \(vaspOszicarAwk)
             for s in "$d"/[0-9][0-9]; do
@@ -292,23 +319,27 @@ enum AppDetectors {
             if [ -f "$d/01/OUTCAR" ]; then
               if tail -n 400 "$d/01/OUTCAR" | grep -q 'General timing and accounting'; then echo done=1; else echo done=0; fi
             fi
-            echo "mtime=$(stat -c %Y "$d/01/OSZICAR" 2>/dev/null)"
+            echo "mtime=$(stat -c %Y "$d/01/OSZICAR" 2>/dev/null)"; fi
           elif [ -f "$d/INCAR" ] && [ -f "$d/OSZICAR" ]; then
             printf '\(marker)DIR %s|%s\\n' "$id" "$d"; echo kind=vasp
+            sg=$(stat -c '%Y.%s' "$d/INCAR" "$d/OSZICAR" "$d/OUTCAR" 2>/dev/null | tr '\\n' ' ')
+            if si_same "$d" "$sg"; then echo same=1; else echo "sig=$sg"
             \(vaspIncarAwk) "$d/INCAR"
             tail -n 3000 "$d/OSZICAR" | \(vaspOszicarAwk)
             if [ -f "$d/OUTCAR" ]; then
               if tail -n 400 "$d/OUTCAR" | grep -q 'General timing and accounting'; then echo done=1; else echo done=0; fi
             fi
-            echo "mtime=$(stat -c %Y "$d/OSZICAR" 2>/dev/null)"
+            echo "mtime=$(stat -c %Y "$d/OSZICAR" 2>/dev/null)"; fi
           elif [ -f "$d/log.lammps" ]; then
+            sg=$(stat -c '%Y.%s' "$d/log.lammps" 2>/dev/null | tr '\\n' ' ')
+            if si_same "$d" "$sg"; then printf '\(marker)DIR %s|%s\\n' "$id" "$d"; echo kind=lammps; echo same=1; else
             L=$(grep -naE '^[[:space:]]*run[[:space:]]' "$d/log.lammps" | tail -n 1 | cut -d: -f1)
             if [ -n "$L" ]; then
-              printf '\(marker)DIR %s|%s\\n' "$id" "$d"; echo kind=lammps
+              printf '\(marker)DIR %s|%s\\n' "$id" "$d"; echo kind=lammps; echo "sig=$sg"
               tail -n +"$L" "$d/log.lammps" | \(lammpsAwk)
               if tail -n 30 "$d/log.lammps" | grep -q '^Total wall time'; then echo done=1; else echo done=0; fi
               echo "mtime=$(stat -c %Y "$d/log.lammps" 2>/dev/null)"
-            fi
+            fi; fi
         """
     }
 
@@ -329,6 +360,8 @@ enum AppDetectors {
             defer { kv = [:]; tails = []; nebImgs = [] }
             guard let id, let kind = kv["kind"].flatMap(AppProgress.Kind.init(rawValue:)) else { return }
             var p = AppProgress(kind: kind, dir: dir)
+            if kv["same"] == "1" { p.unchanged = true; out[id] = p; return }
+            p.signature = kv["sig"].flatMap { $0.isEmpty ? nil : $0 }
             p.updatedAt = kv["mtime"].flatMap(Double.init).map { Date(timeIntervalSince1970: $0) }
             switch kv["done"] {
             case "1": p.endMarker = true

@@ -27,6 +27,9 @@ enum ReferenceScripts {
         let sj = RemoteJob(id: "4821337", name: "it's \"quoted\"", state: .running, source: .slurm)
         let pbsJob = RemoteJob(id: "1003_2", name: "it's \"scan\"", state: .running, source: .slurm)
         let pj = RemoteJob(id: "18342", name: "python3 train.py", state: .running, source: .process)
+        let cluster = HostConfig(alias: "c", kind: .slurm)
+        var custom = HostConfig(alias: "c", kind: .slurm)
+        custom.commands.squeue = #"squeue -u "$(id -un)" -h -o '%i|%j|%T|%M|%l|%D|%R|%P'"#
         return [
             ("poll-slurm.sh", RemoteScript.build(for: slurm)),
             ("poll-direct.sh", RemoteScript.build(for: direct)),
@@ -51,6 +54,9 @@ enum ReferenceScripts {
             ("cancel-pbs.sh", RemoteScript.cancelScript(host: pbs, job: pbsJob, expectedElapsed: nil, force: false)!),
             ("sacct-pbs.sh", RemoteScript.sacctScript(for: pbs, jobIDs: ["1001", "1003_2"])),
             ("curve-neb.sh", AppCurves.script(.neb(dir: "/home/u/neb run"), offset: 0, head: "")),
+            ("poll-slurm-cached.sh", RemoteScript.build(for: slurm, appSignatures: ["/home/u/it's run": "1.2 3.4 ", "/home/u/a": "/home/u/a/x.log 1 2 "], includeDisk: false)),
+            ("poll-cluster.sh", RemoteScript.build(for: cluster)),
+            ("poll-cluster-custom.sh", RemoteScript.build(for: custom)),
         ]
     }
 }

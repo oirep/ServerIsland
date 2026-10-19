@@ -1,7 +1,7 @@
 import Foundation
 
 /// 检查更新：读 GitHub 上最新的 Release（`releases/latest`，不含草稿和预发布），和当前版本号比较。
-/// 只读一个公开的接口，不上传任何信息；有新版本时提示用户去下载（不自动替换 App）。
+/// 只读一个公开的接口，不上传任何信息。用户点"更新"后由 `UpdateInstaller` 下载、核对、替换并重新打开；做不到时改为打开下载页面。
 @MainActor
 final class UpdateChecker: ObservableObject {
     static let shared = UpdateChecker()
@@ -14,6 +14,9 @@ final class UpdateChecker: ObservableObject {
         var downloadURL: URL
         /// 更新说明的前几行。
         var notes: String
+        /// 安装包的 SHA-256（GitHub 给每个附件的 `digest`，"sha256:…" 去掉前缀）。没有时不自动安装。
+        var digest: String? = nil
+        var size: Int? = nil
     }
 
     enum State: Equatable {
@@ -22,6 +25,17 @@ final class UpdateChecker: ObservableObject {
         case upToDate(String)
         case available(Release)
         case failed(String)
+        /// 自动更新：下载并核对中 / 已准备好，马上重新打开 / 失败（附原因，界面上改为提供下载页面）。
+        case downloading(Release)
+        case installing(Release)
+        case installFailed(Release, String)
+
+        var release: Release? {
+            switch self {
+            case .available(let r), .downloading(let r), .installing(let r), .installFailed(let r, _): return r
+            default: return nil
+            }
+        }
     }
 
     @Published private(set) var state: State = .idle
@@ -42,6 +56,8 @@ final class UpdateChecker: ObservableObject {
             state = .failed(L("开发版本，不检查更新", "Development build; not checking"))
             return nil
         }
+        if case .downloading = state { return nil }
+        if case .installing = state { return nil }
         state = .checking
         var req = URLRequest(url: Self.apiURL, timeoutInterval: 15)
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
@@ -80,10 +96,33 @@ final class UpdateChecker: ObservableObject {
               let page = (obj["html_url"] as? String).flatMap(URL.init(string:)) else { return nil }
         let version = tag.hasPrefix("v") || tag.hasPrefix("V") ? String(tag.dropFirst()) : tag
         let assets = (obj["assets"] as? [[String: Any]]) ?? []
-        let download = assets.first { ($0["name"] as? String)?.lowercased().hasSuffix(assetSuffix) == true }
-            .flatMap { ($0["browser_download_url"] as? String).flatMap(URL.init(string:)) } ?? page
+        let asset = assets.first { ($0["name"] as? String)?.lowercased().hasSuffix(assetSuffix) == true }
+        let download = asset.flatMap { ($0["browser_download_url"] as? String).flatMap(URL.init(string:)) }
+        let digest = (asset?["digest"] as? String).flatMap { $0.hasPrefix("sha256:") ? String($0.dropFirst(7)).lowercased() : nil }
         let body = (obj["body"] as? String ?? "").replacingOccurrences(of: "\r", with: "")
-        return Release(version: version, pageURL: page, downloadURL: download, notes: summary(body))
+        return Release(version: version, pageURL: page, downloadURL: download ?? page, notes: summary(body),
+                       digest: download == nil ? nil : digest, size: asset?["size"] as? Int)
+    }
+
+    /// 只给离屏预览图用。
+    func setPreviewState(_ s: State) { state = s }
+
+    /// 自动更新到这个版本：成功时 App 会退出，由替换脚本打开新版。
+    func install(_ r: Release) async {
+        if case .downloading = state { return }
+        if let why = UpdateInstaller.unsupportedReason(r) {
+            state = .installFailed(r, why)
+            return
+        }
+        state = .downloading(r)
+        do {
+            let staged = try await UpdateInstaller.prepare(r)
+            state = .installing(r)
+            try UpdateInstaller.replaceAndRelaunch(with: staged)
+        } catch {
+            DebugLog.log("自动更新失败：\(error.localizedDescription)")
+            state = .installFailed(r, error.localizedDescription)
+        }
     }
 
     /// 更新说明摘要：优先取列表项（- / *），跳过标题、HTML、图片和空行，最多 4 行。

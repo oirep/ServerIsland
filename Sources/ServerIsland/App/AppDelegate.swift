@@ -104,7 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(.separator())
         if case .available(let r) = UpdateChecker.shared.state {
-            menu.addItem(item(L("下载新版本 v\(r.version)…", "Download v\(r.version)…"), #selector(downloadUpdate), ""))
+            menu.addItem(item(L("更新到 v\(r.version)…", "Update to v\(r.version)…"), #selector(downloadUpdate), ""))
             menu.addItem(.separator())
         }
         menu.addItem(item(L("立即刷新", "Refresh Now"), #selector(refresh), "r"))
@@ -120,8 +120,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func refresh() { engine.refreshAll() }
+    /// 菜单里的"更新到 v…"：打开设置的通用页显示进度，同时开始自动更新。
     @objc private func downloadUpdate() {
-        if case .available(let r) = UpdateChecker.shared.state { NSWorkspace.shared.open(r.downloadURL) }
+        guard case .available(let r) = UpdateChecker.shared.state else { return }
+        openSettings()
+        Task { await UpdateChecker.shared.install(r) }
     }
 
     /// 后台检查更新：有新版本时在刘海里提醒一次（同一个版本只提醒一次），菜单里多一项"下载新版本"。
@@ -133,7 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard UserDefaults.standard.string(forKey: key) != r.version else { return }
             UserDefaults.standard.set(r.version, forKey: key)
             engine.emit(.init(kind: .info, title: L("ServerIsland 有新版本 v\(r.version)", "ServerIsland v\(r.version) is available"),
-                              subtitle: L("在菜单栏图标或 设置 → 通用 里下载", "Download it from the menu bar icon or Settings → General"),
+                              subtitle: L("在菜单栏图标或 设置 → 通用 里一键更新", "Update from the menu bar icon or Settings → General"),
                               hostName: "ServerIsland"))
         }
     }

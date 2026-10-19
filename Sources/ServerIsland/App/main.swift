@@ -17,6 +17,22 @@ if let i = arguments.firstIndex(of: "--render-preview"), i + 1 < arguments.count
     exit(0)
 }
 
+// 开发用：在临时目录里走一遍自动更新（假的 App 和 DMG，不碰真正的 App）。  ServerIsland --test-update <目录> [真实的.dmg 版本号]
+// 给了真实的 DMG 时，再对它做一次校验、挂载和检查（只取出到临时目录）。
+if let i = arguments.firstIndex(of: "--test-update"), i + 1 < arguments.count {
+    let dir = URL(fileURLWithPath: arguments[i + 1])
+    var ok = UpdateInstaller.runSelfTest(in: dir)
+    if i + 3 < arguments.count {
+        let dmg = URL(fileURLWithPath: arguments[i + 2])
+        do {
+            let app = try UpdateInstaller.stage(dmg: dmg, digest: UpdateInstaller.sha256(dmg) ?? "", version: arguments[i + 3],
+                                                bundleID: "app.serverisland.ServerIsland", into: dir.appendingPathComponent("real"))
+            print("✓ 真实安装包可以取出并通过检查：\(app.path)")
+        } catch { print("✗ 真实安装包：\(error.localizedDescription)"); ok = false }
+    }
+    exit(ok ? 0 : 1)
+}
+
 // 开发用：检查 GitHub 上的最新版本。  ServerIsland --check-update [假装的当前版本]
 if let i = arguments.firstIndex(of: "--check-update") {
     if i + 1 < arguments.count { UpdateChecker.versionOverride = arguments[i + 1] }

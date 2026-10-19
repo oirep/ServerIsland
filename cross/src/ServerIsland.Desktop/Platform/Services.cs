@@ -126,12 +126,12 @@ public static class Shell
     }
 
     /// 在终端里 ssh 到某个目录（详情页"在终端中打开"）。目录来自服务器返回的数据，用单引号转义。
-    public static void OpenShellInTerminal(HostConfig host, string directory)
+    /// directory 为 null 时直接登录（卡片上的终端按钮）。
+    public static void OpenShellInTerminal(HostConfig host, string? directory = null)
     {
-        var remote = "cd " + RemoteScript.ShellQuote(directory) + " && exec $SHELL -l";
         var argv = new List<string> { "ssh", "-t" };
         argv.AddRange(TargetArgs(host));
-        argv.Add(remote);
+        if (directory != null) argv.Add("cd " + RemoteScript.ShellQuote(directory) + " && exec $SHELL -l");
         RunInTerminal(argv, host.DisplayName);
     }
 

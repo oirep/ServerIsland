@@ -37,6 +37,10 @@ public sealed class AppProgress
     public int? NebImages;
     public string CustomName = "";
     public string CustomUnit = "";
+    /// 识别时读过的文件的签名（修改时间 + 大小）。下次轮询把它发给服务器，文件没变就不再重读。null：这种软件不做这一步。
+    public string? Signature;
+    /// 服务器说文件没变（`same=1`）：引擎用上次的结果替换这一条。
+    public bool Unchanged;
 
     public AppProgress() { }
     public AppProgress(AppKind kind, string dir) { Kind = kind; Dir = dir; }
@@ -163,36 +167,34 @@ public static class AppDetectors
 
         """;
 
-    /// 远端脚本：收集"任务 ID | 工作目录"，再逐个目录识别软件。
-    public static string Script(HostConfig host)
+    /// 是轮询脚本的一段，用前面留下的 `SI_JW` / `SI_PQ`、`SI_PT`、`SI_GA` 和 si_pick / si_jobid / si_pbs（见 RemoteScript.Build）。
+    /// `signatures`：上次识别时的文件签名（目录 → 签名）。签名没变的目录只输出 `same=1`，引擎沿用上次的结果。
+    public static string Script(HostConfig host, IReadOnlyDictionary<string, string>? signatures = null)
     {
         const string me = "\"$(id -un)\"";
         var names = host.AppProcessNames.Replace("'", "");
-        // 候选进程：名字匹配，或者正在用 GPU，或者 CPU ≥ 50%。真正判断是哪种软件靠工作目录里的文件。
+        // 候选进程：名字匹配，或者正在用 GPU，或者 CPU ≥ 50%，或者属于作业。真正判断是哪种软件靠工作目录里的文件。
         bool showLocal = host.Kind == HostKind.Direct || (host.Kind.IsScheduler() && host.SlurmAlsoProcesses);
-        var slurmPids = host.Kind.IsScheduler() ? $"for q in $(pgrep -u {me}); do [ -n \"$(si_jobid $q)\" ] && echo $q; done" : "";
-        var localElse = showLocal ? "else printf '%s|%s\\n' \"$p\" \"$d\";" : "";
-        var candidates = $$"""
-              for p in $( { pgrep -u {{me}} -x '{{names}}'
-                            command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-compute-apps=pid --format=csv,noheader
-                            ps -u {{me}} -o pid=,pcpu= | awk '$2 >= 50 {print $1}'
-                            {{slurmPids}}
-                          } 2>/dev/null | sort -un | head -n 60 ); do
-                d=$(readlink /proc/$p/cwd 2>/dev/null) || continue
-                # 属于 Slurm 作业的进程映射回作业号（单机 Slurm 能拿到作业真正运行的目录）
-                j=$(si_jobid $p)
-                if [ -n "$j" ]; then printf '%s|%s\n' "$j" "$d"; {{localElse}} fi
-              done
+        var slurmPids = host.Kind.IsScheduler() ? """printf '%s\n' "$SI_PT" | awk -F'|' '$2 != "" { print $1 }'""" : "";
+        var candidates = showLocal ? $$"""
+              SI_C=$( { pgrep -u {{me}} -x '{{names}}'
+                        printf '%s\n' "$SI_GA" | awk -F, '$1 + 0 > 0 { print $1 + 0 }'
+                        ps -u {{me}} -o pid=,pcpu= | awk '$2 >= 50 {print $1}'
+                        {{slurmPids}}
+                      } 2>/dev/null | sort -un | head -n 60 | tr '\n' ' ')
+              printf '%s\n' "$SI_PT" | awk -F'|' -v c="$SI_C" 'BEGIN { n = split(c, a, " "); for (i = 1; i <= n; i++) w[a[i]] = 1 }
+                ($1 in w) && $3 != "" { print ($2 != "" ? $2 : $1) "|" substr($0, length($1) + length($2) + 3) }'
+            """ : """
+              printf '%s\n' "$SI_PT" | awk -F'|' '$2 != "" && $3 != "" { print $2 "|" substr($0, length($1) + length($2) + 3) }' | head -n 60
             """;
         var slurm = host.Kind switch
         {
-            HostKind.Slurm => $"squeue -u {me} -h -t R -o '%i|%Z' 2>/dev/null | head -n 40",
-            HostKind.Pbs => $"{{ {host.Commands.Qstat}\n}} 2>/dev/null | si_pbs w | head -n 40",
+            HostKind.Slurm => """printf '%s\n' "$SI_JW" | sed -n 's/^\([^|]*\)|RUNNING|/\1|/p' | head -n 40""",
+            HostKind.Pbs => """printf '%s\n' "$SI_PQ" | si_pbs w | head -n 40""",
             _ => "",
         };
-        var pbs = host.Kind == HostKind.Pbs ? RemoteScript.PbsFunction : "";
         return $"""
-            {JobIDFunction}{pbs}
+            {SameFunction(signatures ?? new Dictionary<string, string>())}
             {"{"} {slurm}
             {candidates}
             {"}"} | awk -F'|' '!seen[$2]++' | while IFS='|' read -r id d; do
@@ -201,13 +203,23 @@ public static class AppDetectors
             """;
     }
 
+    /// `si_same 目录 签名`：签名和上次一样时返回 0（文件没变，不用重读）。签名为空（stat 失败）时总是重读。
+    public static string SameFunction(IReadOnlyDictionary<string, string> signatures)
+    {
+        if (signatures.Count == 0) return "si_same() { false; }";
+        var s = "si_same() { [ -n \"$2\" ] || return 1; case \"$1\" in\n";
+        foreach (var (d, g) in signatures.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+            s += $"  {Q(d)}) [ \"$2\" = {Q(g)} ];;\n";
+        return s + "  *) false;;\nesac; }";
+    }
+
     /// 任务结束时再读一次最终状态（只读这一个目录），避免"最后一次采样还没到目标"被误判为提前结束。
     public static string FinalStateScript(string id, string dir) =>
         DirectoryScript(id, dir, ProgressRule.Active.Where(r => r.IsUsable).ToList(), builtin: true);
 
     /// 只对一个目录跑识别。设置页"测试规则"用 `rules: [规则], builtin: false`。
     public static string DirectoryScript(string id, string dir, IReadOnlyList<ProgressRule> rules, bool builtin) => $"""
-        {JobIDFunction}
+        {JobIDFunction}{SameFunction(new Dictionary<string, string>())}
         id={Q(id)}; d={Q(dir)}
         case "$d" in "~"/*) d="$HOME/${"{"}d#\~/{"}"}";; esac
         for _ in 1; do
@@ -229,15 +241,20 @@ public static class AppDetectors
     static string CustomBranch(ProgressRule r)
     {
         var body = $"f=\"$d/$(si_pick \"$d\" '{r.File}')\"\n    printf '{Marker}DIR %s|%s\\n' \"$id\" \"$d\"; echo kind=custom; echo rule={r.IdString}";
+        if (r.TotalFile.Length == 0)
+            body += "\n    sg=$(stat -c '%n %Y %s' \"$f\" 2>/dev/null | tr '\\n' ' ')";
+        else
+            body += $"\n    tf=$(si_pick \"$d\" '{r.TotalFile}'); sg=$(stat -c '%n %Y %s' \"$f\" ${{tf:+\"$d/$tf\"}} 2>/dev/null | tr '\\n' ' ')";
+        body += "\n    if si_same \"$d\" \"$sg\"; then echo same=1; else echo \"sig=$sg\"";
         if (r.Match == RuleMatch.Keyword)
             body += $"\n    grep -aiF -- {Q(r.Pattern)} \"$f\" | tail -n 5 | cut -c1-300 | sed 's/^/tail=/'";
         else
             body += "\n    tail -n 40 \"$f\" | cut -c1-300 | sed 's/^/tail=/'";
         if (r.TotalFile.Length > 0)
-            body += $"\n    tf=$(si_pick \"$d\" '{r.TotalFile}'); [ -n \"$tf\" ] && grep -aiF -m 1 -- {Q(r.TotalKeyword)} \"$d/$tf\" | cut -c1-300 | sed 's/^/totalline=/'";
+            body += $"\n    [ -n \"$tf\" ] && grep -aiF -m 1 -- {Q(r.TotalKeyword)} \"$d/$tf\" | cut -c1-300 | sed 's/^/totalline=/'";
         if (r.DoneMarker.Length > 0)
             body += $"\n    if tail -n 50 \"$f\" | grep -qaF -- {Q(r.DoneMarker)}; then echo done=1; else echo done=0; fi";
-        body += "\n    echo \"mtime=$(stat -c %Y \"$f\" 2>/dev/null)\"";
+        body += "\n    echo \"mtime=$(stat -c %Y \"$f\" 2>/dev/null)\"; fi";
         return $"[ -n \"$(si_pick \"$d\" '{r.File}')\" ]; then\n    " + body;
     }
 
@@ -283,15 +300,19 @@ public static class AppDetectors
             echo "last=$(tail -n 1 "$d/loss.out")"; echo "mtime=$(stat -c %Y "$d/loss.out" 2>/dev/null)"
           elif [ -f "$d/run.in" ] && { [ -f "$d/neighbor.out" ] || [ -f "$d/thermo.out" ]; }; then
             printf '{{Marker}}DIR %s|%s\n' "$id" "$d"; echo kind=gpumd
+            sg=$(stat -c '%Y.%s' "$d/run.in" "$d/neighbor.out" "$d/thermo.out" 2>/dev/null | tr '\n' ' ')
+            if si_same "$d" "$sg"; then echo same=1; else echo "sig=$sg"
             awk '$1=="run" && $2~/^[0-9]+$/ {s+=$2} END {if (s>0) print "total="s}' "$d/run.in"
             awk '$1=="dump_thermo" && $2~/^[0-9]+$/ && $2>0 {print "interval="$2; exit}' "$d/run.in"
             if [ -f "$d/neighbor.out" ]; then
               echo "neighbor=$(tail -n 1 "$d/neighbor.out")"; echo "mtime=$(stat -c %Y "$d/neighbor.out" 2>/dev/null)"
             else
               echo "thermo_rows=$(grep -cv '^[[:space:]]*#' "$d/thermo.out")"; echo "mtime=$(stat -c %Y "$d/thermo.out" 2>/dev/null)"
-            fi
+            fi; fi
           elif [ -f "$d/INCAR" ] && [ -f "$d/01/OSZICAR" ] && grep -qiE '^[[:space:]]*IMAGES[[:space:]]*=[[:space:]]*[1-9]' "$d/INCAR"; then
             printf '{{Marker}}DIR %s|%s\n' "$id" "$d"; echo kind=vasp; echo neb=1
+            sg=$(stat -c '%Y.%s' "$d/INCAR" "$d"/[0-9][0-9]/OSZICAR "$d"/[0-9][0-9]/OUTCAR 2>/dev/null | tr '\n' ' ')
+            if si_same "$d" "$sg"; then echo same=1; else echo "sig=$sg"
             {{VaspIncarAwk}} "$d/INCAR"
             tail -n 3000 "$d/01/OSZICAR" | {{VaspOszicarAwk}}
             for s in "$d"/[0-9][0-9]; do
@@ -300,23 +321,27 @@ public static class AppDetectors
             if [ -f "$d/01/OUTCAR" ]; then
               if tail -n 400 "$d/01/OUTCAR" | grep -q 'General timing and accounting'; then echo done=1; else echo done=0; fi
             fi
-            echo "mtime=$(stat -c %Y "$d/01/OSZICAR" 2>/dev/null)"
+            echo "mtime=$(stat -c %Y "$d/01/OSZICAR" 2>/dev/null)"; fi
           elif [ -f "$d/INCAR" ] && [ -f "$d/OSZICAR" ]; then
             printf '{{Marker}}DIR %s|%s\n' "$id" "$d"; echo kind=vasp
+            sg=$(stat -c '%Y.%s' "$d/INCAR" "$d/OSZICAR" "$d/OUTCAR" 2>/dev/null | tr '\n' ' ')
+            if si_same "$d" "$sg"; then echo same=1; else echo "sig=$sg"
             {{VaspIncarAwk}} "$d/INCAR"
             tail -n 3000 "$d/OSZICAR" | {{VaspOszicarAwk}}
             if [ -f "$d/OUTCAR" ]; then
               if tail -n 400 "$d/OUTCAR" | grep -q 'General timing and accounting'; then echo done=1; else echo done=0; fi
             fi
-            echo "mtime=$(stat -c %Y "$d/OSZICAR" 2>/dev/null)"
+            echo "mtime=$(stat -c %Y "$d/OSZICAR" 2>/dev/null)"; fi
           elif [ -f "$d/log.lammps" ]; then
+            sg=$(stat -c '%Y.%s' "$d/log.lammps" 2>/dev/null | tr '\n' ' ')
+            if si_same "$d" "$sg"; then printf '{{Marker}}DIR %s|%s\n' "$id" "$d"; echo kind=lammps; echo same=1; else
             L=$(grep -naE '^[[:space:]]*run[[:space:]]' "$d/log.lammps" | tail -n 1 | cut -d: -f1)
             if [ -n "$L" ]; then
-              printf '{{Marker}}DIR %s|%s\n' "$id" "$d"; echo kind=lammps
+              printf '{{Marker}}DIR %s|%s\n' "$id" "$d"; echo kind=lammps; echo "sig=$sg"
               tail -n +"$L" "$d/log.lammps" | {{LammpsAwk}}
               if tail -n 30 "$d/log.lammps" | grep -q '^Total wall time'; then echo done=1; else echo done=0; fi
               echo "mtime=$(stat -c %Y "$d/log.lammps" 2>/dev/null)"
-            fi
+            fi; fi
         """;
 
     static readonly Regex NeighborRegex = new(@"^Neighbor info at step\s+(\d+):\s*radial\(max=(\d+),actual=(\d+)\),\s*angular\(max=(\d+),actual=(\d+)\)");
@@ -343,6 +368,8 @@ public static class AppDetectors
             {
                 if (id == null || !kv.TryGetValue("kind", out var k) || !Kinds.TryGetValue(k, out var kind)) return;
                 var p = new AppProgress(kind, dir);
+                if (kv.GetValueOrDefault("same") == "1") { p.Unchanged = true; outMap[id] = p; return; }
+                p.Signature = kv.GetValueOrDefault("sig") is { Length: > 0 } sig ? sig : null;
                 if (Text.Dbl(kv.GetValueOrDefault("mtime")) is { } mt) p.UpdatedAt = DateTimeOffset.FromUnixTimeMilliseconds((long)(mt * 1000)).LocalDateTime;
                 switch (kv.GetValueOrDefault("done"))
                 {

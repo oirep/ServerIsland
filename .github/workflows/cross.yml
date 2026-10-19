@@ -37,6 +37,10 @@ jobs:
         shell: bash
         run: dotnet run --project cross/src/ServerIsland.Desktop -c Release --no-build -- --selftest
 
+      - name: Self-update test (fake packages in a temp folder)
+        shell: bash
+        run: dotnet run --project cross/src/ServerIsland.Desktop -c Release --no-build -- --test-update "$RUNNER_TEMP/update-test"
+
       - name: Install X server (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y xvfb dbus-x11 libice6 libsm6 libfontconfig1 fonts-noto-cjk

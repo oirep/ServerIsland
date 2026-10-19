@@ -73,7 +73,7 @@ references/   专题文档（见下）
 
 ```bash
 swift build                                          # 调试构建（会打印 "xcrun: error: PlatformPath" 两行，属于无害噪音）
-.build/debug/ServerIsland --selftest                 # 解析 / 脚本自检（目前 109 项，应全部 ✓；其中计算软件识别会用本机 bash 跑假文件，连接部分会调用本机 ssh -G）
+.build/debug/ServerIsland --selftest                 # 解析 / 脚本自检（目前 131 项，应全部 ✓；其中计算软件识别会用本机 bash 跑假文件，连接部分会调用本机 ssh -G）
 ./scripts/build_app.sh --run                         # release 构建 + 打包 + 重启 App
 ./scripts/install_local.sh                           # release 构建并替换本机的 /Applications/ServerIsland.app，然后启动
 ./scripts/package_all.sh                             # 三个平台的安装包（DMG / win-x64.zip / linux-x64.tar.gz）+ 替换本机 Mac 版，最后打印 SHA-256
@@ -84,13 +84,14 @@ swift build                                          # 调试构建（会打印 
 .build/debug/ServerIsland --diagnose <别名> slurm+    # 对真实服务器跑一次完整采集并打印（slurm | pbs | direct | slurm+）
 .build/debug/ServerIsland --dump-scripts <目录>       # 导出远端脚本，和 C# 版逐字比较（见 cross-platform.md）
 .build/debug/ServerIsland --curve <别名> <目录> [gnep|vasp]  # 只读：读两次详情页曲线，检查增量读取
+.build/debug/ServerIsland --test-update <临时目录>     # 在临时目录里走一遍自动更新（假的 App 和 DMG）；C# 版同名命令用假的 zip / tar.gz
 open build/ServerIsland.app --args --demo            # 演示模式
 ```
 
 Windows / Linux 版（在 `cross/src/ServerIsland.Desktop` 下运行）：
 
 ```bash
-dotnet build && dotnet run -- --selftest             # 自检（137 项，含和 Swift 版对应的检查）
+dotnet build && dotnet run -- --selftest             # 自检（163 项，含和 Swift 版对应的检查）
 dotnet run -- --render-preview <目录> [zh|en]          # 离屏预览图（刘海各状态、各页面、设置窗口浅色 / 深色、图标表）
 dotnet run -- --ui-smoke <目录>                       # 在真实窗口上走一遍界面并截图，输出 OK 或错误
 dotnet run -- --demo                                  # 演示模式

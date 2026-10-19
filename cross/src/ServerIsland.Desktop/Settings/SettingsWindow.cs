@@ -1,6 +1,9 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Styling;
@@ -119,8 +122,11 @@ public sealed class SettingsWindow : Window
         {
             var host = h;
             var snap = _engine.Snapshots.GetValueOrDefault(h.Id);
-            list.Children.Add(HostRow(k, host, snap, _kind == SettingsPageKind.Host && _hostID == h.Id, () => Select(SettingsPageKind.Host, host.Id)));
+            list.Children.Add(Reorderable(HostRow(k, host, snap, _kind == SettingsPageKind.Host && _hostID == h.Id, () => Select(SettingsPageKind.Host, host.Id)), host.Id));
         }
+        if (hosts.Count > 1)
+            list.Children.Add(k.Text(L("拖动或右键可调整顺序", "Drag or right-click to reorder"), 10.5, c: _p.Secondary)
+                .Margin2(10, 6, 0, 0));
         var add = new Button
         {
             Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children = { new Icon("plus", 13, Brushes.White, 2.8), new TextBlock { Text = L("添加服务器", "Add Server"), Foreground = Brushes.White } } },
@@ -155,6 +161,66 @@ public sealed class SettingsWindow : Window
         _sidebar.BorderBrush = _p.Separator.B();
         _sidebar.BorderThickness = new Thickness(0, 0, 1, 0);
         _sidebar.Child = dock;
+    }
+
+    /// 服务器行可以上下拖动，或者用右键菜单调整顺序（灵动岛里也按这个顺序显示）。
+    Control Reorderable(Control row, Guid id)
+    {
+        int Index() => _store.Settings.Hosts.FindIndex(h => h.Id == id);
+        void Move(int to)
+        {
+            var hosts = _store.Settings.Hosts;
+            var i = Index();
+            to = Math.Clamp(to, 0, hosts.Count - 1);
+            if (i < 0 || to == i) return;
+            var h = hosts[i];
+            hosts.RemoveAt(i);
+            hosts.Insert(to, h);
+            _store.Touch();
+            BuildSidebar();
+        }
+        MenuItem Item(string title, Func<int> target, bool enabled)
+        {
+            var m = new MenuItem { Header = title, IsEnabled = enabled };
+            m.Click += (_, _) => Move(target());
+            return m;
+        }
+        var count = _store.Settings.Hosts.Count;
+        var index = Index();
+        var menu = new ContextMenu();
+        menu.Items.Add(Item(L("移到最上面", "Move to Top"), () => 0, index > 0));
+        menu.Items.Add(Item(L("上移", "Move Up"), () => Index() - 1, index > 0));
+        menu.Items.Add(Item(L("下移", "Move Down"), () => Index() + 1, index < count - 1));
+        menu.Items.Add(Item(L("移到最下面", "Move to Bottom"), () => count - 1, index < count - 1));
+        row.ContextMenu = menu;
+
+        // 拖动：按下后上下移动超过 6 像素开始拖，松开时按移动的行数换位置（松开不再触发点击）。
+        double? startY = null;
+        var dragging = false;
+        double Y(PointerEventArgs e) => e.GetPosition(row.GetVisualParent() ?? row).Y;
+        row.AddHandler(PointerPressedEvent, (_, e) =>
+        {
+            if (e.GetCurrentPoint(row).Properties.IsLeftButtonPressed) { startY = Y(e); dragging = false; }
+        }, RoutingStrategies.Tunnel);
+        row.AddHandler(PointerMovedEvent, (_, e) =>
+        {
+            if (startY is not { } y0 || !e.GetCurrentPoint(row).Properties.IsLeftButtonPressed) return;
+            var dy = Y(e) - y0;
+            if (!dragging && Math.Abs(dy) > 6) { dragging = true; row.Opacity = 0.75; row.ZIndex = 1; }
+            if (dragging) row.RenderTransform = new TranslateTransform(0, dy);
+        }, RoutingStrategies.Tunnel);
+        row.AddHandler(PointerReleasedEvent, (_, e) =>
+        {
+            if (startY is { } y0 && dragging)
+            {
+                e.Handled = true;
+                var steps = (int)Math.Round((Y(e) - y0) / Math.Max(row.Bounds.Height + 2, 1));
+                row.RenderTransform = null; row.Opacity = 1; row.ZIndex = 0;
+                Dispatcher.UIThread.Post(() => Move(Index() + steps));
+            }
+            startY = null; dragging = false;
+        }, RoutingStrategies.Tunnel);
+        return row;
     }
 
     Control SidebarRow(SettingsKit k, string title, string subtitle, string icon, Color tint, bool selected, Action action)
