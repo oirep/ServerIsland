@@ -126,6 +126,27 @@ enum SelfTest {
                   "历史：重启后还在（保留 7 天、带目录），记住上次运行中的任务")
         }
 
+        // 卡片上的终端按钮：清屏、设窗口标题、显示服务器名、删掉脚本自己，再 exec ssh（这里把 ssh 换成 echo 真正跑一遍）
+        do {
+            let f = FileManager.default.temporaryDirectory.appendingPathComponent("si-shell-\(getpid()).command")
+            let text = SSHRunner.shellScript(host: HostConfig(alias: "it's"), directory: "/w/it's dir")
+                .replacingOccurrences(of: "exec ssh ", with: "exec echo SSH ")
+            try? text.write(to: f, atomically: true, encoding: .utf8)
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/bin/bash")
+            p.arguments = [f.path]
+            p.environment = ["TERM": "dumb"]
+            let out = Pipe()
+            p.standardOutput = out
+            p.standardError = FileHandle.nullDevice
+            try? p.run()
+            let s = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            p.waitUntilExit()
+            check(s.contains("\u{1B}]0;ServerIsland · it's · /w/it's dir\u{07}") && s.contains("ServerIsland → it's（/w/it's dir）")
+                  && s.contains("SSH ") && s.contains("cd '/w/it'\\''s dir' && exec $SHELL -l") && !FileManager.default.fileExists(atPath: f.path),
+                  "终端按钮：窗口标题、服务器名、进目录的命令，脚本用完即删")
+        }
+
         // 生成的详情 / 取消 / 历史脚本在 bash 下语法正确（只做 -n 语法检查，不执行）。
         var slurm = HostConfig(alias: "x", kind: .slurm); slurm.allowCancel = true
         let sj = RemoteJob(id: "4821337", name: "it's \"quoted\"", state: .running, source: .slurm)
@@ -140,6 +161,8 @@ enum SelfTest {
             RemoteScript.topProcessesScript(host: HostConfig(alias: "x")),
             AppDetectors.finalStateScript(id: "123", dir: "/home/u/it's dir"),
             RemoteScript.build(for: { var h = HostConfig(alias: "x"); h.watched = [WatchedProcess(pid: "1", name: "")]; return h }()),
+            SSHRunner.shellScript(host: HostConfig(alias: "it's"), directory: "/w/it's dir"),
+            SSHRunner.shellScript(host: HostConfig(alias: "x"), directory: nil),
         ]
         for (i, sc) in scripts.enumerated() {
             let p = Process()

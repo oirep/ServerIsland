@@ -6,7 +6,7 @@
 |---|---|
 | `--dump-scripts <目录>` | 导出一组固定配置下的远端脚本（列表在 `App/ReferenceScripts.swift`），给 `SERVERISLAND_SCRIPT_REF=<目录> dotnet run -- --selftest` 做逐字比较 |
 | `--check-update [版本]` | 读 GitHub 上最新的 Release 并和当前版本（或假装的版本）比较，打印下载地址和更新说明摘要。C# 版同名开关 |
-| `--selftest` | 解析器和脚本自检（squeue、数组、sacct、df、scontrol 的 key=value、NEP/GPUMD/VASP/LAMMPS、自定义规则、曲线、排队原因、bash -n 语法、本机实跑直连脚本、认证方式 / 手动服务器 / 跳板机 / 私有 ssh 配置（用真的 `ssh -G` 解析）/ 弹窗提示语分类 / 跳板机报错归属）。PBS 转换脚本（PBS Pro / Torque 样例）/ 目录过滤 / VASP 最大力 / 日志清理 / 跳过没变的目录 / 更新包的 SHA-256）。目前 131 项 |
+| `--selftest` | 解析器和脚本自检（squeue、数组、sacct、df、scontrol 的 key=value、NEP/GPUMD/VASP/LAMMPS、自定义规则、曲线、排队原因、bash -n 语法、本机实跑直连脚本、认证方式 / 手动服务器 / 跳板机 / 私有 ssh 配置（用真的 `ssh -G` 解析）/ 弹窗提示语分类 / 跳板机报错归属）。PBS 转换脚本（PBS Pro / Torque 样例）/ 目录过滤 / VASP 最大力 / 日志清理 / 跳过没变的目录 / 更新包的 SHA-256 / 终端按钮脚本）。目前 134 项 |
 | `--render-preview <目录>` | 用演示数据把收起、弹窗、展开、详情、历史、分区、宠物表情、设置窗口（中英文、深浅色）渲染成 PNG |
 | `--diagnose <别名或显示名称> [slurm\|direct\|slurm+]` | 对真实服务器跑一次完整采集：原始输出、解析结果、候选进程、第一个进程的详情、24 小时历史。`slurm+` 表示 Slurm 并同时显示直接运行的进程。名字对得上设置里已添加的服务器时，用它的全部连接设置（手动地址、跳板机、认证） |
 | `--test-update <目录> [真实的.dmg 版本号]` | 在临时目录里走一遍自动更新（假的 App 和 DMG，不碰真正的 App）；给了真实的 DMG 时再核对它一次。C# 版也有（假的 zip / tar.gz） |

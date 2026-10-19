@@ -73,7 +73,7 @@ references/   专题文档（见下）
 
 ```bash
 swift build                                          # 调试构建（会打印 "xcrun: error: PlatformPath" 两行，属于无害噪音）
-.build/debug/ServerIsland --selftest                 # 解析 / 脚本自检（目前 131 项，应全部 ✓；其中计算软件识别会用本机 bash 跑假文件，连接部分会调用本机 ssh -G）
+.build/debug/ServerIsland --selftest                 # 解析 / 脚本自检（目前 134 项，应全部 ✓；其中计算软件识别会用本机 bash 跑假文件，连接部分会调用本机 ssh -G）
 ./scripts/build_app.sh --run                         # release 构建 + 打包 + 重启 App
 ./scripts/install_local.sh                           # release 构建并替换本机的 /Applications/ServerIsland.app，然后启动
 ./scripts/package_all.sh                             # 三个平台的安装包（DMG / win-x64.zip / linux-x64.tar.gz）+ 替换本机 Mac 版，最后打印 SHA-256

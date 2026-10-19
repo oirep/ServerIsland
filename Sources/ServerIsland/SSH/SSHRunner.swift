@@ -284,18 +284,28 @@ enum SSHRunner {
     static func openShellInTerminal(host: HostConfig, directory: String? = nil) {
         ensureControlDirectory()
         let file = URL(fileURLWithPath: controlDirectory).appendingPathComponent("shell-\(UUID().uuidString.prefix(8)).command")
-        let remote = directory.map { " " + shellQuote("cd " + shellQuote($0) + " && exec $SHELL -l") } ?? ""
-        let script = """
-        #!/bin/bash
-        exec ssh \(configArgs(host).map(shellQuote).joined(separator: " ")) -t -o ControlPath='\(controlPath(for: host))' \(shellQuote(target(host)))\(remote)
-        """
         do {
-            try script.write(to: file, atomically: true, encoding: .utf8)
+            try shellScript(host: host, directory: directory).write(to: file, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: file.path)
             NSWorkspace.shared.open(file)
         } catch {
             NSLog("ServerIsland: cannot create shell script: \(error)")
         }
+    }
+
+    /// 终端打开 .command 时会先打印"路径 ; exit;"这一行：清屏盖掉它，窗口标题换成服务器名，脚本用完就删。
+    static func shellScript(host: HostConfig, directory: String?) -> String {
+        let remote = directory.map { " " + shellQuote("cd " + shellQuote($0) + " && exec $SHELL -l") } ?? ""
+        let title = "ServerIsland · " + host.displayName + (directory.map { " · " + $0 } ?? "")
+        return """
+        #!/bin/bash
+        clear
+        printf '\\033]0;%s\\007' \(shellQuote(title))
+        echo \(shellQuote("ServerIsland → " + host.displayName + (directory.map { "（\($0)）" } ?? "")))
+        rm -f "$0"
+        exec ssh \(configArgs(host).map(shellQuote).joined(separator: " ")) -t -o ControlPath='\(controlPath(for: host))' \(shellQuote(target(host)))\(remote)
+
+        """
     }
 
     /// 关闭复用的主连接。
