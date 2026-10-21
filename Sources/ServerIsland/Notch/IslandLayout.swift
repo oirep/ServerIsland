@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum IslandMode: Equatable {
+enum IslandMode: Equatable, Hashable {
     case hidden      // 什么都没有：完全隐藏在硬件刘海里
     case collapsed   // 刘海两侧的小翅膀
     case toast       // 事件提示

@@ -27,7 +27,61 @@ enum SelfTestDocker {
                   "Docker 搜索焦点：隐藏测试窗口可实际建立原生编辑器并输入文字")
             window.makeFirstResponder(nil)
             window.close()
+            var matchIndex = 0
+            var enterPositions: [Int] = []
+            let searchInput = DockerSearchInput(text: .constant("err"), focused: .constant(true), label: "Search",
+                onSubmit: {
+                    matchIndex = DockerLogMatches.step(matchIndex, count: 3, direction: 1)
+                    enterPositions.append(matchIndex)
+                })
+            let coordinator = DockerSearchInput.Coordinator(searchInput)
+            let searchEditor = NSTextView()
+            let enter = #selector(NSResponder.insertNewline(_:))
+            let consumed = (0..<3).map { _ in coordinator.control(field, textView: searchEditor, doCommandBy: enter) }
+            check(consumed.allSatisfy { $0 } && enterPositions == [1, 2, 0],
+                  "日志搜索回车：原生命令连续定位下一项，末项回到第一项且不结束编辑")
+            searchEditor.setMarkedText("zhong", selectedRange: NSRange(location: 5, length: 0),
+                                       replacementRange: NSRange(location: NSNotFound, length: 0))
+            check(!coordinator.control(field, textView: searchEditor, doCommandBy: enter) && enterPositions.count == 3,
+                  "日志搜索回车：输入法组合文字期间不触发匹配跳转")
+            searchEditor.unmarkText()
+            let readOnly = NSTextView(); readOnly.isEditable = false
+            check(!DockerSearchKeyRouting.preservesTextFocus(readOnly, redirectReadOnlyText: true)
+                  && DockerSearchKeyRouting.preservesTextFocus(readOnly, redirectReadOnlyText: false),
+                  "日志搜索键盘：只读日志允许直接打字进入搜索，原列表输入策略不变")
+            readOnly.isEditable = true
+            check(DockerSearchKeyRouting.preservesTextFocus(readOnly, redirectReadOnlyText: true),
+                  "日志搜索键盘：其它可编辑文本控件仍保留输入")
+            let native = NSTextView()
+            native.textStorage?.setAttributedString(DockerLogText.native(DockerLogText.render("\u{1b}[31merror\u{1b}[0m normal")))
+            native.setSelectedRange(NSRange(location: 0, length: 2))
+            DockerLogScrollView.highlight(native, matches: DockerLogMatches.find(in: native.string, query: "error"), selected: 0)
+            check(native.textStorage?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor == NSColor(DockerLogText.palette(1))
+                  && native.selectedRange().length == 2
+                  && native.layoutManager?.temporaryAttribute(.backgroundColor, atCharacterIndex: 0, effectiveRange: nil) != nil,
+                  "日志搜索高亮：实际原生文本保留 ANSI 颜色与复制选择，并添加背景高亮")
+            DockerLogScrollView.highlight(native, matches: DockerLogMatches(), selected: 0)
+            check(native.layoutManager?.temporaryAttribute(.backgroundColor, atCharacterIndex: 0, effectiveRange: nil) == nil,
+                  "日志搜索高亮：清空查询移除高亮")
         }
+        let found = DockerLogMatches.find(in: "🙂 ERROR ready\nerror [x].", query: "error")
+        check(found.ranges.count == 2 && found.ranges.first == NSRange(location: 3, length: 5)
+              && DockerLogMatches.find(in: "error [x].", query: "[x].").ranges.count == 1,
+              "日志搜索：大小写不敏感、UTF-16 范围兼容 emoji，特殊符号按原文匹配")
+        check(DockerLogMatches.step(0, count: 2, direction: -1) == 1
+              && DockerLogMatches.step(1, count: 2, direction: 1) == 0
+              && DockerLogMatches.step(0, count: 0, direction: 1) == 0,
+              "日志搜索定位：上下匹配循环切换，无结果时安全")
+        let oldLines = "one err\ntwo err\nthree err\nfour err\n"
+        let newLines = "two err\nthree err\nfour err\nfive err\n"
+        let oldFound = DockerLogMatches.find(in: oldLines, query: "err")
+        let newFound = DockerLogMatches.find(in: newLines, query: "err")
+        check(newFound.retainedIndex(previous: oldFound.ranges[2], oldText: oldLines, newText: newLines) == 1,
+              "日志搜索刷新：tail 淘汰旧行后保留当前匹配，不重置为第一项")
+        let limited = DockerLogMatches.find(in: String(repeating: "a", count: 50), query: "a", limit: 10)
+        check(limited.ranges.count == 10 && limited.capped
+              && DockerLogMatches.find(in: "text", query: "").ranges.isEmpty,
+              "日志搜索性能：高频关键词限制高亮量，空查询不扫描")
         check(DockerSearchKeyRouting.accepts(characters: "a", modifiers: [], keyCode: 0, hasTextFocus: false, menuTracking: false)
               && DockerSearchKeyRouting.accepts(characters: "中", modifiers: [], keyCode: 0, hasTextFocus: false, menuTracking: false)
               && DockerSearchKeyRouting.accepts(characters: "´", modifiers: [.option], keyCode: 14, hasTextFocus: false, menuTracking: false),
@@ -172,9 +226,39 @@ enum SelfTestDocker {
               "Docker 展示：首页 Grid 与全部 List 可独立持久保存")
         var older = first.containers[0]; older.id = String(repeating: "b", count: 64); older.createdAt = 10; older.updatedAt = 20; older.cpuPercent = 100; older.memoryUsed = 900
         var newer = first.containers[0]; newer.createdAt = 100; newer.updatedAt = 100; newer.cpuPercent = 250; newer.memoryUsed = 100
+        let stableRow = DockerContainerRow(container: newer, now: Date(timeIntervalSince1970: 1), onOpen: {})
+        let tickRow = DockerContainerRow(container: newer, now: Date(timeIntervalSince1970: 2), onOpen: {})
+        var changedStatus = newer; changedStatus.status = "Exited (0)"
+        check(stableRow == tickRow && stableRow != DockerContainerRow(container: changedStatus, onOpen: {}),
+              "Docker 界面：纯时钟更新不重建列表行，状态改变仍及时更新")
+        let stableTile = DockerContainerTile(container: newer, now: Date(timeIntervalSince1970: 1), onOpen: {})
+        let tickTile = DockerContainerTile(container: newer, now: Date(timeIntervalSince1970: 2), onOpen: {})
+        check(stableTile == tickTile && stableTile != DockerContainerTile(container: newer, now: Date(), isFavorite: true, onOpen: {}),
+              "Docker 界面：Grid 跳过无效时钟刷新，收藏变化仍立即重绘")
         var searchable = newer
         searchable.name = "demo-API"; searchable.image = "registry.example.org/demo:v3"
         searchable.composeProject = "demo-stack"; searchable.composeService = "backend"
+        let favoriteNames: Set<String> = [searchable.name]
+        check(DockerContainerFilter.all.matches(searchable, favorites: [])
+              && DockerContainerFilter.favorites.matches(searchable, favorites: favoriteNames)
+              && !DockerContainerFilter.favorites.matches(searchable, favorites: []),
+              "Docker 状态筛选：全部不限制，收藏仅使用当前主机的星标")
+        check(DockerContainerFilter.running.matches(searchable, favorites: [])
+              && !DockerContainerFilter.stopped.matches(searchable, favorites: []),
+              "Docker 状态筛选：运行中与停止组互斥")
+        var stoppedItem = searchable; stoppedItem.state = "exited"; stoppedItem.health = ""
+        var pausedItem = searchable; pausedItem.state = "paused"
+        check(DockerContainerFilter.stopped.matches(stoppedItem, favorites: [])
+              && !DockerContainerFilter.running.matches(pausedItem, favorites: [])
+              && !DockerContainerFilter.stopped.matches(pausedItem, favorites: []),
+              "Docker 状态筛选：退出容器进入已停止，暂停容器不冒充运行或已停止")
+        var unhealthyItem = searchable; unhealthyItem.health = "unhealthy"
+        var startingItem = searchable; startingItem.health = "starting"
+        check(DockerContainerFilter.unhealthy.matches(unhealthyItem, favorites: [])
+              && !DockerContainerFilter.unhealthy.matches(startingItem, favorites: [])
+              && !DockerContainerFilter.unhealthy.matches(stoppedItem, favorites: [])
+              && DockerContainerSearch.matches(unhealthyItem, query: "API backend"),
+              "Docker 状态筛选：仅匹配 unhealthy，可与跨字段文字搜索组合")
         check(DockerContainerSearch.matches(searchable, query: " api ")
               && DockerContainerSearch.matches(searchable, query: String(searchable.id.prefix(8)))
               && DockerContainerSearch.matches(searchable, query: "REGISTRY.EXAMPLE.ORG"),

@@ -90,7 +90,7 @@ struct HoldToConfirmButton: View {
                 withAnimation(.easeOut(duration: 0.2)) { progress = 0 }
             }
         }
-        .help(L("为防止误触，需要按住 ", "To avoid accidents, hold for ") + String(format: "%.1f", duration) + L(" 秒", " s"))
+        .islandHelp(L("为防止误触，需要按住 ", "To avoid accidents, hold for ") + String(format: "%.1f", duration) + L(" 秒", " s"))
     }
 }
 
@@ -111,7 +111,7 @@ struct SmallIconButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help(help)
+        .islandHelp(help)
     }
 }
 
@@ -296,7 +296,7 @@ struct JobDetailPage: View {
             Text(v).font(Theme.mono(10.5)).foregroundStyle(Theme.secondary)
                 .lineLimit(1).truncationMode(.middle)
                 .textSelection(.enabled)
-                .help(v)
+                .islandHelp(v)
             if [L("工作目录", "Directory"), L("命令", "Command"), L("节点", "Nodes")].contains(k) {
                 CopyButton(value: v, help: L("复制", "Copy ") + k)
             }
@@ -317,7 +317,7 @@ struct JobDetailPage: View {
                 }
                 if let path = currentLog?.path {
                     Text(path).font(Theme.mono(9.5)).foregroundStyle(Theme.tertiary)
-                        .lineLimit(1).truncationMode(.head).help(path)
+                        .lineLimit(1).truncationMode(.head).islandHelp(path)
                     CopyButton(value: path, help: L("复制日志路径", "Copy log path"))
                     CopyButton(value: job.id.hasPrefix("local:") ? "tail -f " + SSHRunner.shellQuote(path)
                                : "ssh \(host.alias) " + SSHRunner.shellQuote("tail -f " + SSHRunner.shellQuote(path)),
@@ -542,7 +542,7 @@ struct HistoryPage: View {
                 HStack(spacing: 6) {
                     Image(systemName: "folder").font(.system(size: 8.5)).foregroundStyle(Theme.tertiary)
                     Text(dir).font(Theme.mono(9.5)).foregroundStyle(Theme.tertiary)
-                        .lineLimit(1).truncationMode(.head).help(dir)
+                        .lineLimit(1).truncationMode(.head).islandHelp(dir)
                     Spacer(minLength: 6)
                     CopyButton(value: dir, help: L("复制目录", "Copy directory"))
                     SmallIconButton(systemName: "terminal", help: L("在终端中打开（ssh 到这个目录）", "Open in Terminal (ssh to this directory)")) {
@@ -576,7 +576,7 @@ struct HistoryPage: View {
                 .foregroundStyle(Theme.secondary).frame(width: 64, alignment: .trailing)
             Text(Format.relative(e.endedAt)).font(Theme.rounded(10.5)).foregroundStyle(Theme.tertiary)
                 .frame(width: 58, alignment: .trailing)
-                .help(e.endedAt.formatted(date: .abbreviated, time: .shortened))
+                .islandHelp(e.endedAt.formatted(date: .abbreviated, time: .shortened))
         }
     }
 }
@@ -646,7 +646,7 @@ struct ProcessPickerPage: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(p.detail)
+        .islandHelp(p.detail)
     }
 
     private func tag(_ s: String, _ c: Color) -> some View {

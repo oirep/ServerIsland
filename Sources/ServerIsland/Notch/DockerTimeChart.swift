@@ -75,9 +75,9 @@ struct DockerTimeChart: View {
                     .equatable()
             }
             .frame(height: 24)
-            Grid(horizontalSpacing: 8, verticalSpacing: 8) {
-                GridRow { panel(.cpu); panel(.memory) }
-                GridRow { panel(.network); panel(.blockIO) }
+            LazyVGrid(columns: [GridItem(.flexible(minimum: 0)), GridItem(.flexible(minimum: 0))], spacing: 8) {
+                panel(.cpu); panel(.memory)
+                panel(.network); panel(.blockIO)
             }
         }
         // 外层面板有弹簧动画；采样更新和范围切换不继承它，防止坐标/按钮被重复插值。

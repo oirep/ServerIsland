@@ -50,7 +50,6 @@ struct HostCard: View {
                 .frame(height: IslandLayout.emptyRow)
             }
 
-            if p.problem { gap; problemRow.frame(height: IslandLayout.problemRow) }
             if p.connecting {
                 gap
                 HStack(spacing: 6) {
@@ -66,6 +65,8 @@ struct HostCard: View {
                 metrics.frame(height: p.actions ? IslandLayout.actionMetricsRow : IslandLayout.metricsRow)
                     .opacity(host.paused && !p.actions ? 0.45 : 1)
             }
+            // 保留上次资源采样时，连接错误仍放在资源下方，避免异常状态改变阅读顺序。
+            if p.problem { gap; problemRow.frame(height: IslandLayout.problemRow) }
             if p.warnings > 0 {
                 Spacer().frame(height: 6)
                 ForEach(snap.warnings, id: \.self) { w in
@@ -81,13 +82,13 @@ struct HostCard: View {
                                     .background(Capsule().fill(Theme.amber.opacity(0.2)))
                             }
                             .buttonStyle(.plain)
-                            .help(L("如果是集群但 squeue 不在 PATH 里，请改在 设置 → 高级 → 前置命令 里加 module load slurm", "If Slurm is installed but not on PATH, add e.g. module load slurm under Settings → Environment → Run First"))
+                            .islandHelp(L("如果是集群但 squeue 不在 PATH 里，请改在 设置 → 高级 → 前置命令 里加 module load slurm", "If Slurm is installed but not on PATH, add e.g. module load slurm under Settings → Environment → Run First"))
                         }
                     }
                     .font(Theme.rounded(10))
                     .foregroundStyle(Theme.amber.opacity(0.85))
                     .frame(height: IslandLayout.warningRow)
-                    .help(w + L("\n可以在 设置 → 高级命令 里调整", "\nAdjust under Settings → Advanced"))
+                    .islandHelp(w + L("\n可以在 设置 → 高级命令 里调整", "\nAdjust under Settings → Advanced"))
                 }
             }
             if p.docker {
@@ -202,7 +203,7 @@ struct HostCard: View {
                 Text("\(Int(l * 1000))ms")
                     .font(Theme.rounded(10).monospacedDigit())
                     .foregroundStyle(Theme.tertiary)
-                    .help(L("本次查询耗时（含 SSH 往返）", "Query time incl. SSH round trip"))
+                    .islandHelp(L("本次查询耗时（含 SSH 往返）", "Query time incl. SSH round trip"))
             }
         }
     }
@@ -262,7 +263,7 @@ struct HostCard: View {
                         Image(systemName: actionIsRunning(action) ? "hourglass" : "play.fill")
                             .font(.system(size: 6, weight: .bold))
                         Text(action.name.isEmpty ? L("未命名", "Untitled") : action.name)
-                            .font(Theme.rounded(8, .bold)).lineLimit(1)
+                            .font(Theme.rounded(9, .bold)).lineLimit(1)
                     }
                     .padding(.horizontal, 5).padding(.vertical, 2)
                     .background(Capsule().fill(Theme.cyan.opacity(0.14)))
@@ -271,7 +272,7 @@ struct HostCard: View {
                 }
                 .buttonStyle(.plain).fixedSize(horizontal: true, vertical: false)
                 .disabled(!action.isValid || actionIsRunning(action))
-                .help(action.name + " · " + action.target.label
+                .islandHelp(action.name + " · " + action.target.label
                     + (actionIsRunning(action) ? L(" · 运行中", " · running") : ""))
                 .accessibilityLabel(action.name + " · " + action.target.label)
             }
@@ -287,7 +288,7 @@ struct HostCard: View {
                         .contentShape(Rectangle())
                 }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                .help(L("更多 Actions", "More Actions"))
+                .islandHelp(L("更多 Actions", "More Actions"))
             }
         }
         .fixedSize(horizontal: true, vertical: false)
@@ -310,7 +311,7 @@ struct HostCard: View {
                 .foregroundStyle(Theme.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .help(msg)
+                .islandHelp(msg)
             Spacer(minLength: 6)
             if isLogin {
                 if loggingIn {
@@ -318,7 +319,7 @@ struct HostCard: View {
                     Text(L("等待输入…", "Waiting…")).font(Theme.rounded(10.5)).foregroundStyle(Theme.amber)
                 } else {
                     PillButton(title: L("登录…", "Log In…"), tint: Theme.amber, action: onLogin)
-                        .help(L("弹出密码框输入密码 / 动态口令；连接会在后台保持（\(host.keepAlive.label)）", "Enter your password / OTP in a dialog; the connection is kept for \(host.keepAlive.label)"))
+                        .islandHelp(L("弹出密码框输入密码 / 动态口令；连接会在后台保持（\(host.keepAlive.label)）", "Enter your password / OTP in a dialog; the connection is kept for \(host.keepAlive.label)"))
                     SmallIconButton(systemName: "terminal", help: L("改用终端登录", "Log in via Terminal")) { SSHRunner.openLoginInTerminal(host: host) }
                 }
             }
@@ -376,10 +377,10 @@ struct JobRow: View {
                         .foregroundStyle(Theme.text)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .help(job.detail.isEmpty ? job.name : job.detail)
+                        .islandHelp(job.detail.isEmpty ? job.name : job.detail)
                     if job.watched {
                         Image(systemName: "eye.fill").font(.system(size: 8.5)).foregroundStyle(Theme.mint)
-                            .help(L("手动监听的进程", "Watched process"))
+                            .islandHelp(L("手动监听的进程", "Watched process"))
                     }
                     if job.array != nil {
                         Text(L("数组 #\(job.id)", "array #\(job.id)"))
@@ -400,10 +401,10 @@ struct JobRow: View {
                 HStack(spacing: 10) {
                     if let a = job.array {
                         ArrayBar(array: a, height: 4)
-                            .help(ArrayBar.legend(a))
+                            .islandHelp(ArrayBar.legend(a))
                         ArrayStatusText(array: a)
                             .frame(width: 210, alignment: .trailing)
-                            .help(ArrayBar.legend(a))
+                            .islandHelp(ArrayBar.legend(a))
                     } else if job.state == .pending {
                         let r = PendingReason.explain(job.reason)
                         HStack(spacing: 4) {
@@ -415,7 +416,7 @@ struct JobRow: View {
                         .font(Theme.rounded(10, r?.needsAction == true ? .semibold : .regular))
                         .foregroundStyle(r?.needsAction == true ? Theme.coral.opacity(0.9) : Theme.amber.opacity(0.8))
                         .lineLimit(1)
-                        .help(r?.long ?? job.detail)
+                        .islandHelp(r?.long ?? job.detail)
                         Spacer(minLength: 0)
                     } else {
                         SlimBar(fraction: liveFraction,
@@ -535,7 +536,7 @@ struct JobRowButton: View {
         .buttonStyle(.plain)
         .padding(.horizontal, -6)
         .onHover { hovering = $0 }
-        .help(L("点击查看详情和日志 · 右键复制", "Click for details & log · right-click to copy"))
+        .islandHelp(L("点击查看详情和日志 · 右键复制", "Click for details & log · right-click to copy"))
         .contextMenu {
             Button(L("查看详情和日志", "Details & Log"), action: action)
             if job.source != .progressFile {
@@ -567,7 +568,7 @@ struct DiskChip: View {
         .foregroundStyle(c)
         .padding(.horizontal, 6).padding(.vertical, 2)
         .background(Capsule().fill(c.opacity(0.14)))
-        .help(all.map { L("\($0.mount)  已用 \(Format.percent($0.fraction))，剩余 \(Format.bytes(($0.totalKB - $0.usedKB) * 1024))", "\($0.mount)  \(Format.percent($0.fraction)) used, \(Format.bytes(($0.totalKB - $0.usedKB) * 1024)) free") }
+        .islandHelp(all.map { L("\($0.mount)  已用 \(Format.percent($0.fraction))，剩余 \(Format.bytes(($0.totalKB - $0.usedKB) * 1024))", "\($0.mount)  \(Format.percent($0.fraction)) used, \(Format.bytes(($0.totalKB - $0.usedKB) * 1024)) free") }
             .joined(separator: "\n"))
     }
 }
@@ -602,7 +603,7 @@ struct IntervalMenu: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help(L("这台服务器的轮询间隔", "Refresh interval for this server"))
+        .islandHelp(L("这台服务器的轮询间隔", "Refresh interval for this server"))
     }
 
     private var menuLabel: some View {
@@ -648,7 +649,7 @@ struct IdleHostsRow: View {
                             }
                             Text(host.displayName).lineLimit(1)
                         }
-                        .help(summary(host, snap))
+                        .islandHelp(summary(host, snap))
                     }
                 }
                 .font(Theme.rounded(11))
@@ -675,7 +676,7 @@ struct IdleHostsRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help(L("没有任务的机器合并在这里；可以在 设置 → 通用 里关闭", "Servers with no jobs are grouped here; turn off in Settings → General"))
+        .islandHelp(L("没有任务的机器合并在这里；可以在 设置 → 通用 里关闭", "Servers with no jobs are grouped here; turn off in Settings → General"))
     }
 
     private func summary(_ host: HostConfig, _ snap: HostSnapshot) -> String {

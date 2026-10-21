@@ -7,7 +7,7 @@ final class IslandHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func layout() {
         super.layout()
-        IslandScrollbars.apply(in: self)
+        IslandScrollbars.schedule(in: self)
     }
 }
 
@@ -31,6 +31,7 @@ final class IslandController {
     private var collapseWork: DispatchWorkItem?
     private var cancellables: Set<AnyCancellable> = []
     private var menuTracking = false
+    private let hitTestCache = IslandHitTestCache()
 
     init(engine: MonitorEngine, store: ConfigStore, openSettings: @escaping () -> Void) {
         self.engine = engine
@@ -62,6 +63,11 @@ final class IslandController {
         self.panel = panel
         reposition()
         panel.orderFrontRegardless()
+
+        Publishers.Merge3(engine.objectWillChange, vm.objectWillChange, store.objectWillChange)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.hitTestCache.invalidate() }
+            .store(in: &cancellables)
 
         monitors.append(NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged]) { [weak self] _ in
             MainActor.assumeIsolated { self?.handleMouse() }
@@ -106,6 +112,7 @@ final class IslandController {
     func unpinned() { handleMouse() }
 
     func reposition() {
+        hitTestCache.invalidate()
         guard let panel else { return }
         let g = NotchGeometry.current()
         vm.geometry = g
@@ -116,10 +123,13 @@ final class IslandController {
 
     /// 当前形状在屏幕上的矩形。
     private func shapeRect(for mode: IslandMode) -> NSRect {
-        let g = vm.geometry
-        let spec = IslandLayout.spec(mode: mode, geometry: g, contentHeight: vm.contentHeight(engine.orderedHosts, fold: store.settings.foldIdleHosts))
-        return NSRect(x: g.midX - spec.size.width / 2, y: g.screenFrame.maxY - spec.size.height,
-                      width: spec.size.width, height: spec.size.height)
+        hitTestCache.rect(for: mode) {
+            let g = vm.geometry
+            let height = mode == .expanded ? vm.contentHeight(engine.orderedHosts, fold: store.settings.foldIdleHosts) : 0
+            let spec = IslandLayout.spec(mode: mode, geometry: g, contentHeight: height)
+            return NSRect(x: g.midX - spec.size.width / 2, y: g.screenFrame.maxY - spec.size.height,
+                          width: spec.size.width, height: spec.size.height)
+        }
     }
 
     private func handleMouse() {
@@ -127,7 +137,8 @@ final class IslandController {
         if vm.hovering {
             let shape = shapeRect(for: .expanded)
             // 面板比形状大：只有鼠标在形状里时才接收点击，形状外的透明区域让点击穿透到下面的窗口。
-            panel?.ignoresMouseEvents = !shape.insetBy(dx: -2, dy: -2).contains(p)
+            let ignore = !shape.insetBy(dx: -2, dy: -2).contains(p)
+            if panel?.ignoresMouseEvents != ignore { panel?.ignoresMouseEvents = ignore }
             let rect = shape.insetBy(dx: -12, dy: -12)
             if rect.contains(p) || vm.pinned || menuTracking {
                 collapseWork?.cancel(); collapseWork = nil
