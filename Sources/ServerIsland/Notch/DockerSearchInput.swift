@@ -6,6 +6,8 @@ struct DockerSearchInput: NSViewRepresentable {
     @Binding var text: String
     @Binding var focused: Bool
     var label: String
+    var redirectReadOnlyText = false
+    var onSubmit: (() -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -41,6 +43,7 @@ struct DockerSearchInput: NSViewRepresentable {
     func updateNSView(_ field: DockerSearchTextField, context: Context) {
         context.coordinator.parent = self
         field.setAccessibilityLabel(label)
+        field.redirectReadOnlyText = redirectReadOnlyText
         // 每秒刷新不重置原生选择、光标或输入法的 marked text。
         if field.stringValue != text, !((field.currentEditor() as? NSTextView)?.hasMarkedText() ?? false) {
             field.stringValue = text
@@ -64,6 +67,13 @@ struct DockerSearchInput: NSViewRepresentable {
         }
         func controlTextDidBeginEditing(_ notification: Notification) { parent.focused = true }
         func controlTextDidEndEditing(_ notification: Notification) { parent.focused = false }
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            // 消费搜索回车以保留焦点；输入法仍在组合文字时交还原生编辑器确认候选字。
+            guard commandSelector == #selector(NSResponder.insertNewline(_:)), !textView.hasMarkedText(),
+                  let submit = parent.onSubmit else { return false }
+            submit()
+            return true
+        }
     }
 }
 
@@ -91,6 +101,11 @@ final class DockerSearchCell: NSTextFieldCell {
 }
 
 enum DockerSearchKeyRouting {
+    @MainActor
+    static func preservesTextFocus(_ responder: NSResponder?, redirectReadOnlyText: Bool) -> Bool {
+        if let view = responder as? NSTextView { return view.isEditable || !redirectReadOnlyText }
+        return responder is NSTextField
+    }
     /// 仅普通文字触发搜索；快捷键、导航、菜单与其它文本编辑器继续走原事件链。
     static func accepts(characters: String?, modifiers: NSEvent.ModifierFlags, keyCode: UInt16,
                         hasTextFocus: Bool, menuTracking: Bool) -> Bool {
@@ -104,6 +119,7 @@ enum DockerSearchKeyRouting {
 
 final class DockerSearchTextField: NSTextField {
     var focusChanged: ((Bool) -> Void)?
+    var redirectReadOnlyText = false
     private var keyMonitor: Any?
     private var observers: [NSObjectProtocol] = []
     private var menuDepth = 0
@@ -144,9 +160,11 @@ final class DockerSearchTextField: NSTextField {
     private func route(_ event: NSEvent) -> NSEvent? {
         guard let window, window.isKeyWindow, event.window === window else { return event }
         let responder = window.firstResponder
+        // 日志文本可选中复制，但普通打字应进入搜索；其它可编辑输入框仍保留自己的输入。
+        let textFocus = DockerSearchKeyRouting.preservesTextFocus(responder, redirectReadOnlyText: redirectReadOnlyText)
         guard DockerSearchKeyRouting.accepts(characters: event.characters?.isEmpty == false ? event.characters : event.charactersIgnoringModifiers,
                                              modifiers: event.modifierFlags, keyCode: event.keyCode,
-                                             hasTextFocus: responder is NSTextView || responder is NSTextField,
+                                             hasTextFocus: textFocus,
                                              menuTracking: menuDepth > 0),
               window.makeFirstResponder(self), let editor = currentEditor() else { return event }
         focusChanged?(true)

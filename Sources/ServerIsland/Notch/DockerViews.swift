@@ -13,11 +13,16 @@ struct DockerToolbarHover: ViewModifier {
 }
 
 /// 两个入口复用紧凑控件，布局值由各自的偏好提供。
-struct DockerListControls: View {
+struct DockerListControls: View, Equatable {
     var mode: DockerViewMode
     var sort: DockerSortOrder
     var onMode: (DockerViewMode) -> Void
     var onSort: (DockerSortOrder) -> Void
+    private let localeKey = L("zh", "en")
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.mode == rhs.mode && lhs.sort == rhs.sort && lhs.localeKey == rhs.localeKey
+    }
 
     var body: some View {
         HStack(spacing: 4) {
@@ -32,7 +37,7 @@ struct DockerListControls: View {
                 }
                 .buttonStyle(.plain)
                 .modifier(DockerToolbarHover())
-                .help(value == .list ? L("列表视图", "List View") : L("网格视图", "Grid View"))
+                .islandHelp(value == .list ? L("列表视图", "List View") : L("网格视图", "Grid View"))
             }
             Menu {
                 ForEach(DockerSortOrder.allCases, id: \.self) { value in
@@ -50,7 +55,7 @@ struct DockerListControls: View {
             .menuStyle(.borderlessButton).menuIndicator(.hidden).controlSize(.mini)
             .foregroundStyle(Theme.tertiary).frame(width: 22, height: 18)
             .modifier(DockerToolbarHover())
-            .help(L("排序：", "Sort: ") + sort.label)
+            .islandHelp(L("排序：", "Sort: ") + sort.label)
         }
     }
 }
@@ -77,6 +82,7 @@ struct DockerCardSection: View {
                 }
                 Spacer(minLength: 4)
                 DockerListControls(mode: mode, sort: sort, onMode: onMode, onSort: onSort)
+                    .equatable()
                 Button { onOpen(nil) } label: {
                     HStack(spacing: 3) {
                         Text(L("查看全部", "Show All"))
@@ -95,7 +101,7 @@ struct DockerCardSection: View {
                 Text(snapshot?.error.map(DockerSnapshot.errorText) ?? (snapshot == nil ? L("等待采集 Docker 指标…", "Waiting for Docker metrics…") : L("暂无运行中的容器", "No active containers")))
                     .font(Theme.rounded(10.5))
                     .foregroundStyle(snapshot?.error == nil ? Theme.tertiary : Theme.amber)
-                    .lineLimit(1).help(snapshot?.error.map(DockerSnapshot.errorText) ?? "")
+                    .lineLimit(1).islandHelp(snapshot?.error.map(DockerSnapshot.errorText) ?? "")
                     .frame(height: IslandLayout.emptyRow)
             }
         }
@@ -127,6 +133,7 @@ struct DockerContainerCollection: View {
                     DockerContainerRow(container: container, now: now,
                                        isFavorite: favorites.contains(container.name),
                                        onFavorite: onFavorite.map { action in { action(container) } }) { onOpen(container) }
+                        .equatable()
                         .padding(decorated ? 8 : 0)
                         .background(RoundedRectangle(cornerRadius: 10).fill(decorated ? Theme.card : .clear))
                         .modifier(DockerContainerHover())
@@ -137,11 +144,12 @@ struct DockerContainerCollection: View {
 
     @ViewBuilder private func grid(_ items: [DockerContainer]) -> some View {
         if !items.isEmpty {
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: IslandLayout.jobGap) {
+            LazyVGrid(columns: [GridItem(.flexible(minimum: 0)), GridItem(.flexible(minimum: 0))], spacing: IslandLayout.jobGap) {
                 ForEach(items) { container in
                     DockerContainerTile(container: container, now: now,
                                         isFavorite: favorites.contains(container.name),
                                         onFavorite: onFavorite.map { action in { action(container) } }) { onOpen(container) }
+                        .equatable()
                 }
             }
         }
@@ -191,16 +199,22 @@ struct DockerContainerStatus: View {
         }
         .font(Theme.rounded(10))
         .lineLimit(1).truncationMode(.tail)
-        .help(container.status)
+        .islandHelp(container.status)
     }
 }
 
-struct DockerContainerRow: View {
+struct DockerContainerRow: View, Equatable {
     var container: DockerContainer
     var now = Date()
     var isFavorite = false
     var onFavorite: (() -> Void)? = nil
     var onOpen: () -> Void
+    private let localeKey = L("zh", "en")
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.container == rhs.container && lhs.isFavorite == rhs.isFavorite
+            && (lhs.onFavorite == nil) == (rhs.onFavorite == nil) && lhs.localeKey == rhs.localeKey
+    }
 
     static func color(_ container: DockerContainer) -> Color {
         if container.health == "unhealthy" || container.state == "dead" { return Theme.coral }
@@ -218,10 +232,10 @@ struct DockerContainerRow: View {
                     DockerContainerStatus(container: container, now: now)
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 DockerResourceValue(title: "CPU", value: DockerFormat.cpu(container.cpuUsagePercent), fraction: container.cpuFraction)
-                    .help(DockerFormat.cpuHelp(container))
+                    .islandHelp(DockerFormat.cpuHelp(container))
                     .frame(width: 110, alignment: .trailing)
                 DockerResourceValue(title: L("内存", "Mem"), value: DockerFormat.percent(container.memoryFraction), fraction: container.memoryFraction)
-                    .help(DockerFormat.memoryHelp(container))
+                    .islandHelp(DockerFormat.memoryHelp(container))
                     .frame(width: 105, alignment: .trailing)
                 Image(systemName: "chevron.right").font(.system(size: 8, weight: .semibold)).foregroundStyle(Theme.tertiary)
                     .frame(width: onFavorite == nil ? nil : 22).opacity(onFavorite == nil ? 1 : 0)
@@ -233,23 +247,29 @@ struct DockerContainerRow: View {
         .overlay(alignment: .trailing) {
             if let onFavorite { DockerFavoriteButton(active: isFavorite, action: onFavorite) }
         }
-        .help(container.name + " · " + container.image + (container.statsError.map { " · " + DockerSnapshot.errorText($0) } ?? ""))
+        .islandHelp(container.name + " · " + container.image + (container.statsError.map { " · " + DockerSnapshot.errorText($0) } ?? ""))
     }
 }
 
-struct DockerContainerTile: View {
+struct DockerContainerTile: View, Equatable {
     var container: DockerContainer
     var now: Date
     var isFavorite = false
     var onFavorite: (() -> Void)? = nil
     var onOpen: () -> Void
+    private let localeKey = L("zh", "en")
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.container == rhs.container && lhs.isFavorite == rhs.isFavorite
+            && (lhs.onFavorite == nil) == (rhs.onFavorite == nil) && lhs.localeKey == rhs.localeKey
+    }
 
     var body: some View {
         Button(action: onOpen) {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 5) {
                     Circle().fill(DockerContainerRow.color(container)).frame(width: 5, height: 5)
-                    Text(container.name).font(Theme.rounded(11, .medium)).foregroundStyle(Theme.text)
+                    Text(container.name).font(Theme.rounded(12, .medium)).foregroundStyle(Theme.text)
                         .lineLimit(1).truncationMode(.middle)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Spacer(minLength: 0)
@@ -261,10 +281,10 @@ struct DockerContainerTile: View {
                 DockerContainerStatus(container: container, now: now)
                 HStack(spacing: 10) {
                     DockerResourceValue(title: "CPU", value: DockerFormat.cpu(container.cpuUsagePercent), fraction: container.cpuFraction, barWidth: 24)
-                        .help(DockerFormat.cpuHelp(container))
+                        .islandHelp(DockerFormat.cpuHelp(container))
                     Spacer(minLength: 0)
                     DockerResourceValue(title: L("内存", "Mem"), value: DockerFormat.percent(container.memoryFraction), fraction: container.memoryFraction, barWidth: 24)
-                        .help(DockerFormat.memoryHelp(container))
+                        .islandHelp(DockerFormat.memoryHelp(container))
                 }
             }
             .padding(.horizontal, 9).padding(.vertical, 8)
@@ -274,7 +294,7 @@ struct DockerContainerTile: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(container.image)
+        .islandHelp(container.image)
         // 用标题行实际预留位置对齐星标；按钮放在主卡片按钮之外，避免点击收藏同时进入详情。
         .overlayPreferenceValue(DockerFavoriteSlotKey.self) { anchor in
             GeometryReader { geometry in
@@ -312,7 +332,7 @@ private struct DockerFavoriteButton: View {
         }
         .buttonStyle(.plain)
         .modifier(DockerToolbarHover())
-        .help(active ? L("取消收藏", "Unfavorite") : L("收藏容器", "Favorite Container"))
+        .islandHelp(active ? L("取消收藏", "Unfavorite") : L("收藏容器", "Favorite Container"))
         .accessibilityLabel(active ? L("取消收藏", "Unfavorite") : L("收藏容器", "Favorite Container"))
     }
 }
@@ -361,6 +381,29 @@ enum DockerContainerSearch {
     }
 }
 
+/// 状态筛选与文本搜索叠加，仅改变本地展示；收藏按当前主机配置判断。
+enum DockerContainerFilter: CaseIterable {
+    case all, favorites, running, stopped, unhealthy
+    var label: String {
+        switch self {
+        case .all: return L("全部", "All")
+        case .favorites: return L("收藏", "Favorites")
+        case .running: return L("运行中", "Running")
+        case .stopped: return L("已停止", "Stopped")
+        case .unhealthy: return L("不健康", "Unhealthy")
+        }
+    }
+    func matches(_ item: DockerContainer, favorites: Set<String>) -> Bool {
+        switch self {
+        case .all: return true
+        case .favorites: return favorites.contains(item.name)
+        case .running: return item.state == "running"
+        case .stopped: return item.isStopped
+        case .unhealthy: return item.health == "unhealthy"
+        }
+    }
+}
+
 struct DockerPage: View {
     var host: HostConfig
     @ObservedObject var engine: MonitorEngine
@@ -373,12 +416,15 @@ struct DockerPage: View {
     @State private var listError: String?
     @State private var manualRefreshID: UUID?
     @State private var query = ""
+    @State private var filter: DockerContainerFilter = .all
     @State private var searching = false
 
     private var snapshot: DockerSnapshot? { engine.snapshots[host.id]?.docker }
     private var selected: DockerContainer? { snapshot?.containers.first { $0.id == selectedID } }
     private var filteredContainers: [DockerContainer] {
-        host.dockerSort.sorted((snapshot?.containers ?? []).filter { DockerContainerSearch.matches($0, query: query) },
+        host.dockerSort.sorted((snapshot?.containers ?? []).filter {
+            filter.matches($0, favorites: Set(host.dockerFavorites)) && DockerContainerSearch.matches($0, query: query)
+        },
                                favorites: Set(host.dockerFavorites))
     }
     private var subtitle: String {
@@ -405,13 +451,32 @@ struct DockerPage: View {
                 Button { query = "" } label: {
                     Image(systemName: "xmark.circle.fill").font(.system(size: 10)).foregroundStyle(Theme.tertiary)
                         .contentShape(Rectangle())
-                }.buttonStyle(.plain).help(L("清除搜索", "Clear Search"))
+                }.buttonStyle(.plain).islandHelp(L("清除搜索", "Clear Search"))
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 5)
         .background(Capsule().fill(Color.white.opacity(searching ? 0.12 : 0.07)))
         .frame(width: 170)
-        .help(L("按容器名称、ID、镜像或 Compose 项目/服务搜索；多个词用空格分隔", "Search name, ID, image or Compose project/service; separate terms with spaces"))
+        .islandHelp(L("按容器名称、ID、镜像或 Compose 项目/服务搜索；多个词用空格分隔", "Search name, ID, image or Compose project/service; separate terms with spaces"))
+    }
+
+    private var filterBar: some View {
+        HStack(spacing: 6) {
+            ForEach(DockerContainerFilter.allCases, id: \.self) { value in
+                Button { filter = value } label: {
+                    Text(value.label).font(Theme.rounded(10.5, .semibold))
+                        .foregroundStyle(filter == value ? Theme.text : Theme.tertiary)
+                        .padding(.horizontal, 10).padding(.vertical, 3.5)
+                        .background(Capsule().fill(Color.white.opacity(filter == value ? 0.14 : 0.04)))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(filter == value ? [.isSelected] : [])
+            }
+            Spacer(minLength: 0)
+            Text(L("\(filteredContainers.count) 项", "\(filteredContainers.count) items"))
+                .font(Theme.rounded(10.5)).foregroundStyle(Theme.tertiary)
+        }
     }
 
     var body: some View {
@@ -435,6 +500,7 @@ struct DockerPage: View {
                         DockerListControls(mode: host.dockerAllView, sort: host.dockerSort,
                                            onMode: { engine.setDockerView(host: host.id, mode: $0, allContainers: true) },
                                            onSort: { engine.setDockerView(host: host.id, sort: $0) })
+                            .equatable()
                     }
                     if let container = selected {
                         controlButtons(container)
@@ -445,10 +511,11 @@ struct DockerPage: View {
                     .disabled(manualRefreshID != nil)
                 }
                 .frame(height: 30)
+                if selectedID == nil { filterBar }
                 if let container = selected {
                     DockerContainerDetail(host: host, container: container, engine: engine, now: context.date).id(container.id)
                 } else {
-                    MaybeScroll {
+                    DockerVerticalScroll {
                         VStack(alignment: .leading, spacing: 10) {
                             if let listError { DockerNote(text: listError, warning: true) }
                             if let error = snapshot?.error {

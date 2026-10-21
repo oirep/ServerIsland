@@ -449,7 +449,7 @@ struct ExpandedContent: View {
         }
         .foregroundStyle(value > 0 ? color : Theme.tertiary)
         .fixedSize()
-        .help(help)
+        .islandHelp(help)
     }
 
     private var emptyState: some View {
@@ -504,7 +504,7 @@ struct GlobalPollMenu: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .onHover { hovering = $0 }
-        .help(store.settings.autoRefresh ? L("自动刷新间隔（点击修改，或改为仅手动刷新）", "Auto refresh interval (click to change)") : L("当前为仅手动刷新", "Manual refresh only"))
+        .islandHelp(store.settings.autoRefresh ? L("自动刷新间隔（点击修改，或改为仅手动刷新）", "Auto refresh interval (click to change)") : L("当前为仅手动刷新", "Manual refresh only"))
     }
 
     private var menuLabel: some View {

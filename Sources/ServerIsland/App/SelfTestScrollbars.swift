@@ -1,9 +1,64 @@
 import AppKit
+import SwiftUI
 
 /// 只建离屏控件，验证原生滚动连接不被替换破坏，不开窗口或渲染截图。
 @MainActor
 enum SelfTestScrollbars {
     static func run(_ check: (Bool, String) -> Void) {
+        let dockerViewport = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        dockerViewport.borderType = .noBorder
+        dockerViewport.hasVerticalScroller = true; dockerViewport.hasHorizontalScroller = true
+        dockerViewport.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        IslandScrollbars.markVerticalOnly(dockerViewport)
+        check(!dockerViewport.hasHorizontalScroller && dockerViewport.horizontalScrollElasticity == .none,
+              "Docker 滚动方向：列表/指标仅纵向，不显示横向滚动条或横向回弹")
+        dockerViewport.hasHorizontalScroller = true
+        IslandScrollbars.apply(in: dockerViewport)
+        check(!dockerViewport.hasHorizontalScroller, "Docker 滚动方向：重新布局和细滚动条扫描不会恢复横向条")
+        let logViewport = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        logViewport.hasHorizontalScroller = true
+        IslandScrollbars.apply(in: logViewport)
+        check(logViewport.hasHorizontalScroller, "Docker 滚动方向：未登记的日志区保留横向滚动")
+        dockerViewport.tile()
+        let fitted = DockerVerticalScroll<EmptyView>.contentWidth(for: dockerViewport.frame.width)
+        check(fitted <= dockerViewport.contentSize.width && fitted > 0
+              && DockerVerticalScroll<EmptyView>.contentWidth(for: 0) == 0,
+              "Docker 内容宽度：扣除实际细滚动条占位，不超过原生视口，零尺寸不产生负宽度")
+        let hitCache = IslandHitTestCache()
+        var geometryBuilds = 0
+        for _ in 0..<5000 {
+            _ = hitCache.rect(for: .expanded) { geometryBuilds += 1; return NSRect(x: 0, y: 0, width: 600, height: 300) }
+        }
+        check(geometryBuilds == 1, "界面命中检测：5000 次鼠标查询只计算一次卡片范围")
+        hitCache.invalidate()
+        let resized = hitCache.rect(for: .expanded) { geometryBuilds += 1; return NSRect(x: 0, y: 0, width: 600, height: 400) }
+        check(geometryBuilds == 2 && resized.height == 400, "界面命中检测：页面/数据改变后可重新计算范围")
+
+        let tooltipWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 40),
+                                     styleMask: .titled, backing: .buffered, defer: false)
+        tooltipWindow.isReleasedWhenClosed = false
+        let tooltip = IslandTooltipTarget(frame: NSRect(x: 0, y: 0, width: 120, height: 20))
+        tooltipWindow.contentView?.addSubview(tooltip)
+        tooltip.updateText("CPU 1%")
+        for value in 2...30 { tooltip.updateText("CPU \(value)%") }
+        check(tooltip.registrationCount == 1
+              && tooltip.view(tooltip, stringForToolTip: 0, point: .zero, userData: nil) == "CPU 30%",
+              "界面 tips：连续数据更新只登记一次提示区域，并读取最新文字")
+        check(tooltip.hitTest(NSPoint(x: 5, y: 5)) == nil, "界面 tips：提示视图不截获按钮点击或悬停目标")
+        tooltip.setFrameSize(NSSize(width: 160, height: 20))
+        check(tooltip.registrationCount == 2, "界面 tips：控件实际变宽时更新有效提示区域")
+        tooltip.updateText(""); tooltip.updateText("恢复提示")
+        check(tooltip.registrationCount == 3, "界面 tips：空提示隐藏后可恢复，不残留旧区域")
+        tooltipWindow.close()
+
+        let scanProbe = IslandScanProbe(frame: .zero)
+        scanProbe.inspections = 0
+        for _ in 0..<50 { IslandScrollbars.schedule(in: scanProbe) }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.04))
+        check(scanProbe.inspections == 1, "界面布局扫描：同一批 50 次请求合并为一次遍历")
+        for _ in 0..<50 { IslandScrollbars.schedule(in: scanProbe) }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.12))
+        check(scanProbe.inspections == 2, "界面布局扫描：后续请求限频执行，仍处理新控件")
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 160, height: 100))
         let document = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 600))
@@ -45,5 +100,13 @@ enum SelfTestScrollbars {
         let horizontal = IslandThinScroller.visibleKnob(in: NSRect(x: 10, y: 0, width: 80, height: 14), vertical: false)
         check(vertical.width == 4 && horizontal.height == 4 && vertical.height == 80 && horizontal.width == 80,
               "灵动岛滚动条：两种方向均为 4pt，保持原有滑块长度")
+    }
+}
+
+private final class IslandScanProbe: NSView {
+    var inspections = 0
+    override var subviews: [NSView] {
+        get { inspections += 1; return super.subviews }
+        set { super.subviews = newValue }
     }
 }

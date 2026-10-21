@@ -1,5 +1,33 @@
 import SwiftUI
 
+/// 明确指定灰色选中层，避免窗口获得键盘焦点后系统分段控件切换为蓝色。
+struct DockerDetailTabs: View, Equatable {
+    var selected: Int
+    var onSelect: (Int) -> Void
+    private let localeKey = L("zh", "en")
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.selected == rhs.selected && lhs.localeKey == rhs.localeKey }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(0..<2) { value in
+                Button { onSelect(value) } label: {
+                    Text(value == 0 ? L("指标", "Metrics") : L("运行日志", "Runtime Logs"))
+                        .font(Theme.rounded(11.5, .semibold))
+                        .foregroundStyle(selected == value ? Theme.text : Theme.secondary)
+                        .frame(maxWidth: .infinity).frame(height: 20)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(Color.white.opacity(selected == value ? 0.16 : 0)))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected == value ? [.isSelected] : [])
+            }
+        }
+        .padding(2).frame(width: 165, height: 24)
+        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
+        .transaction { $0.animation = nil }
+    }
+}
+
 /// 指标两列排布，资源条与百分比在同一行；图表和日志各自按需显示。
 struct DockerContainerDetail: View {
     var host: HostConfig
@@ -12,10 +40,7 @@ struct DockerContainerDetail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Picker("", selection: $tab) {
-                    Text(L("指标", "Metrics")).tag(0)
-                    Text(L("运行日志", "Runtime Logs")).tag(1)
-                }.pickerStyle(.segmented).labelsHidden().frame(width: 165)
+                DockerDetailTabs(selected: tab) { tab = $0 }.equatable()
                 Spacer(minLength: 0)
                 HStack(spacing: 12) {
                     Text("PIDs " + (container.pids.map(String.init) ?? "—"))
@@ -27,7 +52,7 @@ struct DockerContainerDetail: View {
             if tab == 1 {
                 DockerLogView(host: host, containerID: container.id, engine: engine)
             } else {
-                MaybeScroll {
+                DockerVerticalScroll {
                     VStack(alignment: .leading, spacing: 10) {
                         if let liveError { DockerNote(text: liveError, warning: true) }
                         if let error = container.statsError { DockerNote(text: DockerSnapshot.errorText(error), warning: true) }
@@ -48,7 +73,7 @@ struct DockerContainerDetail: View {
 
     private var metrics: some View {
         VStack(spacing: 8) {
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+            LazyVGrid(columns: [GridItem(.flexible(minimum: 0)), GridItem(.flexible(minimum: 0))], spacing: 8) {
             DockerMetricCell(title: "CPU", value: DockerFormat.cpu(container.cpuUsagePercent),
                              fraction: container.cpuFraction, hasBar: true,
                              note: DockerFormat.cpuNote(container))
@@ -58,7 +83,7 @@ struct DockerContainerDetail: View {
                              note: DockerFormat.bytes(container.memoryUsed) + " / " + DockerFormat.bytes(container.memoryCapacity))
                 .help(DockerFormat.memoryHelp(container))
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 8) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 0)), count: 4), spacing: 8) {
             DockerMetricCell(title: L("网络接收", "Network RX"), value: DockerFormat.rate(container.rxRate),
                              note: L("累计 ", "Total ") + DockerFormat.bytes(container.networkRx))
             DockerMetricCell(title: L("网络发送", "Network TX"), value: DockerFormat.rate(container.txRate),
@@ -92,7 +117,8 @@ struct DockerContainerDetail: View {
         HStack(alignment: .top, spacing: 10) {
             Text(title).font(Theme.rounded(10)).foregroundStyle(Theme.tertiary).frame(width: 72, alignment: .leading)
             Text(value).font(Theme.mono(10)).foregroundStyle(Theme.secondary).textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         }
     }
 }
@@ -119,7 +145,7 @@ struct DockerMetricCell: View {
                         .frame(maxWidth: .infinity)
                 }
                 Text(value).font(Theme.rounded(12, .medium)).foregroundStyle(Theme.text).monospacedDigit()
-                    .lineLimit(1).fixedSize(horizontal: true, vertical: false).layoutPriority(1)
+                    .lineLimit(1).minimumScaleFactor(0.75).layoutPriority(1)
                 if !hasBar { Spacer(minLength: 0) }
             }
         }
@@ -137,6 +163,13 @@ struct DockerLogView: View {
     @State private var logs: DockerLogs?
     @State private var coloredLog = AttributedString()
     @State private var loading = false
+    @State private var manualLoading = false
+    @State private var logQuery = ""
+    @State private var searchFocused = false
+    @State private var matches = DockerLogMatches()
+    @State private var selectedMatch = 0
+    @State private var searchedText = ""
+    @State private var jumpToken: UUID?
     @State private var follow = true
     @AppStorage("dockerLogShowsTimestamps") private var showTimestamps = false
     @State private var tail = 200
@@ -155,13 +188,15 @@ struct DockerLogView: View {
                 }.labelsHidden().pickerStyle(.menu).frame(width: 122)
                 Toggle(L("时间戳", "Timestamps"), isOn: $showTimestamps).toggleStyle(.checkbox).font(Theme.rounded(10.5))
                 Toggle(L("自动刷新", "Auto Refresh"), isOn: $follow).toggleStyle(.checkbox).font(Theme.rounded(10.5))
-                Spacer(minLength: 0)
-                if loading { ProgressView().controlSize(.mini) }
+                searchControls.frame(maxWidth: .infinity)
+                if manualLoading { ProgressView().controlSize(.mini) }
                 IslandIconButton(systemName: "terminal", help: L("在默认终端查看最近 \(tail) 行并跟踪日志", "View Last \(tail) Lines and Follow Logs in Default Terminal")) {
                     terminalError = DockerControl.openLogsTerminal(host: host, container: containerID,
                         socket: engine.snapshots[host.id]?.docker?.socket, tail: tail, showTimestamps: showTimestamps)
                 }
-                IslandIconButton(systemName: "arrow.clockwise", help: L("刷新日志", "Refresh Logs")) { reload += 1 }
+                IslandIconButton(systemName: "arrow.clockwise", help: L("刷新日志", "Refresh Logs")) {
+                    manualLoading = true; reload += 1
+                }.disabled(manualLoading)
             }
             if let terminalError { DockerNote(text: terminalError, warning: true) }
             if let error = logs?.error {
@@ -173,7 +208,7 @@ struct DockerLogView: View {
             DockerLogScrollView(
                 text: logs?.text.isEmpty == false ? coloredLog : AttributedString(loading && logs == nil
                     ? L("正在读取日志…", "Loading logs…") : L("暂无日志输出", "No log output")),
-                follow: follow)
+                follow: follow && logQuery.isEmpty, matches: matches, selectedMatch: selectedMatch, jumpToken: jumpToken)
                 .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
             if let time = logs?.fetchedAt {
                 Text(L("更新于 ", "Updated ") + DockerFormat.date(time))
@@ -182,10 +217,19 @@ struct DockerLogView: View {
         }
         .onChange(of: showTimestamps) { _ in
             coloredLog = DockerLogText.render(logs?.text ?? "", showTimestamps: showTimestamps)
+            refreshMatches(reset: false, jump: false)
+        }
+        .onChange(of: logQuery) { _ in
+            refreshMatches(reset: true, jump: true)
         }
         .task(id: requestKey) {
             let token = UUID()
             activeRequest = token
+            let requestIdentity = requestKey
+            defer {
+                // 旧任务取消时不能清掉新一轮手动刷新的 loading。
+                if activeRequest == token && requestKey == requestIdentity { loading = false; manualLoading = false }
+            }
             var failures = 0
             repeat {
                 guard !Task.isCancelled else { return }
@@ -194,15 +238,67 @@ struct DockerLogView: View {
                 let result = await engine.fetchDockerLogs(host: host, container: containerID, tail: tail)
                 guard !Task.isCancelled, activeRequest == token else { return }
                 // 仅日志内容改变时解析颜色，避免每秒界面重绘重复处理长日志。
-                if result.text != logs?.text { coloredLog = DockerLogText.render(result.text, showTimestamps: showTimestamps) }
+                if result.text != logs?.text {
+                    coloredLog = DockerLogText.render(result.text, showTimestamps: showTimestamps)
+                    refreshMatches(reset: false, jump: false)
+                }
                 logs = result
                 loading = false
+                manualLoading = false
                 guard follow, DockerLivePolling.retries(result.error) else { return }
                 failures = result.error == nil ? 0 : failures + 1
                 let delay = DockerLivePolling.delay(elapsed: Date().timeIntervalSince(started), failures: failures)
                 do { try await Task.sleep(for: .seconds(delay)) } catch { return }
             } while !Task.isCancelled
         }
+    }
+
+    private var searchControls: some View {
+        HStack(spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").font(.system(size: 10)).foregroundStyle(Theme.tertiary)
+                ZStack(alignment: .leading) {
+                    if logQuery.isEmpty {
+                        Text(L("搜索当前日志", "Search loaded logs")).font(Theme.rounded(11.5))
+                            .foregroundStyle(Theme.tertiary).allowsHitTesting(false)
+                    }
+                    DockerSearchInput(text: $logQuery, focused: $searchFocused,
+                                      label: L("搜索当前日志", "Search loaded logs"), redirectReadOnlyText: true,
+                                      onSubmit: { if !matches.ranges.isEmpty { moveMatch(1) } })
+                }.frame(height: 18)
+                if !logQuery.isEmpty {
+                    Button { logQuery = "" } label: {
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 10)).foregroundStyle(Theme.tertiary)
+                    }.buttonStyle(.plain).islandHelp(L("清除搜索", "Clear Search"))
+                }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 4)
+            .background(Capsule().fill(Color.white.opacity(searchFocused ? 0.12 : 0.07)))
+            if !logQuery.isEmpty {
+                Text("\(matches.ranges.isEmpty ? 0 : selectedMatch + 1)/\(matches.ranges.count)" + (matches.capped ? "+" : ""))
+                    .font(Theme.mono(10)).foregroundStyle(Theme.tertiary).fixedSize()
+                IslandIconButton(systemName: "chevron.up", help: L("上一个匹配", "Previous Match")) { moveMatch(-1) }
+                    .disabled(matches.ranges.isEmpty)
+                IslandIconButton(systemName: "chevron.down", help: L("下一个匹配", "Next Match")) { moveMatch(1) }
+                    .disabled(matches.ranges.isEmpty)
+            }
+        }
+    }
+
+    /// 刷新只重算命中与保留当前项；只有用户输入或点击定位按钮才滚动到匹配位置。
+    private func refreshMatches(reset: Bool, jump: Bool) {
+        let text = String(coloredLog.characters)
+        let previous = matches.ranges.indices.contains(selectedMatch) ? matches.ranges[selectedMatch] : nil
+        let fresh = DockerLogMatches.find(in: text, query: logQuery)
+        selectedMatch = reset ? 0 : fresh.retainedIndex(previous: previous, oldText: searchedText, newText: text)
+        matches = fresh
+        searchedText = text
+        if jump { jumpToken = UUID() }
+    }
+
+    private func moveMatch(_ direction: Int) {
+        selectedMatch = DockerLogMatches.step(selectedMatch, count: matches.ranges.count, direction: direction)
+        jumpToken = UUID()
     }
 
     private func logError(_ code: String) -> String {
