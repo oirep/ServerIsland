@@ -105,9 +105,12 @@ public static class DemoData
             var lmp = AppJob("41377", "lmp", JobSource.Process, lmpApp);
             lmp.Elapsed = 2_300 + t * 2; lmp.CpuPercent = 1_580;
 
-            // 自定义规则识别的机器学习势训练
-            var mace = new AppProgress(AppKind.Custom, Home + "/MACE/run-02")
-            { CustomName = L("MACE 训练", "MACE training"), CustomUnit = "epoch", Current = 37, Total = 200, UpdatedAt = DateTime.Now };
+            // MACE 机器学习势训练
+            var mace = new AppProgress(AppKind.Mace, Home + "/MACE/run-02")
+            {
+                Current = 37, Total = 200, UpdatedAt = DateTime.Now, DataFile = "logs/MACE_run-123.log",
+                Losses = [new("Loss", 0.0213), new("RMSE E (meV)", 0.41), new("RMSE F (meV/Å)", 14.6)],
+            };
             var train = AppJob("41856", "python train_mace.py", JobSource.Process, mace);
             train.Elapsed = 9_250 + t * 2; train.CpuPercent = 104; train.GpuMemoryMB = 14_800;
 
@@ -161,11 +164,12 @@ public static class DemoData
         {
             var rows = src.Kind switch
             {
-                AppCurves.CurveKind.Loss => Enumerable.Range(1, 80).Select(i => new[] { i * 100.0, 2.0 / Math.Sqrt(i) + 0.15, 0.04, 0.06, 0.05 / i + 0.0007, 0.6 / Math.Sqrt(i) + 0.07, 0.2 / Math.Sqrt(i) + 0.011 }).ToList(),
+                AppCurves.CurveKind.Loss when src.App == AppKind.Mace => Enumerable.Range(0, 8).Select(i => new[] { i * 5.0, 0.4 / (i + 1) + 0.02, 3.0 / (i + 1) + 0.4, 120.0 / (i + 1) + 14 }).ToList(),
+                AppCurves.CurveKind.Loss =>Enumerable.Range(1, 80).Select(i => new[] { i * 100.0, 2.0 / Math.Sqrt(i) + 0.15, 0.04, 0.06, 0.05 / i + 0.0007, 0.6 / Math.Sqrt(i) + 0.07, 0.2 / Math.Sqrt(i) + 0.011 }).ToList(),
                 AppCurves.CurveKind.VaspEnergy => Enumerable.Range(1, 17).Select(i => new[] { (double)i, -432.1 - 3.2 * (1 - Math.Exp(-i / 5.0)) }).ToList(),
                 _ => Enumerable.Range(1, 17).Select(i => new[] { 0, 1.8 * Math.Exp(-i / 4.0) + 0.012 + 0.004 * Math.Sin(i) }).ToList(),
             };
-            if (AppCurves.Curve(src, rows, new() { ["ediffg"] = "-0.02" }) is { } c) out_.Add(c);
+            if (AppCurves.Curve(src, rows, new() { ["ediffg"] = "-0.02", ["keys"] = "loss,RMSE_E_per_atom,RMSE_F" }) is { } c) out_.Add(c);
         }
         return out_;
     }

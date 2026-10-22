@@ -75,6 +75,9 @@
 | clock.arrow.circlepath | history | 最近 24 小时 |
 | square.grid.3x3.fill | grid | 分区资源 |
 | eye / eye.fill | eye / eyeFill | 监听进程 |
+| star / star.fill | star / starFill | 关注任务（琥珀色） |
+| list.bullet.rectangle | list | 全部任务（跨服务器） |
+| server.rack | server | 全部任务页的服务器筛选 |
 | pin / pin.fill | pin / pinFill | 固定面板 |
 | gearshape.fill | gear | 设置 |
 | key.fill / wifi.exclamationmark | key / wifiAlert | 需要登录 / 连接出错 |

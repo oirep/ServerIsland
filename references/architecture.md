@@ -39,6 +39,11 @@ SwiftUI（IslandRootView、SettingsView），通过 @ObservedObject 订阅 engin
   - 特例：旧版的默认 squeue 格式没有 `%F|%K` 两列，读取时会自动升级。
 - `ConfigStore`：`settings` 改动后 0.5 秒防抖保存；同时更新 `Lang.setting`。
 
+## 设置的导入导出（`Models/ConfigTransfer.swift`，C# 版 `ConfigTransfer.cs`）
+
+- 导出就是把当前设置按 config.json 的格式写到用户选的文件（`ServerIsland-settings-<日期>.json`）；两个版本格式相同，可以互相导入。密码在钥匙串 / 凭据库里，不导出。
+- 导入要求顶层有 `hosts`（否则随便一个 JSON 都能解成默认设置）。两种方式：**替换全部设置**（先把当前设置备份成配置目录里的 `config.before-import-<时间>.json`；保留本机自己的东西：显示器，C# 版还有显示方式、SSH 实现、小章鱼位置、提醒过的版本）和**只添加新的服务器**（按 ID 或连接目标 别名 + 地址 + 用户 + 端口 去重）。两种都会去掉指向不存在服务器的跳板机和关注。
+
 ## 轮询引擎（`Monitor/MonitorEngine.swift`）
 
 - `sync()`：1.2 秒防抖，随后进入 `syncNow()`，比较每台主机的新旧配置。
@@ -74,8 +79,10 @@ SwiftUI（IslandRootView、SettingsView），通过 @ObservedObject 订阅 engin
 - **直连进程消失**：运行 ≥ 30 秒、或者是手动监听的，才算数。有计算软件信息的，先重读最终状态：到达目标是"完成"，否则是"提前结束"（failed）。
 - 排队变运行：发 `started`（不响提示音）。
 - 磁盘超过阈值时提醒一次，回落 3% 后才会重新提醒。
-- 同一次轮询里超过 2 个事件时合并成一条（`flush`）。
+- 同一次轮询里超过 2 个事件时合并成一条（`flush`）。合并前先按提醒设置过滤（`alertable` / `AppSettings.allowsAlert`）：任务事件带 `jobID`（数组是主编号），按种类开关（`alertStarted / alertFinished / alertFailed / alertUnknown`，对应 started / finished / failed / info）和范围（`alertScope`：all / starred）判断；没有 `jobID` 的服务器级提醒（磁盘）总是放行；手动监听的进程在"只提醒关注的任务"时也放行。被过滤的事件写进 DebugLog。
+- **关注**（`AppSettings.starredJobs`：主机 ID + 任务号，数组按主编号）：存在全局设置里，改动不会触发重连。`ingest` 在事件识别之后、且任务列表读全了（`listed`）时，把这台服务器上已经不在列表里的关注去掉（`pruneStarred`），所以关注的任务结束时的提醒照常判断，之后自动取消关注；squeue 出错的那一轮不动。显示时关注的任务排在前面（`starredFirst`，只在界面上排，不改快照顺序）。
 - `emit`：静音的主机直接丢弃；之后依次是系统通知、提示音（节流 1.2 秒）、刘海弹窗队列（每条 5 秒）。
+- **勿扰时段**（`quietHours`、`quietStart` / `quietEnd`：一天里的分钟数，起点晚于终点表示跨午夜，相等时不算；`AppSettings.isQuiet`）：`emit` 照常发系统通知（不出声，AppDelegate / App.cs 判断），之后直接返回——不响铃、不进刘海弹窗队列；历史记录和日志照常。展开面板头部显示一个月亮图标。
 - 每个事件都写入 `DebugLog`（`~/Library/Logs/ServerIsland/serverisland.log`），用于排查"为什么没提醒"。
 
 ## 按需操作（`MonitorEngine+Actions.swift`）

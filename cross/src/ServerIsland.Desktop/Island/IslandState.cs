@@ -26,6 +26,17 @@ public sealed class IslandState
     public int MenusOpen;
     /// 卡片列表可以滚动时的位置（重建后恢复）。
     public Avalonia.Vector ListOffset;
+    /// 全部任务页的筛选条件（打开详情再返回时保留）。
+    public JobsFilter Jobs = new();
+    /// 详情页"返回"回到哪里（从全部任务页打开时回到那里）。
+    public IslandPage? ReturnPage;
+
+    /// 打开全部任务页：从卡片进来时只看那台服务器，从头部进来时看全部。
+    public void OpenAllJobs(Guid? host = null)
+    {
+        Jobs = new JobsFilter(Host: host);
+        Page = new IslandPage(PageKind.Jobs);
+    }
 
     IslandPage _page = IslandPage.List;
     public IslandPage Page
@@ -110,12 +121,29 @@ public sealed class PartitionsState : PageStateBase
     public bool Started;
 }
 
-public enum JobsFilter { All, Running, Pending, Array }
+public enum JobsStatus { All, Running, Pending, Array }
+
+/// 全部任务页的筛选条件。放在 IslandState 里：从这里打开详情再返回时保持不变。
+public sealed record JobsFilter(string Query = "", Guid? Host = null, JobsStatus Status = JobsStatus.All, bool StarredOnly = false)
+{
+    public bool Matches(RemoteJob j, bool starred, string hostName)
+    {
+        if (StarredOnly && !starred) return false;
+        switch (Status)
+        {
+            case JobsStatus.Running when j.RunningUnits == 0: return false;
+            case JobsStatus.Pending when j.PendingUnits == 0: return false;
+            case JobsStatus.Array when j.Array == null: return false;
+        }
+        var q = Query.Trim().ToLowerInvariant();
+        if (q.Length == 0) return true;
+        return j.Name.ToLowerInvariant().Contains(q) || j.Id.ToLowerInvariant().Contains(q) || j.Detail.ToLowerInvariant().Contains(q)
+            || hostName.ToLowerInvariant().Contains(q) || (j.Workdir?.ToLowerInvariant().Contains(q) ?? false);
+    }
+}
 
 public sealed class AllJobsState : PageStateBase
 {
-    public JobsFilter Filter = JobsFilter.All;
-    public string Query = "";
     public Avalonia.Controls.TextBox? SearchBox;
     public Avalonia.Vector ScrollOffset;
 }

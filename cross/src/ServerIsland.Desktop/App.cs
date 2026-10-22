@@ -60,7 +60,7 @@ public sealed class App : Application
         _engine.EventEmitted += e =>
         {
             if (_store.Settings.SystemNotifications && !demo && e.Kind != EventKind.Started && Notifier.Supported)
-                Notifier.Post(e, _store.Settings.SoundEnabled);
+                Notifier.Post(e, _store.Settings.SoundEnabled || _store.Settings.IsQuiet());
         };
 
         _island = new IslandWindow(_engine, _store, _prompter);
@@ -78,6 +78,10 @@ public sealed class App : Application
         // 第一次启动：直接打开设置，引导添加服务器。
         if (_store.Settings.Hosts.Count == 0 && !demo)
             DispatcherTimer.RunOnce(ShowSettings, TimeSpan.FromSeconds(0.6));
+        // 配置文件损坏：在刘海里说明一次（原文件已备份）。
+        if (_store.LoadProblem is { } problem)
+            DispatcherTimer.RunOnce(() => _engine.Emit(new IslandEvent(EventKind.Warning, L("设置文件读取失败", "Couldn't read settings"), problem, "ServerIsland")),
+                TimeSpan.FromSeconds(1.5));
         DebugLog.Log($"ServerIsland {AppInfo.Version} 启动（{Environment.OSVersion}，SSH：{_engine.Ssh.Name}）");
         // 按设置的天数清理诊断日志：启动时一次，之后每 6 小时一次。
         DebugLog.Prune(_store.Settings.LogRetentionDays);

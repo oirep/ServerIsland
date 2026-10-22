@@ -76,6 +76,9 @@ public sealed class CardActions
     public Action ToggleMute = () => { };
     public Action TerminalLogin = () => { };
     public Action Terminal = () => { };
+    /// 关注 / 取消关注某个任务；Starred 是这台服务器上关注的任务号（关注的任务排在前面）。
+    public Action<RemoteJob> ToggleStar = _ => { };
+    public HashSet<string> Starred = [];
     public int GlobalInterval = 60;
     public bool GlobalAuto = true;
     public bool LoggingIn;
@@ -146,8 +149,9 @@ public static class HostCardView
         {
             col.Children.Add(Gap());
             var jobsCol = new StackPanel { Spacing = IslandLayout.JobGap };
-            foreach (var job in snap.Jobs.Take(IslandLayout.MaxJobs))
-                jobsCol.Children.Add(JobRowButton(job, host.Kind, host.Paused ? null : snap.LastUpdate, () => a.OpenJob(job), state)
+            foreach (var job in MonitorEngine.StarredFirst(snap.Jobs, j => a.Starred.Contains(j.Id)).Take(IslandLayout.MaxJobs))
+                jobsCol.Children.Add(JobRowButton(job, host.Kind, host.Paused ? null : snap.LastUpdate, () => a.OpenJob(job), state,
+                        a.Starred.Contains(job.Id), () => a.ToggleStar(job))
                     .Hgt(IslandLayout.JobRow).Op(host.Paused ? 0.45 : 1));
             col.Children.Add(jobsCol);
         }
@@ -312,11 +316,16 @@ public static class HostCardView
 
     // MARK: - 任务行
 
-    public static Control JobRowButton(RemoteJob job, HostKind kind, DateTime? sampledAt, Action action, IslandState? state)
+    /// 可点击的任务行：悬停高亮，点击查看详情。onStar 为 null 时不能关注（数组里的单个元素）。
+    /// 关注按钮（星）是行里单独的按钮，它先处理点击并标记为已处理，不会同时打开详情。
+    public static Control JobRowButton(RemoteJob job, HostKind kind, DateTime? sampledAt, Action action, IslandState? state,
+                                       bool starred = false, Action? onStar = null)
     {
         var chevron = new Icon("chevronRight", 9, Hue.Tertiary.B(), 3) { IsVisible = false, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, -4, 0) };
+        Control? star = onStar == null ? null : StarToggle(starred, onStar);
+        if (star != null) star.IsVisible = starred;
         var grid = new Grid();
-        grid.Children.Add(JobRow(job, kind, sampledAt));
+        grid.Children.Add(JobRow(job, kind, sampledAt, starred, star));
         grid.Children.Add(chevron);
         var b = new Clickable(action)
         {
@@ -327,16 +336,36 @@ public static class HostCardView
             Hover = Hue.W(0.07),
             Child = grid,
         };
-        b.HoverChanged = h => chevron.IsVisible = h;
+        b.HoverChanged = h => { chevron.IsVisible = h; if (star != null) star.IsVisible = h || starred; };
         var entries = new List<Menus.Entry> { new(L("查看详情和日志", "Details & Log"), action) };
+        if (onStar != null) entries.Add(new(starred ? L("取消关注", "Unstar") : L("关注", "Star"), onStar));
+        entries.Add(Menus.Sep);
         if (job.Source != JobSource.ProgressFile)
             entries.Add(new(job.Source == JobSource.Process ? L("复制 PID", "Copy PID") : L("复制作业号", "Copy Job ID"), () => _ = Ui.Clipboard.SetText(b, job.Id)));
         entries.Add(new(L("复制名称", "Copy Name"), () => _ = Ui.Clipboard.SetText(b, job.Name)));
         if (job.Source == JobSource.Process && job.Detail.Length > 0)
             entries.Add(new(L("复制完整命令", "Copy Full Command"), () => _ = Ui.Clipboard.SetText(b, job.Detail)));
         b.ContextMenu = Menus.Context(entries, state);
-        return b.Tip(L("点击查看详情和日志 · 右键复制", "Click for details & log · right-click to copy"));
+        return b.Tip(onStar == null ? L("点击查看详情和日志 · 右键复制", "Click for details & log · right-click to copy")
+                                    : L("点击查看详情和日志 · ☆ 关注 · 右键复制", "Click for details & log · ☆ to star · right-click to copy"));
     }
+
+    /// 任务行上的关注开关：实心琥珀色星 = 已关注；悬停在行上时显示空心星。
+    public static Control StarToggle(bool on, Action action)
+    {
+        var icon = new Icon(on ? "starFill" : "star", 10, (on ? Hue.Amber : Hue.Tertiary).B());
+        var c = new Clickable(action)
+        {
+            CornerRadius = new CornerRadius(100), Width = 16, Height = 16,
+            Normal = Colors.Transparent, Hover = Hue.W(0.12),
+            Child = icon,
+        };
+        c.HoverChanged = h => { icon.Brush = (on || h ? Hue.Amber : Hue.Tertiary).B(); icon.InvalidateVisual(); };
+        return c.Tip(on ? L("取消关注", "Unstar") : L("关注：排在前面，可以只提醒关注的任务", "Star: keep it on top; alerts can be limited to starred jobs"));
+    }
+
+    /// 只读的关注标记（离屏预览等不能点的地方）。
+    public static Control StarMark() => new Icon("starFill", 10, Hue.Amber.B()) { Width = 16 };
 
     /// 运行中的任务在两次采样之间本地继续计时，看起来是"活"的。
     static double? LiveElapsed(RemoteJob job, DateTime? sampledAt)
@@ -353,12 +382,14 @@ public static class HostCardView
         return null;
     }
 
-    public static Control JobRow(RemoteJob job, HostKind kind, DateTime? sampledAt)
+    public static Control JobRow(RemoteJob job, HostKind kind, DateTime? sampledAt, bool starred = false, Control? star = null)
     {
         var line1 = new ShrinkRow(6, 0, T(job.Name, 12, FontWeight.Medium).Middle().Tip(job.Detail.Length == 0 ? job.Name : job.Detail));
         if (job.Watched) line1.Children.Add(new Icon("eyeFill", 10, Hue.Mint.B()).Tip(L("手动监听的进程", "Watched process")));
         if (job.Array != null) line1.Children.Add(T(L($"数组 #{job.Id}", $"array #{job.Id}"), 9.5, FontWeight.SemiBold, Hue.Violet, mono: true));
         else if (job.Source != JobSource.ProgressFile) line1.Children.Add(T(job.Source == JobSource.Slurm ? $"#{job.Id}" : $"pid {job.Id}", 9.5, color: Hue.Tertiary, mono: true));
+        if (star != null) line1.Children.Add(star);
+        else if (starred) line1.Children.Add(StarMark());
         var right = LiveT(() => RightText(job, sampledAt), 10.5, FontWeight.Medium, job.HasRealProgress ? Hue.Mint : Hue.Secondary);
         var top = Row(6, Fill(line1), right);
 

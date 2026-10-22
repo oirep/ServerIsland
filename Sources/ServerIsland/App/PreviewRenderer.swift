@@ -19,6 +19,12 @@ enum PreviewRenderer {
         for host in store.settings.hosts {
             engine.setPreviewSnapshot(DemoData.snapshot(for: host, tick: 3, previous: HostSnapshot()), for: host.id)
         }
+        // 演示关注：每台有任务的服务器关注一个排在后面的任务（关注的任务排到前面）
+        for host in store.settings.hosts {
+            if let j = engine.snapshots[host.id]?.jobs.dropFirst().first(where: { $0.arrayJobID == nil || $0.array != nil }) {
+                engine.toggleStar(hostID: host.id, job: j)
+            }
+        }
         // 第二台机器演示"需要登录"的状态。
         var login = HostConfig(alias: "lab-old", displayName: "旧集群", kind: .slurm)
         login.auth = .interactive
@@ -142,6 +148,16 @@ enum PreviewRenderer {
                          note: L("ServerIsland 未运行时结束", "ended while ServerIsland wasn't running"), dir: "/home/demo/nep/LiF"),
         ]))
 
+        page("jobs", AllJobsPage(engine: engine, store: store, filter: .constant(JobsFilter()), onBack: {}, onOpen: { _, _ in }))
+        page("jobs-starred", AllJobsPage(engine: engine, store: store, filter: .constant(JobsFilter(status: .running, starredOnly: true)),
+                                         onBack: {}, onOpen: { _, _ in }))
+        page("jobs-empty", AllJobsPage(engine: engine, store: store, filter: .constant(JobsFilter(query: "zzz", host: slurmHost.id)),
+                                       onBack: {}, onOpen: { _, _ in }))
+        if let starredJob = engine.snapshots[slurmHost.id]?.jobs.first(where: { engine.isStarred(slurmHost.id, $0.id) }) {
+            page("detail-starred", JobDetailPage(host: slurmHost, job: starredJob, sampledAt: Date(), stillListed: true, engine: engine,
+                                                 onBack: {}, openSettings: {}, preloaded: detail))
+        }
+
         // 设置窗口（离屏窗口 + cacheDisplay，不需要屏幕录制权限）
         func settingsShot(_ name: String, _ page: SettingsPage, dark: Bool, height: CGFloat = 640) {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 880, height: height), styleMask: [.titled, .fullSizeContentView],
@@ -173,7 +189,9 @@ enum PreviewRenderer {
         UpdateChecker.shared.setPreviewState(.idle)
         settingsShot("settings-host", .host(store.settings.hosts[0].id), dark: true)
         // 整页（自查用：页面下方的目录过滤、日志保留等）
+        store.settings.quietHours = true
         settingsShot("settings-general-full", .general, dark: true, height: 2000)
+        store.settings.quietHours = false
         store.settings.hosts[0].pathFilter = "~/projects/LiCoO2"
         settingsShot("settings-host-full", .host(store.settings.hosts[0].id), dark: true, height: 3600)
         store.settings.hosts[0].pathFilter = ""
@@ -221,7 +239,7 @@ enum PreviewRenderer {
                 }
             page("detail-nep", JobDetailPage(host: nepHost, job: nepJob, sampledAt: Date(), stillListed: true, engine: engine,
                                              onBack: {}, openSettings: {}, preloaded: nepDetail,
-                                             preloadedCurves: [AppCurves.curve(.loss(path: "", gnep: false), rows: rows)].compactMap { $0 }))
+                                             preloadedCurves: [AppCurves.curve(.loss(path: "", kind: .nep), rows: rows)].compactMap { $0 }))
             var relaxApp = AppProgress(kind: .vasp, dir: DemoData.home + "/LiCoO2/relax-hse"); relaxApp.vaspMode = .relax; relaxApp.current = 23
             var relaxJob = RemoteJob(id: "31022", name: "vasp_std", state: .running, source: .process)
             relaxJob.app = relaxApp; relaxJob.message = relaxApp.title + " · " + relaxApp.summary

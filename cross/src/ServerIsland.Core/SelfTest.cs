@@ -267,6 +267,7 @@ public static class SelfTest
         else Skip("计算软件识别（VASP / LAMMPS / 自定义规则 / 曲线）");
         SelfTestConnection.Run(Check);
         SelfTestPBS.Run(Check, hasBash);
+        SelfTestMonitor.Run(Check);
 
         CrossPlatformChecks(hasBash);
 
@@ -418,7 +419,9 @@ public static class SelfTest
                 ("sacct.sh", RemoteScript.SacctScript(slurm, ["1", "2_3"])),
                 ("final-state.sh", AppDetectors.FinalStateScript("123", "/home/u/it's dir")),
                 ("rule-test.sh", AppDetectors.RuleTestScript("~/runs/exp1", rules[1])),
-                ("curve-loss.sh", AppCurves.Script(new AppCurves.Source("/home/u/nep/loss.out", AppCurves.CurveKind.Loss), 120, "100 0.3")),
+                ("curve-loss.sh", AppCurves.Script(new AppCurves.Source("/home/u/nep/loss.out", AppCurves.CurveKind.Loss, AppKind.Gnep), 120, "100 0.3")),
+                ("curve-nep.sh", AppCurves.Script(new AppCurves.Source("/home/u/nep/loss.out", AppCurves.CurveKind.Loss), 0, "")),
+                ("curve-mace.sh", AppCurves.Script(new AppCurves.Source("/home/u/mace/logs/LLZO_run-123.log", AppCurves.CurveKind.Loss, AppKind.Mace), 40, "x")),
                 ("curve-vasp.sh", AppCurves.Script(new AppCurves.Source("/home/u/v/OSZICAR", AppCurves.CurveKind.VaspEnergy), 0, "")),
                 ("partitions.sh", Partitions.Script(slurm)),
                 ("detect.sh", RemoteScript.DetectScript),

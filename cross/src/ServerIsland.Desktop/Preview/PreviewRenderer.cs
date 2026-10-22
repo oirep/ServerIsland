@@ -34,11 +34,14 @@ public static class PreviewRenderer
         var demo = DemoData.Settings();
         demo.Language = lang;
         store.Replace(demo);
-        store.Settings.ProgressRules = [new ProgressRule { Name = "MACE", File = "*.log", Pattern = "epoch", Unit = "epoch" }];
+        store.Settings.ProgressRules = [new ProgressRule { Name = "PyTorch", File = "*.log", Pattern = "epoch", Unit = "epoch" }];
         Lang.Setting = lang;
         MonitorEngine.NoNetwork = true;
         var engine = new MonitorEngine(store, demo: true, history: new HistoryStore(persist: false));
         foreach (var h in store.Settings.Hosts) engine.SetSnapshot(DemoData.Snapshot(h, 3), h.Id);
+        // 演示关注：每台有任务的服务器关注一个排在后面的任务（关注的任务排到前面）
+        foreach (var h in store.Settings.Hosts)
+            if (engine.Snapshots[h.Id].Jobs.Skip(1).FirstOrDefault(j => j.ArrayJobID == null || j.Array != null) is { } sj) engine.ToggleStar(h.Id, sj);
         var prompter = new LoginPrompter();
         int count = 0;
 
@@ -227,10 +230,26 @@ public static class PreviewRenderer
         st.PageState = new PickerState { Started = true, Procs = boxSnap.Jobs.Select(j => j.Clone()).ToList() };
         Save(IslandScene(IslandMode.Expanded, st), "page-picker");
 
-        // 全部任务
+        // 全部任务（跨服务器）、只看关注的运行中任务、没有匹配
         st = new IslandState { Hovering = true };
-        st.Page = new IslandPage(PageKind.Jobs, hpc.Id);
+        st.OpenAllJobs();
         Save(IslandScene(IslandMode.Expanded, st), "page-all-jobs");
+        st = new IslandState { Hovering = true };
+        st.OpenAllJobs();
+        st.Jobs = new JobsFilter(Status: JobsStatus.Running, StarredOnly: true);
+        Save(IslandScene(IslandMode.Expanded, st), "page-all-jobs-starred");
+        st = new IslandState { Hovering = true };
+        st.OpenAllJobs(hpc.Id);
+        st.Jobs = st.Jobs with { Query = "zzz" };
+        Save(IslandScene(IslandMode.Expanded, st), "page-all-jobs-empty");
+        // 关注的任务的详情页（头部的星标）
+        if (hpcSnap.Jobs.FirstOrDefault(j => engine.IsStarred(hpc.Id, j.Id)) is { } starredJob)
+        {
+            st = new IslandState { Hovering = true };
+            st.Page = new IslandPage(PageKind.Job, hpc.Id, starredJob.Id);
+            st.PageState = new JobDetailState { Started = true, Detail = new JobDetail { Fields = [(L("状态", "State"), "RUNNING"), (L("分区", "Partition"), "cpu")] } };
+            Save(IslandScene(IslandMode.Expanded, st), "page-detail-starred");
+        }
 
         // 桌宠模式：小章鱼 + 浮动面板
         st = new IslandState { Hovering = true, Floating = true };
@@ -333,9 +352,11 @@ public static class PreviewRenderer
         }
         // 整页（自查用：页面下方的日志保留、目录过滤等）
         {
-            var full = new SettingsWindow(store, engine, prompter) { RequestedThemeVariant = ThemeVariant.Dark, Width = 900, Height = 2600 };
+            store.Settings.QuietHours = true;   // 勿扰时段的时间行只在打开时显示
+            var full = new SettingsWindow(store, engine, prompter) { RequestedThemeVariant = ThemeVariant.Dark, Width = 900, Height = 2700 };
             full.Show();
             Save(full, "settings-general-full-dark");
+            store.Settings.QuietHours = false;
             hpc.PathFilter = "~/projects/Li3PS4";
             full.Select(SettingsPageKind.Host, hpc.Id);
             Save(full, "settings-host-full-dark");

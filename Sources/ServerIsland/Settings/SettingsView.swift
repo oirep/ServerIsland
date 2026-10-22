@@ -310,6 +310,9 @@ struct GeneralSettingsView: View {
     @State private var historyCleared = false
     @ObservedObject private var updates = UpdateChecker.shared
     @State private var logCleared = false
+    /// 读好、等用户确认怎么导入的设置。
+    @State private var pendingImport: AppSettings?
+    @State private var transferNote = ""
 
     /// "显示在"的选项：自动、主屏幕、每块已连接的屏幕；选过但现在没连接的屏幕也列出来（标"未连接"）。
     private var screenChoices: [(value: String, label: String)] {
@@ -399,8 +402,48 @@ struct GeneralSettingsView: View {
                               help: L("展开面板里，没有任务的服务器合并成一行，点击可以展开。全部空闲时照常显示。",
                                       "Servers with no jobs are grouped into one line you can click to expand. All cards show when everything is idle."))
                 }
+            } header: { SettingsHeader(title: L("刘海", "Island"), symbol: "rectangle.topthird.inset.filled", tint: .indigo) }
+
+            Section {
                 Toggle(L("在刘海弹出提示", "Island Pop-ups"), isOn: $store.settings.islandAlerts)
                 Toggle(L("系统通知", "System Notifications"), isOn: $store.settings.systemNotifications)
+                Picker(selection: $store.settings.alertScope) {
+                    ForEach(AlertScope.allCases) { Text($0.label).tag($0) }
+                } label: {
+                    HelpLabel(L("提醒哪些任务", "Alert For"),
+                              help: L("关注任务：在刘海的任务行上点 ☆，或在详情页点星标。关注的任务结束后自动取消关注。手动监听的进程照常提醒；磁盘等服务器提醒不受影响。",
+                                      "Star a job with the ☆ on its row or on its details page. Stars are removed when the job ends. Watched processes still alert; disk and other server alerts are not affected."))
+                }
+                LabeledContent {
+                    HStack(spacing: 14) {
+                        Toggle(L("开始运行", "Started"), isOn: $store.settings.alertStarted)
+                        Toggle(L("完成", "Finished"), isOn: $store.settings.alertFinished)
+                        Toggle(L("失败", "Failed"), isOn: $store.settings.alertFailed)
+                        Toggle(L("结果未知", "Unknown"), isOn: $store.settings.alertUnknown)
+                    }
+                    .toggleStyle(.checkbox)
+                } label: {
+                    HelpLabel(L("提醒这些事件", "Alert When"),
+                              help: L("开始运行：排队的作业开始运行（不响提示音）。结果未知：作业离开了队列，但查不到成功还是失败（例如集群没有开启作业记录）。",
+                                      "Started: a pending job begins running (no sound). Unknown: a job left the queue but its result couldn't be found (e.g. no job accounting)."))
+                }
+                Toggle(isOn: $store.settings.quietHours) {
+                    HelpLabel(L("勿扰时段", "Quiet Hours"),
+                              help: L("这段时间里不响提示音、不在刘海弹窗；系统通知照发但不出声，历史记录照常。",
+                                      "During these hours there are no sounds or island pop-ups; system notifications still arrive silently and history is kept as usual."))
+                }
+                if store.settings.quietHours {
+                    LabeledContent(L("时间", "Time")) {
+                        HStack(spacing: 6) {
+                            QuietTimePicker(minutes: $store.settings.quietStart)
+                            Text(L("至", "to")).foregroundStyle(.secondary)
+                            QuietTimePicker(minutes: $store.settings.quietEnd)
+                            if store.settings.quietStart > store.settings.quietEnd {
+                                Text(L("（次日）", "(next day)")).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
                 Toggle(isOn: $store.settings.arrayFirstFailureAlert) {
                     HelpLabel(L("数组作业首个失败立即提醒", "Alert on First Array Failure"),
                               help: L("数组作业平时只在全部结束时提醒一次；打开后第一个元素失败时会额外提醒一次。",
@@ -410,9 +453,13 @@ struct GeneralSettingsView: View {
                     ForEach([0.8, 0.85, 0.9, 0.95], id: \.self) { Text("\(Int($0 * 100))%").tag($0) }
                 } label: {
                     HelpLabel(L("磁盘提醒阈值", "Disk Alert Threshold"),
-                              help: L("超过时提醒一次；回落后再次超过会重新提醒。", "Alerts once when exceeded; alerts again after it drops and rises again."))
+                              help: L("超过时提醒一次；回落后再次超过会重新提醒。不受“提醒哪些任务”影响。", "Alerts once when exceeded, and again after it drops and rises again. Not affected by Alert For."))
                 }
-            } header: { SettingsHeader(title: L("刘海与提醒", "Island & Alerts"), symbol: "bell.badge.fill", tint: .orange) }
+            } header: { SettingsHeader(title: L("提醒", "Alerts"), symbol: "bell.badge.fill", tint: .orange) } footer: {
+                Text(L("静音的服务器（卡片上的铃铛）什么都不提醒，优先于这里的设置。", "Muted servers (the bell on a card) never alert, whatever is set here."))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             Section {
                 Toggle(L("提示音", "Sounds"), isOn: $store.settings.soundEnabled)
@@ -475,6 +522,29 @@ struct GeneralSettingsView: View {
                                       "Diagnostic log entries older than this are deleted automatically (at launch and every 6 hours). The log stays on this Mac and helps answer questions like “why was there no alert?”."))
                 }
                 .onChange(of: store.settings.logRetentionDays) { _, d in DebugLog.prune(days: d) }
+                LabeledContent {
+                    HStack {
+                        if !transferNote.isEmpty { Text(transferNote).font(.caption).foregroundStyle(.secondary) }
+                        Button(L("导出设置…", "Export Settings…"), action: exportSettings)
+                        Button(L("导入设置…", "Import Settings…"), action: chooseImport)
+                            .confirmationDialog(L("导入设置", "Import Settings"), isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } })) {
+                                if let imp = pendingImport {
+                                    Button(L("替换全部设置（\(imp.hosts.count) 台服务器）", "Replace All Settings (\(imp.hosts.count) servers)")) { applyImport(imp, .replace) }
+                                    let n = ConfigTransfer.newHosts(current: store.settings, imported: imp).count
+                                    Button(L("只添加新的服务器（\(n) 台）", "Only Add New Servers (\(n))")) { applyImport(imp, .addHosts) }
+                                        .disabled(n == 0)
+                                }
+                                Button(L("取消", "Cancel"), role: .cancel) { pendingImport = nil }
+                            } message: {
+                                Text(L("替换前会把当前设置备份到配置文件旁边。密码不在设置文件里，需要时重新登录即可。",
+                                       "Your current settings are backed up next to the config file before replacing. Passwords aren't in the file; log in again if asked."))
+                            }
+                    }
+                } label: {
+                    HelpLabel(L("导入 / 导出", "Import / Export"),
+                              help: L("把全部设置（服务器、提醒、进度识别规则……）存成一个 JSON 文件，换电脑或在 Mac 和 Windows / Linux 版之间迁移。不包含密码。~/.ssh/config 里的别名和私钥路径要在新电脑上也有效。",
+                                      "Save all settings (servers, alerts, progress rules…) to a JSON file to move to another computer, or between the Mac and Windows / Linux versions. Passwords aren't included. ~/.ssh/config aliases and key paths must also work on the new computer."))
+                }
                 HStack {
                     Button(L("显示配置文件", "Show Config")) {
                         store.saveNow()
@@ -508,5 +578,58 @@ struct GeneralSettingsView: View {
         }
         .formStyle(.grouped)
         .navigationTitle(L("通用", "General"))
+    }
+
+    private func exportSettings() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = ConfigTransfer.defaultFileName()
+        panel.allowedContentTypes = [.json]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try ConfigTransfer.exportData(store.settings).write(to: url, options: .atomic)
+            transferNote = L("已导出", "Exported")
+            DebugLog.log("导出设置：\(url.lastPathComponent)")
+        } catch {
+            transferNote = L("导出失败：", "Export failed: ") + error.localizedDescription
+        }
+    }
+
+    private func chooseImport() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            pendingImport = try ConfigTransfer.read(Data(contentsOf: url))
+            transferNote = ""
+        } catch ConfigTransfer.Failure.notSettings {
+            transferNote = L("这不是 ServerIsland 的设置文件", "Not a ServerIsland settings file")
+        } catch {
+            transferNote = L("读不出这个文件", "Couldn't read this file")
+        }
+    }
+
+    private func applyImport(_ imported: AppSettings, _ mode: ConfigTransfer.Mode) {
+        pendingImport = nil
+        if mode == .replace, store.persist { _ = ConfigTransfer.backupCurrent(store.settings, to: ConfigStore.directory) }
+        let before = store.settings.hosts.count
+        store.settings = ConfigTransfer.apply(current: store.settings, imported: imported, mode: mode)
+        engine.sync()
+        transferNote = mode == .replace ? L("已导入 \(store.settings.hosts.count) 台服务器", "Imported \(store.settings.hosts.count) servers")
+                                        : L("已添加 \(store.settings.hosts.count - before) 台服务器", "Added \(store.settings.hosts.count - before) servers")
+        DebugLog.log("导入设置（\(mode == .replace ? "替换" : "只添加服务器")）")
+    }
+}
+
+/// 勿扰时段的起止时间：每半小时一档。
+struct QuietTimePicker: View {
+    @Binding var minutes: Int
+
+    var body: some View {
+        Picker("", selection: $minutes) {
+            ForEach(Array(stride(from: 0, to: 24 * 60, by: 30)), id: \.self) { Text(AppSettings.clock($0)).tag($0) }
+        }
+        .labelsHidden()
+        .fixedSize()
     }
 }

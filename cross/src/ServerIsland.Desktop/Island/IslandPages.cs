@@ -18,6 +18,14 @@ public sealed class IslandPages(MonitorEngine engine, IslandState st)
 {
     void Back() => st.Page = IslandPage.List;
 
+    /// 详情页的返回：从全部任务页打开时回到那里。
+    void BackFromJob()
+    {
+        var to = st.ReturnPage ?? IslandPage.List;
+        st.ReturnPage = null;
+        st.Page = to;
+    }
+
     static Control PageHeader(string title, string subtitle, Action onBack, Control? trailing)
     {
         var titles = V(1, T(title, 13.5, FontWeight.SemiBold).Middle(), T(subtitle, 10.5, color: Hue.Tertiary).Middle());
@@ -64,13 +72,21 @@ public sealed class IslandPages(MonitorEngine engine, IslandState st)
             : job.Source == JobSource.Slurm ? L($"作业 #{job.Id}", $"Job #{job.Id}")
             : job.Source == JobSource.Process ? $"PID {job.Id}" : L("进度文件", "Progress file");
         var trailing = H(6);
+        // 数组里的单个元素不能单独关注（关注的是整个数组）
+        if (job.Array != null || job.ArrayJobID == null)
+        {
+            bool starred = engine.IsStarred(host.Id, job.Id);
+            trailing.Children.Add(IconButton(starred ? "starFill" : "star",
+                starred ? L("取消关注", "Unstar") : L("关注：排在前面，可以只提醒关注的任务", "Star: keep it on top; alerts can be limited to starred jobs"),
+                () => engine.ToggleStar(host.Id, job), active: starred, activeTint: Hue.Amber));
+        }
         if (job.Source != JobSource.ProgressFile)
             trailing.Children.Add(CopyButton(job.Id, job.Source == JobSource.Process ? L("复制 PID", "Copy PID") : L("复制作业号", "Copy job ID"),
                                              job.Source == JobSource.Process ? "PID" : L("作业号", "Job ID")));
         var sc = Hue.For(job.State);
         trailing.Children.Add(Capsule(T(job.State.Label(), 10, FontWeight.Bold, sc), sc.WithAlpha(0.15), 7, 2.5));
         trailing.Children.Add(IconButton("refresh", L("刷新详情", "Refresh details"), () => _ = LoadDetail(host, job, s), spinning: s.Loading));
-        var header = PageHeader(job.Name, $"{host.DisplayName} · {kindText}" + (stillListed ? "" : L(" · 已不在列表中", " · no longer listed")), Back, trailing);
+        var header = PageHeader(job.Name, $"{host.DisplayName} · {kindText}" + (stillListed ? "" : L(" · 已不在列表中", " · no longer listed")), BackFromJob, trailing);
 
         if (job.Array is { } a)
             return Rows("Auto,10,*,10,30", header, ArrayOverview(job, a, openElement), DangerZone(host, job, sampledAt, stillListed, s));
@@ -141,6 +157,7 @@ public sealed class IslandPages(MonitorEngine engine, IslandState st)
                 {
                     AppKind.Gpumd => L("，run.in 无 run 步数", ", no run steps in run.in"),
                     AppKind.Nep or AppKind.Gnep => L("，未设目标按默认值", ", default target"),
+                    AppKind.TorchNep or AppKind.Mace => L("，没读到总 epoch", ", total epochs unknown"),
                     AppKind.Vasp => a.Vasp == VaspMode.Relax ? L("（收敛前不知道总步数）", " (total unknown until converged)") : "",
                     _ => "",
                 };
@@ -521,50 +538,89 @@ public sealed class IslandPages(MonitorEngine engine, IslandState st)
         }.Tip(p.Detail);
     }
 
-    // MARK: - 全部任务
+    // MARK: - 全部任务（跨服务器）
 
-    public Control AllJobs(HostConfig host, Action<RemoteJob> open)
+    /// 所有服务器的任务集中在一页：按服务器分组（顺序同设置），每组里关注的任务在前。
+    /// 只用轮询已经拿到的快照，不额外连接服务器。筛选条件存在 st.Jobs 里，打开详情再返回时保留。
+    public Control AllJobs(Action<HostConfig, RemoteJob> open)
     {
         var s = st.StateFor(() => new AllJobsState());
-        var snap = engine.Snapshots.GetValueOrDefault(host.Id) ?? new HostSnapshot();
-        var jobs = snap.Jobs.Where(j => Matches(j, s)).ToList();
+        var f = st.Jobs;
+        var hosts = engine.OrderedHosts;
+        var groups = hosts
+            .Where(h => f.Host == null || f.Host == h.Host.Id)
+            .Select(h => (h.Host, h.Snap, Jobs: engine.DisplayJobs(h.Host.Id, h.Snap.Jobs)
+                .Where(j => f.Matches(j, engine.IsStarred(h.Host.Id, j.Id), h.Host.DisplayName)).ToList()))
+            .Where(g => g.Jobs.Count > 0).ToList();
+        int count = groups.Sum(g => g.Jobs.Count);
+        int starredCount = engine.Store.Settings.StarredJobs.Count(x => hosts.Any(h => h.Host.Id == x.HostID));
+        void Set(JobsFilter nf) { st.Jobs = nf; st.RequestRebuild(); }
 
         if (s.SearchBox == null)
         {
             s.SearchBox = new TextBox
             {
-                Watermark = L("搜索名称 / 作业号", "Search name / ID"),
-                Width = 150, FontSize = 11.5, FontFamily = Hue.Sans,
+                Watermark = L("搜索名称 / 作业号 / 目录", "Search name / ID / folder"),
+                Text = f.Query,
+                Width = 170, FontSize = 11.5, FontFamily = Hue.Sans,
                 Background = Brushes.Transparent, BorderThickness = new Thickness(0), Padding = new Thickness(0),
                 MinHeight = 0, VerticalAlignment = VerticalAlignment.Center, Foreground = Hue.Text.B(),
             };
-            s.SearchBox.TextChanged += (_, _) => { s.Query = s.SearchBox.Text ?? ""; st.RequestRebuild(); };
+            s.SearchBox.TextChanged += (_, _) => { if (s.SearchBox.Text != st.Jobs.Query) Set(st.Jobs with { Query = s.SearchBox.Text ?? "" }); };
         }
         if (s.SearchBox.Parent is Panel old) old.Children.Remove(s.SearchBox);
-        var search = Capsule(H(6, new Icon("search", 10.5, Hue.Tertiary.B()), s.SearchBox), Hue.W(0.09), 10, 4);
+        Control? clear = f.Query.Length == 0 ? null
+            : new Clickable(() => { s.SearchBox.Text = ""; }) { Child = new Icon("xmark", 9, Hue.Tertiary.B(), 2.8) };
+        var search = Capsule(H(6, new Icon("search", 10.5, Hue.Tertiary.B()), s.SearchBox, clear), Hue.W(0.09), 10, 4);
         var header = PageHeader(L("全部任务", "All Jobs"),
-            L($"{host.DisplayName} · 运行 {snap.RunningCount} · 排队 {snap.PendingCount}", $"{host.DisplayName} · {snap.RunningCount} running · {snap.PendingCount} pending"), Back, search);
+            L($"{hosts.Count} 台服务器 · 运行 {engine.TotalRunning} · 排队 {engine.TotalPending}",
+              $"{hosts.Count} servers · {engine.TotalRunning} running · {engine.TotalPending} pending"), Back, search);
 
-        var filters = H(6);
-        foreach (var f in Enum.GetValues<JobsFilter>())
+        Control Chip(string label, bool selected, Action action, string? icon = null, Color? tint = null)
         {
-            var label = f switch { JobsFilter.All => L("全部", "All"), JobsFilter.Running => L("运行中", "Running"), JobsFilter.Pending => L("排队中", "Pending"), _ => L("数组", "Arrays") };
-            var ff = f;
-            filters.Children.Add(new Clickable(() => { s.Filter = ff; st.RequestRebuild(); })
+            var c = tint ?? Hue.Text;
+            var fg = selected ? c : Hue.Tertiary;
+            var bg = selected ? (tint == null ? Hue.W(0.14) : c.WithAlpha(0.18)) : Hue.W(0.04);
+            return new Clickable(action)
             {
                 CornerRadius = new CornerRadius(100), Padding = new Thickness(10, 3.5),
-                Normal = Hue.W(s.Filter == f ? 0.14 : 0.04), Hover = Hue.W(s.Filter == f ? 0.18 : 0.09),
-                Child = T(label, 10.5, FontWeight.SemiBold, s.Filter == f ? Hue.Text : Hue.Tertiary),
-            });
+                Normal = bg, Hover = selected ? (tint == null ? Hue.W(0.18) : c.WithAlpha(0.24)) : Hue.W(0.09),
+                Child = H(4, icon == null ? null : new Icon(icon, 10, fg.B(), 2.6), T(label, 10.5, FontWeight.SemiBold, fg)),
+            };
         }
-        var filterRow = Row(6, filters, Spacer, T(L($"{jobs.Count} 项", $"{jobs.Count} items"), 10.5, color: Hue.Tertiary));
+        var filters = H(6);
+        foreach (var status in Enum.GetValues<JobsStatus>())
+        {
+            var label = status switch { JobsStatus.All => L("全部", "All"), JobsStatus.Running => L("运行中", "Running"), JobsStatus.Pending => L("排队中", "Pending"), _ => L("数组", "Arrays") };
+            var ss = status;
+            filters.Children.Add(Chip(label, f.Status == status, () => Set(st.Jobs with { Status = ss })));
+        }
+        filters.Children.Add(new Border { Width = 1, Height = 14, Background = Hue.W(0.1).B(), Margin = new Thickness(2, 0) });
+        filters.Children.Add(Chip(L("关注", "Starred") + (starredCount > 0 ? $" {starredCount}" : ""), f.StarredOnly,
+            () => Set(st.Jobs with { StarredOnly = !st.Jobs.StarredOnly }), f.StarredOnly ? "starFill" : "star", Hue.Amber)
+            .Tip(L("只看关注的任务", "Show starred jobs only")));
+        var filterRow = Row(6, filters, Spacer, HostFilterMenu(hosts.Select(h => h.Host).ToList(), f.Host, id => Set(st.Jobs with { Host = id })),
+            T(L($"{count} 项", $"{count} items"), 10.5, color: Hue.Tertiary));
 
         var list = new StackPanel { Spacing = IslandLayout.JobGap, Margin = new Thickness(6, 0) };
-        if (jobs.Count == 0) list.Children.Add(Centered(L("没有匹配的任务", "No matching jobs"), 30));
-        foreach (var j in jobs)
+        if (groups.Count == 0) list.Children.Add(JobsEmpty(f, () => { if (s.SearchBox != null) s.SearchBox.Text = ""; Set(new JobsFilter()); }));
+        foreach (var (host, snap, jobs) in groups)
         {
-            var job = j;
-            list.Children.Add(HostCardView.JobRowButton(job, host.Kind, snap.LastUpdate, () => open(job), st).Hgt(IslandLayout.JobRow));
+            list.Children.Add(Row(7,
+                StatusDot(host.Paused ? Hue.Tertiary : Hue.For(snap.Health), 5.5),
+                T(host.DisplayName, 11, FontWeight.SemiBold, Hue.Secondary).Middle(),
+                KindBadge(host.Kind),
+                snap.RunningCount + snap.PendingCount > 0 ? JobCountChips(snap.RunningCount, snap.PendingCount, host.Paused) : null,
+                Spacer,
+                snap.LastUpdate is { } lu ? LiveT(() => Format.Relative(lu), 10, color: Hue.Tertiary) : null).Hgt(20).Margin(0, 2, 0, 0));
+            foreach (var j in jobs)
+            {
+                var job = j;
+                var h = host;
+                list.Children.Add(HostCardView.JobRowButton(job, host.Kind, host.Paused ? null : snap.LastUpdate, () => open(h, job), st,
+                        engine.IsStarred(host.Id, job.Id), () => engine.ToggleStar(h.Id, job))
+                    .Hgt(IslandLayout.JobRow).Op(host.Paused ? 0.45 : 1));
+            }
         }
         var scroll = Scroll(list);
         var restore = s.ScrollOffset;
@@ -573,17 +629,51 @@ public sealed class IslandPages(MonitorEngine engine, IslandState st)
         return Rows("Auto,10,Auto,10,*", header, filterRow, scroll);
     }
 
-    static bool Matches(RemoteJob j, AllJobsState s)
+    Control JobsEmpty(JobsFilter f, Action clear)
     {
-        switch (s.Filter)
+        var col = V(8, new PetView(PetMood.Idle, 26).HA(HorizontalAlignment.Center));
+        if (f.StarredOnly && f.Query.Length == 0 && f.Status == JobsStatus.All)
         {
-            case JobsFilter.Running when j.RunningUnits == 0: return false;
-            case JobsFilter.Pending when j.PendingUnits == 0: return false;
-            case JobsFilter.Array when j.Array == null: return false;
+            col.Children.Add(T(L("还没有关注的任务", "No starred jobs yet"), 12, FontWeight.SemiBold, Hue.Secondary).HA(HorizontalAlignment.Center));
+            col.Children.Add(T(L("鼠标移到任务行上，点名称旁边的 ☆ 就能关注", "Hover over a job and click the ☆ next to its name"), 10.5, color: Hue.Tertiary)
+                .HA(HorizontalAlignment.Center));
         }
-        var q = s.Query.Trim().ToLowerInvariant();
-        if (q.Length == 0) return true;
-        return j.Name.ToLowerInvariant().Contains(q) || j.Id.Contains(q) || j.Detail.ToLowerInvariant().Contains(q);
+        else
+        {
+            col.Children.Add(T(L("没有匹配的任务", "No matching jobs"), 12, FontWeight.SemiBold, Hue.Secondary).HA(HorizontalAlignment.Center));
+            if (f != new JobsFilter())
+                col.Children.Add(new Clickable(clear)
+                {
+                    CornerRadius = new CornerRadius(100), Padding = new Thickness(10, 3.5), HorizontalAlignment = HorizontalAlignment.Center,
+                    Normal = Hue.Cyan.WithAlpha(0.16), Hover = Hue.Cyan.WithAlpha(0.24),
+                    Child = T(L("清除筛选", "Clear Filters"), 10.5, FontWeight.SemiBold, Hue.Cyan),
+                });
+        }
+        return col.Margin(0, 50, 0, 0);
+    }
+
+    /// 全部任务页右上的服务器筛选菜单。
+    Control HostFilterMenu(List<HostConfig> hosts, Guid? selected, Action<Guid?> pick)
+    {
+        var name = hosts.FirstOrDefault(h => h.Id == selected)?.DisplayName ?? L("全部服务器", "All Servers");
+        var c = selected == null ? Hue.Tertiary : Hue.Cyan;
+        var text = T(name, 10.5, FontWeight.SemiBold, c).Middle();
+        text.MaxWidth = 120;
+        Clickable? b = null;
+        b = new Clickable(() =>
+        {
+            var entries = new List<Menus.Entry> { new(L("全部服务器", "All Servers"), () => pick(null), selected == null), Menus.Sep };
+            entries.AddRange(hosts.Select(h => new Menus.Entry(h.DisplayName, () => pick(h.Id), selected == h.Id)));
+            Menus.Show(b!, entries, st);
+        })
+        {
+            Height = 21, Padding = new Thickness(9, 0), CornerRadius = new CornerRadius(100),
+            Normal = selected == null ? Hue.W(0.04) : Hue.Cyan.WithAlpha(0.16),
+            Hover = selected == null ? Hue.W(0.09) : Hue.Cyan.WithAlpha(0.24),
+            Child = H(4, new Icon("server", 10, c.B(), 2.5), text, new Icon("chevronDown", 8, c.B(), 3)),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        return b.Tip(L("按服务器筛选", "Filter by server"));
     }
 
     // MARK: - Slurm 分区空闲资源

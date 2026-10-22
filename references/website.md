@@ -10,7 +10,7 @@
 | `site/manual.html` | 使用手册（上手指南）：三个平台的安装、第一次打开被拦、添加服务器、认识面板、详情与取消、提醒、登录方式与跳板机（含记住密码）、计算进度、Windows 与 Linux、常见问题、文件位置 |
 | `site/features.html` | 功能详解（手册的子页面）：Slurm、直连与 GPU、计算软件识别和自定义规则、提醒、详情 / 日志 / 取消、每台服务器的设置、Tako、三个平台对比、设计原则 |
 | `site/css/style.css` | 配色、圆角、卡片和 App / 宣传视频一致（`--mint #5BE6B5` 等）；900px、640px 两档窄屏 |
-| `site/js/config.js` | **部署前只改这里**：版本号、GitHub 仓库地址 `repo`（GitHub / Issues / 下载按钮都由它生成）、可选的 DMG 直链 |
+| `site/js/config.js` | **部署前只改这里**：版本号的兜底值（页面从 GitHub 最新 Release 的 `tag_name` 读版本号，读不到时才用它）、GitHub 仓库地址 `repo`（GitHub / Issues / 下载按钮都由它生成）、可选的 DMG 直链 |
 | `site/js/tako.js` | Tako 像素网格，和 `Pet.swift`、`promo/index.html` 同一张 |
 | `site/js/main.js` | 三个页面共用：语言切换（子页面的标题写在 `<body data-title-zh / data-title-en>`）、手册目录滚动高亮（默认英文；`index.html` 开头的小脚本按系统首选语言选中文 / 英文，手动切换后记在 localStorage）、宣传视频按语言换中 / 英文版、GitHub Star 数、像素字组装动画、夜空星星、刘海演示状态机（收起 → 提示 → 收起 → 展开，鼠标悬停时一直展开）、滚动出现 |
 | `site/assets/shots/{zh,en}/` | App 截图，由 `scripts/site_shots.sh` 生成；`cross-pet.png`（Windows / Linux 的桌宠模式）来自跨平台版的 `dotnet run -- --render-preview <目录> zh|en` 里的 `cross-pet.png` |

@@ -15,6 +15,8 @@ final class HistoryStore {
         var dir: String?
         var elapsed: TimeInterval?
         var seenAt: Date
+        /// 数组已知的元素总数，用于重启后检查 sacct 是否返回了完整结果；旧记录没有这个字段。
+        var arrayTotal: Int?
     }
 
     static let retention: TimeInterval = 7 * 24 * 3600
@@ -76,10 +78,12 @@ final class HistoryStore {
     func setActive(_ host: UUID, _ jobs: [RemoteJob]) {
         let now = Date()
         let list = jobs.filter { $0.state.isActive && $0.source != .progressFile }.map {
-            ActiveJob(id: $0.id, name: $0.name, slurm: $0.source == .slurm, dir: $0.workdir ?? $0.app?.dir, elapsed: $0.elapsed, seenAt: now)
+            ActiveJob(id: $0.id, name: $0.name, slurm: $0.source == .slurm, dir: $0.workdir ?? $0.app?.dir,
+                      elapsed: $0.elapsed, seenAt: now, arrayTotal: $0.array?.total)
         }
         let old = active[host] ?? []
-        let changed = old.map { "\($0.id)|\($0.dir ?? "")" } != list.map { "\($0.id)|\($0.dir ?? "")" }
+        let changed = old.map { "\($0.id)|\($0.dir ?? "")|\($0.arrayTotal ?? 0)" }
+            != list.map { "\($0.id)|\($0.dir ?? "")|\($0.arrayTotal ?? 0)" }
         // 列表没变时也隔 10 分钟更新一次时间，"大约什么时候结束"不会差太多
         guard changed || (old.first.map { now.timeIntervalSince($0.seenAt) > 600 } ?? false) else { return }
         active[host] = list

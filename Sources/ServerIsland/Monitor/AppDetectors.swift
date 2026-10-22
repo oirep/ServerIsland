@@ -5,7 +5,7 @@ import Foundation
 /// 与任务列表在同一次 SSH 轮询中完成，只对任务的工作目录做 `tail -n 1` / `awk` 这类轻量读取。
 /// 新增软件时：在 `script` 里加一个分支输出 key=value，再在 `parse` 里解析即可。
 struct AppProgress: Equatable {
-    enum Kind: String { case nep, gnep, gpumd, vasp, lammps, custom }
+    enum Kind: String { case nep, gnep, torchnep, mace, gpumd, vasp, lammps, custom }
     /// VASP 的计算类型。
     enum VaspMode: String { case md, relax, scf, neb }
 
@@ -24,6 +24,8 @@ struct AppProgress: Equatable {
     var total: Double?
     /// nep.in / run.in 里是否写了目标（没写时用默认值，进度仅供参考）。
     var hasTarget = true
+    /// 曲线读的文件（相对工作目录）：TorchNEP 的 loss.out、MACE 的训练日志，不在固定位置。
+    var dataFile: String?
     var losses: [Value] = []
     var neighbor: Neighbor?
     /// 输出文件的最后修改时间（用来判断是否卡住）。
@@ -50,6 +52,8 @@ struct AppProgress: Equatable {
         switch kind {
         case .nep: return L("NEP 训练", "NEP training")
         case .gnep: return L("GNEP 训练", "GNEP training")
+        case .torchnep: return L("TorchNEP 训练", "TorchNEP training")
+        case .mace: return L("MACE 训练", "MACE training")
         case .gpumd: return L("GPUMD 模拟", "GPUMD MD")
         case .vasp:
             switch vaspMode ?? .scf {
@@ -66,7 +70,7 @@ struct AppProgress: Equatable {
     var unit: String {
         switch kind {
         case .nep: return L("代", "gen")
-        case .gnep: return "epoch"
+        case .gnep, .torchnep, .mace: return "epoch"
         case .gpumd, .lammps: return L("步", "steps")
         case .vasp:
             switch vaspMode ?? .scf {
@@ -106,7 +110,7 @@ struct AppProgress: Equatable {
             parts.append(tot.map { "\(cur)/\($0)\(u)" } ?? "\(cur)\(u)")
         }
         switch kind {
-        case .nep, .gnep:
+        case .nep, .gnep, .torchnep, .mace:
             if let l = losses.first { parts.append("\(l.label) \(Self.sci(l.value))") }
         case .gpumd, .lammps:
             if let r = rate { parts.append(Self.compact(r) + L(" 步/秒", " steps/s")) }
@@ -149,6 +153,7 @@ enum AppDetectors {
     /// 比 cgroup 可靠：不依赖 Slurm 的 cgroup / proctrack 配置。
     static let jobIDFunction = #"""
     si_pick() { (cd "$1" 2>/dev/null && ls -td -- $2 2>/dev/null | head -n 1); }
+    si_tnep() { (cd "$1" 2>/dev/null && ls -td -- loss.out */loss.out 2>/dev/null) | while IFS= read -r f; do case "$(head -n 1 "$1/$f" 2>/dev/null)" in "#"*epoch*loss*rmse_*) echo "$f"; break;; esac; done; }
     si_jobid() { tr '\0' '\n' < /proc/$1/environ 2>/dev/null | awk -F= '$1=="SLURM_ARRAY_JOB_ID"{a=$2} $1=="SLURM_ARRAY_TASK_ID"{t=$2} $1=="SLURM_JOB_ID"{j=$2} $1=="PBS_JOBID"{b=$2} END{if(a!=""&&t!="")print a"_"t; else if(j!="")print j; else if(b!=""){sub(/\..*$/,"",b); sub(/\[/,"_",b); sub(/\]/,"",b); print b}}'; }
 
     """#
@@ -288,14 +293,28 @@ enum AppDetectors {
 
     private static var builtinBranches: String {
         """
-        [ -f "$d/loss.out" ] && [ -f "$d/nep.in" ]; then
+        tf=$(si_tnep "$d"); [ -n "$tf" ]; then
+            printf '\(marker)DIR %s|%s\\n' "$id" "$d"; echo kind=torchnep; echo "file=$tf"; o=$(dirname "$d/$tf")
+            echo "hdr=$(head -n 1 "$d/$tf" | cut -c1-300)"; echo "last=$(tail -n 1 "$d/$tf" | cut -c1-300)"
+            head -n 300 "$o/output.log" 2>/dev/null | grep -a '^Training: epochs' | tail -n 1 | sed 's/^/sched=/'
+            awk '$1=="epoch" && $2~/^[0-9]+$/ {print "total="$2; exit}' "$d/nep.in" 2>/dev/null
+            tail -n 40 "$o/output.log" 2>/dev/null | grep -qa '^Done\\. Best loss' && echo done=1
+            echo "mtime=$(stat -c %Y "$d/$tf" 2>/dev/null)"
+          elif [ -f "$d/loss.out" ] && [ -f "$d/nep.in" ]; then
             printf '\(marker)DIR %s|%s\\n' "$id" "$d"; echo kind=nep
             awk '$1=="generation" && $2~/^[0-9]+$/ {print "total="$2; exit}' "$d/nep.in"
-            echo "last=$(tail -n 1 "$d/loss.out")"; echo "mtime=$(stat -c %Y "$d/loss.out" 2>/dev/null)"
+            echo "last=$(tail -n 8 "$d/loss.out" | grep -v '^[[:space:]]*#' | tail -n 1)"; echo "mtime=$(stat -c %Y "$d/loss.out" 2>/dev/null)"
           elif [ -f "$d/loss.out" ] && [ -f "$d/gnep.in" ]; then
             printf '\(marker)DIR %s|%s\\n' "$id" "$d"; echo kind=gnep
             awk '$1=="epoch" && $2~/^[0-9]+$/ {print "total="$2; exit}' "$d/gnep.in"
             echo "last=$(tail -n 1 "$d/loss.out")"; echo "mtime=$(stat -c %Y "$d/loss.out" 2>/dev/null)"
+          elif ml=$(cd "$d" 2>/dev/null && ls -td -- logs/*.log 2>/dev/null | grep -v '_debug\\.log$' | head -n 1); [ -n "$ml" ] && head -n 20 "$d/$ml" | grep -qa 'MACE version'; then
+            printf '\(marker)DIR %s|%s\\n' "$id" "$d"; echo kind=mace; echo "file=$ml"; t=$(basename "$ml" .log); r="$d/results/${t}_train.txt"
+            grep -ao 'max_num_epochs=[0-9]*' "$d/logs/${t}_debug.log" 2>/dev/null | tail -n 1 | sed 's/^max_num_epochs=/total=/'
+            tail -n 200 "$d/$ml" | grep -a 'INFO: Epoch [0-9]*:' | tail -n 1 | cut -c1-300 | sed 's/^/last=/'
+            [ -f "$r" ] && tail -n 1 "$r" | sed -n 's/.*"epoch": *\\([0-9][0-9]*\\).*/opt=\\1/p'
+            tail -n 80 "$d/$ml" | grep -qa 'INFO: Training complete' && echo done=1
+            echo "mtime=$(stat -c %Y "$d/$ml" "$r" 2>/dev/null | sort -n | tail -n 1)"
           elif [ -f "$d/run.in" ] && { [ -f "$d/neighbor.out" ] || [ -f "$d/thermo.out" ]; }; then
             printf '\(marker)DIR %s|%s\\n' "$id" "$d"; echo kind=gpumd
             sg=$(stat -c '%Y.%s' "$d/run.in" "$d/neighbor.out" "$d/thermo.out" 2>/dev/null | tr '\\n' ' ')
@@ -377,10 +396,7 @@ enum AppDetectors {
                 let nums = (kv["last"] ?? "").split(separator: " ").compactMap { Double($0) }
                 if !nums.isEmpty {
                     p.current = nums[0]
-                    // loss.out 列：gen Total L1 L2 E-train F-train V-train [E-test F-test V-test]（与 plt_train.py 一致）
-                    let labels = nums.count >= 7
-                        ? ["Total", "L1", "L2", "Energy", "Force", "Virial", "E-test", "F-test", "V-test"]
-                        : ["Loss", "Energy", "Force", "Virial"]
+                    let labels = kind == .nep ? Array(nepLossLabels(columns: nums.count).dropFirst()) : ["Loss", "Energy", "Force", "Virial"]
                     for (i, v) in nums.dropFirst().enumerated() where i < labels.count {
                         p.losses.append(.init(label: labels[i], value: v))
                     }
@@ -390,6 +406,32 @@ enum AppDetectors {
                         p.losses.removeAll { $0.label.hasSuffix("-test") }
                     }
                 }
+            case .torchnep:
+                // output.log 里的 "Training: epochs 1..200"（续跑时是 101..200），其次是 nep.in 的 epoch
+                if let s = kv["sched"], let m = s.range(of: #"\.\.(\d+)"#, options: .regularExpression) {
+                    p.total = Double(s[m].dropFirst(2))
+                } else {
+                    p.total = kv["total"].flatMap(Double.init)
+                }
+                p.hasTarget = p.total != nil
+                p.dataFile = kv["file"]
+                let nums = (kv["last"] ?? "").split(separator: " ").compactMap { Double($0) }
+                // 表头：# epoch  loss  rmse_e(eV/atom)  rmse_f(eV/A)  rmse_v(eV/atom)  rmse_stress(GPa)
+                let names = torchnepLabels(kv["hdr"] ?? "")
+                guard nums.count >= 2, names.count == nums.count else { return }
+                p.current = nums[0]
+                for (i, v) in nums.enumerated().dropFirst() { p.losses.append(.init(label: names[i], value: v)) }
+            case .mace:
+                p.total = kv["total"].flatMap(Double.init)
+                p.hasTarget = p.total != nil
+                p.dataFile = kv["file"]
+                // 日志里的 Epoch N（从 0 数，验证集误差每 eval_interval 个 epoch 一行）表示已经跑完 N+1 个；
+                // results/*_train.txt 最后一行的 epoch K 是正在跑的那个（已经跑完 K 个），更新更及时。
+                let m = maceEpochLine(kv["last"] ?? "")
+                let done = [m.map { $0.epoch + 1 }, kv["opt"].flatMap(Double.init)].compactMap { $0 }.max()
+                p.current = done ?? 0
+                p.losses = m?.values ?? []
+                if let t = p.total, let c = p.current, c > t { return }
             case .gpumd:
                 p.total = kv["total"].flatMap(Double.init)
                 p.hasTarget = p.total != nil
@@ -508,6 +550,54 @@ enum AppDetectors {
         let cur = last - first
         guard cur >= 0, cur <= total else { return nil }
         return (cur, total)
+    }
+
+    /// NEP loss.out 各列（含第一列代数）的名字，按列数区分（GPUMD fitness.cu 的 write_row）：
+    /// 10 列普通势、12 列多了 ediff、14 / 16 列带电荷（Q、Z = BEC）、6 列偶极 / 极化率。
+    static func nepLossLabels(columns n: Int) -> [String] {
+        let head = ["gen", "Total", "L1", "L2"]
+        switch n {
+        case 6: return head + ["P-train", "P-test"]
+        case 12: return head + ["Energy", "Force", "Virial", "E-test", "F-test", "V-test", "Ediff", "Ediff-test"]
+        case 14: return head + ["Energy", "Force", "Virial", "Charge", "BEC", "E-test", "F-test", "V-test", "Q-test", "Z-test"]
+        case 16: return head + ["Energy", "Force", "Virial", "Charge", "BEC", "E-test", "F-test", "V-test", "Q-test", "Z-test", "Ediff", "Ediff-test"]
+        case 7...: return head + ["Energy", "Force", "Virial", "E-test", "F-test", "V-test"]
+        default: return ["epoch", "Loss", "Energy", "Force", "Virial"]
+        }
+    }
+
+    /// TorchNEP loss.out 的表头 → 每列的名字（含第一列 epoch）：`rmse_e(eV/atom)` → `E (eV/atom)`，`loss` → `Loss`。
+    static func torchnepLabels(_ header: String) -> [String] {
+        let short = ["e": "E", "f": "F", "v": "V", "stress": "S"]
+        return header.split(separator: " ").filter { $0 != "#" }.map { t -> String in
+            var name = String(t), unit = ""
+            if let p = name.firstIndex(of: "(") { unit = " " + name[p...]; name = String(name[..<p]) }
+            if name == "loss" { return "Loss" }
+            if name.hasPrefix("#") { name.removeFirst() }
+            if name.hasPrefix("rmse_") { name = String(name.dropFirst(5)); name = short[name] ?? name }
+            return name + unit
+        }
+    }
+
+    /// MACE 训练日志里的一行验证集误差：
+    /// `… INFO: Epoch 595: head: Default, loss=0.00833367, RMSE_E_per_atom=    0.22 meV, RMSE_F=    9.08 meV / A`
+    /// （error_table 不同，误差的名字也不同，比如 RMSE_E、MAE_F；按 名字=数字 [单位] 通用地取。）
+    static func maceEpochLine(_ line: String) -> (epoch: Double, values: [AppProgress.Value])? {
+        guard let r = line.range(of: #"Epoch (\d+):"#, options: .regularExpression),
+              let ep = Double(line[r].dropFirst(6).dropLast()) else { return nil }
+        let rest = String(line[r.upperBound...])
+        let re = try! NSRegularExpression(pattern: #"(\w+)=\s*([-+0-9.eE]+)\s*([^,=]*?)\s*(?:,|$)"#)
+        var values: [AppProgress.Value] = []
+        for m in re.matches(in: rest, range: NSRange(rest.startIndex..., in: rest)) {
+            let ns = rest as NSString
+            guard let v = Double(ns.substring(with: m.range(at: 2))) else { continue }
+            let key = ns.substring(with: m.range(at: 1))
+            let unit = ns.substring(with: m.range(at: 3)).replacingOccurrences(of: " / A", with: "/Å")
+            if key == "loss" { values.append(.init(label: "Loss", value: v)); continue }
+            let name = key.replacingOccurrences(of: "_per_atom", with: "").replacingOccurrences(of: "_", with: " ")
+            values.append(.init(label: unit.isEmpty ? name : "\(name) (\(unit))", value: v))
+        }
+        return (ep, values)
     }
 }
 

@@ -117,7 +117,7 @@ if let i = arguments.firstIndex(of: "--partitions"), i + 1 < arguments.count {
 }
 
 // 开发用：读取某个目录的计算软件最终状态。  ServerIsland --final-state <ssh别名> <目录>
-// --curve <别名> <目录> [gnep|vasp]：读取详情页曲线（两次，第二次应是增量、没有新行）
+// --curve <别名> <目录> [gnep|vasp|auto]：读取详情页曲线（两次，第二次应是增量、没有新行）；auto 先在目录上跑一次识别（TorchNEP / MACE 要用它找文件）
 if let i = arguments.firstIndex(of: "--curve"), i + 2 < arguments.count {
     let sem = DispatchSemaphore(value: 0)
     Task { @MainActor in
@@ -125,6 +125,13 @@ if let i = arguments.firstIndex(of: "--curve"), i + 2 < arguments.count {
         let mode = i + 3 < arguments.count ? arguments[i + 3] : "nep"
         var app = AppProgress(kind: mode == "gnep" ? .gnep : (mode == "vasp" ? .vasp : .nep), dir: arguments[i + 2])
         if mode == "vasp" { app.vaspMode = .relax }
+        if mode == "auto" {
+            let r = await SSHRunner.run(host: host, remoteCommand: host.commands.shell,
+                                        script: AppDetectors.finalStateScript(id: "x", dir: arguments[i + 2]), timeout: 20)
+            guard let a = AppDetectors.parse(r.stdout.components(separatedBy: "\n"))["x"] else { print("没识别到", r.stdout); exit(1) }
+            app = a
+            print(a.title, a.summary)
+        }
         for src in AppCurves.sources(for: app) {
         print("== \(src.path)")
         var cache = CurveCache()

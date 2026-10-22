@@ -74,7 +74,9 @@
   })();
 
   // ------------------------------------------------------------ 版本、GitHub 和下载
-  $$(".js-version").forEach(el => { el.textContent = cfg.version || "0.3.0"; });
+  // 版本号：先显示 config.js 里的值，下面读到 GitHub 最新 Release 后用它的 tag 覆盖（读不到时保留 config.js 的值）
+  const setVersion = v => { if (v) $$(".js-version").forEach(el => { el.textContent = v; }); };
+  setVersion(cfg.version);
   const repo = (cfg.repo || "").replace(/\/$/, "");
   if (repo) {
     $$(".js-github").forEach(a => { a.href = repo + (a.dataset.path || ""); a.target = "_blank"; a.rel = "noopener"; });
@@ -199,7 +201,8 @@
         const asset = rel.assets.find(a => (a.name || "").toLowerCase().endsWith(PLATFORMS[k].suffix));
         if (asset) dlLinks[k] = asset.browser_download_url;
       });
-      if (rel.tag_name) $$(".js-version").forEach(el => { el.textContent = rel.tag_name.replace(/^v/i, ""); });
+      const tag = typeof rel.tag_name === "string" ? rel.tag_name.trim().replace(/^v/i, "") : "";
+      if (/^\d+(\.\d+)*$/.test(tag)) setVersion(tag);
       renderDownloads();
     }).catch(() => {});
   }

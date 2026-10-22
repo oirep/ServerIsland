@@ -181,10 +181,10 @@ public sealed class IslandViews(MonitorEngine engine, ConfigStore store, IslandS
         {
             Login = () => _ = engine.Login(host, prompter),
             Refresh = () => engine.Refresh(id),
-            OpenJob = job => { st.PinnedJob = job; st.Page = new IslandPage(PageKind.Job, id, job.Id); },
+            OpenJob = job => { st.PinnedJob = job; st.ReturnPage = null; st.Page = new IslandPage(PageKind.Job, id, job.Id); },
             History = () => st.Page = new IslandPage(PageKind.History, id),
             Picker = () => st.Page = new IslandPage(PageKind.Picker, id),
-            AllJobs = () => st.Page = new IslandPage(PageKind.Jobs, id),
+            AllJobs = () => st.OpenAllJobs(id),
             Partitions = () => st.Page = new IslandPage(PageKind.Partitions, id),
             SwitchToDirect = () => engine.SetKind(id, HostKind.Direct),
             TogglePause = () => engine.SetPaused(id, !host.Paused),
@@ -196,6 +196,8 @@ public sealed class IslandViews(MonitorEngine engine, ConfigStore store, IslandS
             GlobalInterval = store.Settings.DefaultInterval,
             GlobalAuto = store.Settings.AutoRefresh,
             LoggingIn = engine.LoggingIn.Contains(id),
+            ToggleStar = job => engine.ToggleStar(id, job),
+            Starred = store.Settings.StarredJobs.Where(s => s.HostID == id).Select(s => s.JobID).ToHashSet(),
         };
         return HostCardView.Build(host, snap, a, st);
     }
@@ -203,6 +205,13 @@ public sealed class IslandViews(MonitorEngine engine, ConfigStore store, IslandS
     Control Page()
     {
         var p = st.Page;
+        if (p.Kind == PageKind.Jobs)
+            return _pages.AllJobs((host, job) =>
+            {
+                st.PinnedJob = job;
+                st.ReturnPage = st.Page;
+                st.Page = new IslandPage(PageKind.Job, host.Id, job.Id);
+            });
         if (store.Host(p.Host) is not { } host) return new Control();
         switch (p.Kind)
         {
@@ -220,8 +229,6 @@ public sealed class IslandViews(MonitorEngine engine, ConfigStore store, IslandS
             case PageKind.History: return _pages.History(host);
             case PageKind.Picker: return _pages.Picker(host);
             case PageKind.Partitions: return _pages.PartitionsPage(host);
-            case PageKind.Jobs:
-                return _pages.AllJobs(host, job => { st.PinnedJob = job; st.Page = new IslandPage(PageKind.Job, p.Host, job.Id); });
             default: return new Control();
         }
     }
@@ -235,11 +242,19 @@ public sealed class IslandViews(MonitorEngine engine, ConfigStore store, IslandS
         var left = H(7, new PetView(engine.PetMood, 15), T("ServerIsland", 12.5, FontWeight.SemiBold),
             Summary("bolt", engine.TotalRunning, Hue.Mint, L("运行中", "Running")).Margin(4, 0, 0, 0),
             Summary("hourglass", engine.TotalPending, Hue.Amber, L("排队中", "Pending")));
+        if (store.Settings.IsQuiet())
+            left.Children.Add(new Icon("moon", 10, Hue.Tertiary.B())
+                .Tip(L($"勿扰时段（{store.Settings.QuietLabel}）：不响铃、不弹窗", $"Quiet hours ({store.Settings.QuietLabel}): no sounds or pop-ups")));
         if (engine.Demo) left.Children.Add(Capsule(T(L("演示", "Demo"), 9, FontWeight.Bold, Hue.Amber), Hue.Amber.WithAlpha(0.16), 5, 1.5));
         left.Width = sideWidth;
 
+        bool onJobs = st.Page.Kind == PageKind.Jobs;
         var right = H(8,
             GlobalPollMenu(),
+            IconButton("list", L("全部任务：所有服务器的任务，可搜索、筛选", "All jobs across servers: search and filter"), () =>
+            {
+                if (onJobs) st.Page = IslandPage.List; else st.OpenAllJobs();
+            }, active: onJobs),
             IconButton(st.Pinned ? "pinFill" : "pin", st.Pinned ? L("取消固定", "Unpin") : L("固定面板（鼠标移开也不收起）", "Pin (stay open when the mouse leaves)"), () =>
             {
                 st.Pinned = !st.Pinned;

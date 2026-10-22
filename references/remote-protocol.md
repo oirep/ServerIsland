@@ -103,8 +103,10 @@ squeue 的解析是**从两端按位置取列**，所以作业名里有 `|` 也�
    - 进程属于哪个 Slurm 作业：用 shell 函数 `si_jobid` 读 `/proc/<pid>/environ` 里的 `SLURM_JOB_ID`（数组元素则用 `SLURM_ARRAY_JOB_ID_SLURM_ARRAY_TASK_ID`）。**不要用 cgroup 判断**：有些 Slurm 安装不会把 job_N 写进 cgroup。
    - 用 `awk '!seen[$2]++'` 按目录去重，每个目录只算一个任务。
 2. **由目录里的文件决定软件类型**（`dirBody`）：
-   - `loss.out` + `nep.in` → NEP：目标是 `generation`（没写时默认 100000，并标记 `hasTarget=false`）；当前代数和各项 loss 取自 `tail -n 1 loss.out`；
+   - **TorchNEP**（排在 NEP 前面）：`si_tnep` 在目录本身和一层子目录（默认 `output/`）里找第一行是 `# epoch  loss  rmse_e(...)` 表头的 `loss.out`，输出 `file=`（相对路径，曲线要用）、`hdr=`（表头，决定各列名字）、`last=`；目标优先取同目录 `output.log` 前 300 行里的 `Training: epochs 1..N`，其次 `nep.in` 的 `epoch`；`output.log` 末尾有 `Done. Best loss` 时 `done=1`（**只输出 done=1，不输出 done=0**：版本不同找不到这一行时，按 当前 ≥ 目标 判断，不误报失败）；
+   - `loss.out` + `nep.in` → NEP：目标是 `generation`（没写时默认 100000，并标记 `hasTarget=false`）；当前代数和各项 loss 取自 loss.out 最后一行**不以 # 开头**的数据（新版 GPUMD 每次开始训练会先写 `# format_version` / `# output_interval` / `# columns` 表头）；列数决定列名（`AppDetectors.nepLossLabels`：10 普通、12 带 ediff、14/16 带电荷、6 偶极 / 极化率）；
    - `loss.out` + `gnep.in` → GNEP：目标是 `epoch`（默认 50）；
+   - **MACE**：`logs/*.log`（去掉 `_debug.log`）里最新的一个，前 20 行有 `MACE version`。目标 = `logs/<名字>_debug.log` 里参数 Namespace 的 `max_num_epochs`；当前 = max(日志最后一行 `INFO: Epoch N:` 的 N+1，`results/<名字>_train.txt` 最后一行 `"epoch": K` 的 K)（epoch 从 0 数；日志每 eval_interval 个 epoch 才一行，results 每个 batch 一行）；误差按 `名字=数字 单位` 通用地取（error_table 不同名字不同）；`Training complete` → `done=1`（提前停止也算完成，同样只输出 done=1）。mtime 取日志和 results 里较新的；
    - （VASP、LAMMPS、自定义规则见下一节）
    - `run.in` + (`neighbor.out` | `thermo.out`) → GPUMD：目标是所有 `run N` 之和；当前步数优先取 `neighbor.out` 最后一行（`Neighbor info at step N: radial(max=,actual=), angular(...)`），否则用 `thermo.out` 的有效行数 × `dump_thermo`；
    - 同时输出 `mtime=$(stat -c %Y …)`，用来判断输出是否停止更新。
@@ -138,7 +140,7 @@ squeue 的解析是**从两端按位置取列**，所以作业名里有 `|` 也�
 
 ### 详情页曲线（`Monitor/AppCurves.swift`，2026-10-17）
 
-- NEP / GNEP 的 loss；VASP 结构优化每个离子步的 E0 和**最大力**（两张图并排，2026-10-18）。**只在详情页打开时读**：第一次立即读，之后每 20 秒一次（日志末尾仍是 4 秒）。
+- NEP / GNEP / TorchNEP / MACE 的 loss；VASP 结构优化每个离子步的 E0 和**最大力**（两张图并排，2026-10-18）。**只在详情页打开时读**：第一次立即读，之后每 20 秒一次（日志末尾仍是 4 秒）。
 - 增量：`MonitorEngine.curveCaches`（键是 主机 + 文件路径）记住已读行数和文件第一行。脚本把偏移量和第一行一起传过去，服务器上比较：第一行变了或文件变短 → `reset=1` 从头读；一次最多 5 万行。
 - `head -n $((n-off))` 只取 `wc -l` 数到的完整行，正在写的半行下次再读。
 - 输出：`n=`、`head=`、可选的 `reset=1`，再加上 `row=` 开头的数据行。loss.out 只保留第一列是整数的行；OSZICAR 只取"步号 + E0"两列。
@@ -155,6 +157,9 @@ squeue 的解析是**从两端按位置取列**，所以作业名里有 `|` 也�
   - 能量用 `energy(sigma->0)`（= OSZICAR 的 E0），和 VTST 的 `nebef.pl` 一样；能垒 = 最高的像点 − 00，逆向能垒 = 最高的像点 − 末态。在一个真实的 3 像点 NEB 上和 nebef.pl 的输出逐项一致。
   - 详情页两张图：左边"能垒图"——曲线是每个像点的相对能量（带圆点），柱子是每个中间像点的最大力（自己的纵轴，只占下半部分），琥珀色虚线是 |EDIFFG|（标"EDIFFG"，只在 EDIFFG < 0 时画），柱子高于虚线时变成琥珀色；右边"能垒"——每个离子步的能垒变化（从各像点 OSZICAR 的 E0 算），右上角写当前能垒和逆向能垒。
   - 曲线脚本 `curve-neb.sh`：`row=像点 能量 力`，以及每一步的能垒；不做增量（文件少、行数少），每次都重读。
+- **NEP 横轴（2026-10-21）**：loss.out 是**追加写入**的（GPUMD `fopen("loss.out", "a")`），重新开始 / 续跑时代数从 output_interval 重新数起，所以横轴**不用第一列**，而是按行累加：每行加上当前的间隔（`nep.in` 的 `output_interval`，默认 100；新版 GPUMD 每段开头的 `# output_interval N` 改变之后的间隔，曲线脚本把它输出成 `row=-1 N`）。以前直接用第一列，续跑后曲线会折回去。进度条仍用最后一行的代数（续跑时 nep.in 的 generation 是这一次要跑的代数）。
+- TorchNEP 用 loss.out 第一列的 epoch，MACE 用日志里 `Epoch N:` 的验证集误差（awk 输出 `keys=误差名字` 和 `epoch 数字…`）；两者都过一遍 `AppCurves.monotonic`：epoch 倒退（从较早的检查点续跑、文件是追加的）时丢掉之前跑过又重跑的那一段。GNEP 维持原样（用第一列）。
+- 曲线脚本最后的 `sed '/^keys=/!s/^/row=/'`：除了 keys= 行都加 row= 前缀。
 - 画图：点数超过 400 时等间隔抽样；loss 用对数坐标。
 - 实测：一台工作站上 579 行的 loss.out 第一次传 72 KB / 0.07 s，之后没有新行时只传 131 字节。
 

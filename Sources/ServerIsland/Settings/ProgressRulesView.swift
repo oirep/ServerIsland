@@ -12,6 +12,10 @@ struct ProgressRulesView: View {
             Section {
                 builtinRow("NEP / GNEP", files: "loss.out + nep.in / gnep.in",
                            note: L("代数 / epoch，目标取自 nep.in / gnep.in", "Generation / epoch; target from nep.in / gnep.in"))
+                builtinRow("TorchNEP", files: "loss.out + output.log",
+                           note: L("epoch，目标取自 output.log / nep.in；loss.out 可以在 output/ 等子目录里", "Epochs; target from output.log / nep.in; loss.out may be in a subfolder such as output/"))
+                builtinRow("MACE", files: "logs/*.log",
+                           note: L("epoch，目标是 max_num_epochs（取自 _debug.log）", "Epochs; target is max_num_epochs (from _debug.log)"))
                 builtinRow("GPUMD", files: "run.in + neighbor.out / thermo.out",
                            note: L("步数，目标是 run.in 里所有 run 之和", "Steps; target is the sum of run in run.in"))
                 builtinRow("VASP", files: "INCAR + OSZICAR",

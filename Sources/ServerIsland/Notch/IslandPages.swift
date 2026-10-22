@@ -7,7 +7,7 @@ enum IslandPage: Equatable {
     case job(host: UUID, job: String)
     case history(host: UUID)
     case picker(host: UUID)
-    case jobs(host: UUID)
+    case jobs
     case partitions(host: UUID)
 }
 
@@ -153,6 +153,15 @@ struct JobDetailPage: View {
                            + (stillListed ? "" : L(" · 已不在列表中", " · no longer listed")),
                        onBack: onBack) {
                 HStack(spacing: 6) {
+                    // 数组里的单个元素不能单独关注（关注的是整个数组）
+                    if job.array != nil || job.arrayJobID == nil {
+                        let starred = engine.isStarred(host.id, job.id)
+                        IslandIconButton(systemName: starred ? "star.fill" : "star",
+                                         help: starred ? L("取消关注", "Unstar") : L("关注：排在前面，可以只提醒关注的任务", "Star: keep it on top; alerts can be limited to starred jobs"),
+                                         active: starred, activeTint: Theme.amber) {
+                            engine.toggleStar(hostID: host.id, job: job)
+                        }
+                    }
                     if job.source != .progressFile {
                         CopyButton(value: job.id, help: job.source == .process ? L("复制 PID", "Copy PID") : L("复制作业号", "Copy job ID"),
                                    label: job.source == .process ? "PID" : L("作业号", "Job ID"))
@@ -227,6 +236,7 @@ struct JobDetailPage: View {
                 case .gpumd: p += L("，run.in 无 run 步数", ", no run steps in run.in")
                 case .nep, .gnep: p += L("，未设目标按默认值", ", default target")
                 case .vasp: p += a.vaspMode == .relax ? L("（收敛前不知道总步数）", " (total unknown until converged)") : ""
+                case .torchnep, .mace: p += L("，没读到总 epoch", ", total epochs unknown")
                 case .lammps, .custom: break
                 }
             }
@@ -762,15 +772,11 @@ struct ArrayStatusText: View {
     }
 }
 
-// MARK: - 全部任务
+// MARK: - 全部任务（跨服务器）
 
-struct AllJobsPage: View {
-    var host: HostConfig
-    @ObservedObject var engine: MonitorEngine
-    var onBack: () -> Void
-    var onOpen: (RemoteJob) -> Void
-
-    enum Filter: String, CaseIterable {
+/// 全部任务页的筛选条件。放在 IslandViewModel 里：从这里打开详情再返回时保持不变。
+struct JobsFilter: Equatable {
+    enum Status: String, CaseIterable {
         case all, running, pending, array
         var label: String {
             switch self {
@@ -781,66 +787,15 @@ struct AllJobsPage: View {
             }
         }
     }
-    @State private var filter: Filter = .all
-    @State private var query = ""
-    @FocusState private var searching: Bool
+    var query = ""
+    /// nil：全部服务器。
+    var host: UUID?
+    var status: Status = .all
+    var starredOnly = false
 
-    var body: some View {
-        let snap = engine.snapshots[host.id] ?? HostSnapshot()
-        let jobs = snap.jobs.filter(matches)
-        VStack(alignment: .leading, spacing: 10) {
-            PageHeader(title: L("全部任务", "All Jobs"), subtitle: L("\(host.displayName) · 运行 \(snap.runningCount) · 排队 \(snap.pendingCount)", "\(host.displayName) · \(snap.runningCount) running · \(snap.pendingCount) pending"),
-                       onBack: onBack) {
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass").font(.system(size: 10)).foregroundStyle(Theme.tertiary)
-                    TextField(L("搜索名称 / 作业号", "Search name / ID"), text: $query)
-                        .textFieldStyle(.plain)
-                        .font(Theme.rounded(11.5))
-                        .foregroundStyle(Theme.text)
-                        .focused($searching)
-                        .frame(width: 150)
-                    if !query.isEmpty {
-                        Button { query = "" } label: {
-                            Image(systemName: "xmark.circle.fill").font(.system(size: 10)).foregroundStyle(Theme.tertiary)
-                        }.buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(Capsule().fill(Color.white.opacity(searching ? 0.12 : 0.07)))
-            }
-            HStack(spacing: 6) {
-                ForEach(Filter.allCases, id: \.self) { f in
-                    Button { filter = f } label: {
-                        Text(f.label).font(Theme.rounded(10.5, .semibold))
-                            .foregroundStyle(filter == f ? Theme.text : Theme.tertiary)
-                            .padding(.horizontal, 10).padding(.vertical, 3.5)
-                            .background(Capsule().fill(Color.white.opacity(filter == f ? 0.14 : 0.04)))
-                    }
-                    .buttonStyle(.plain)
-                }
-                Spacer()
-                Text(L("\(jobs.count) 项", "\(jobs.count) items")).font(Theme.rounded(10.5)).foregroundStyle(Theme.tertiary)
-            }
-            TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                MaybeScroll(showsIndicators: false) {
-                    VStack(spacing: IslandLayout.jobGap) {
-                        if jobs.isEmpty {
-                            Text(L("没有匹配的任务", "No matching jobs")).font(Theme.rounded(11.5)).foregroundStyle(Theme.tertiary).padding(.top, 30)
-                        }
-                        ForEach(jobs) { job in
-                            JobRowButton(job: job, kind: host.kind, now: ctx.date, sampledAt: snap.lastUpdate) { onOpen(job) }
-                                .frame(height: IslandLayout.jobRow)
-                        }
-                    }
-                    .padding(.horizontal, 6)
-                }
-            }
-            .frame(maxHeight: .infinity)
-        }
-    }
-
-    private func matches(_ j: RemoteJob) -> Bool {
-        switch filter {
+    func matches(_ j: RemoteJob, starred: Bool, hostName: String) -> Bool {
+        if starredOnly && !starred { return false }
+        switch status {
         case .all: break
         case .running: if j.runningUnits == 0 { return false }
         case .pending: if j.pendingUnits == 0 { return false }
@@ -848,7 +803,203 @@ struct AllJobsPage: View {
         }
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         guard !q.isEmpty else { return true }
-        return j.name.lowercased().contains(q) || j.id.contains(q) || j.detail.lowercased().contains(q)
+        return j.name.lowercased().contains(q) || j.id.lowercased().contains(q) || j.detail.lowercased().contains(q)
+            || hostName.lowercased().contains(q) || (j.workdir?.lowercased().contains(q) ?? false)
+    }
+}
+
+/// 所有服务器的任务集中在一页：按服务器分组（顺序同设置），每组里关注的任务在前。
+/// 只用轮询已经拿到的快照，不额外连接服务器。
+struct AllJobsPage: View {
+    @ObservedObject var engine: MonitorEngine
+    @ObservedObject var store: ConfigStore
+    @Binding var filter: JobsFilter
+    var onBack: () -> Void
+    var onOpen: (HostConfig, RemoteJob) -> Void
+    @FocusState private var searching: Bool
+
+    private struct Group: Identifiable {
+        var host: HostConfig
+        var snap: HostSnapshot
+        var jobs: [RemoteJob]
+        var id: UUID { host.id }
+    }
+
+    var body: some View {
+        let hosts = engine.orderedHosts
+        let groups: [Group] = hosts.compactMap { host, snap in
+            if let h = filter.host, h != host.id { return nil }
+            let jobs = engine.displayJobs(host.id, snap.jobs)
+                .filter { filter.matches($0, starred: engine.isStarred(host.id, $0.id), hostName: host.displayName) }
+            return jobs.isEmpty ? nil : Group(host: host, snap: snap, jobs: jobs)
+        }
+        let count = groups.reduce(0) { $0 + $1.jobs.count }
+        let starredCount = store.settings.starredJobs.filter { s in hosts.contains { $0.0.id == s.hostID } }.count
+        VStack(alignment: .leading, spacing: 10) {
+            PageHeader(title: L("全部任务", "All Jobs"),
+                       subtitle: L("\(hosts.count) 台服务器 · 运行 \(engine.totalRunning) · 排队 \(engine.totalPending)",
+                                   "\(hosts.count) servers · \(engine.totalRunning) running · \(engine.totalPending) pending"),
+                       onBack: onBack) { searchField }
+            HStack(spacing: 6) {
+                ForEach(JobsFilter.Status.allCases, id: \.self) { f in
+                    chip(f.label, selected: filter.status == f) { filter.status = f }
+                }
+                Rectangle().fill(Color.white.opacity(0.1)).frame(width: 1, height: 14).padding(.horizontal, 2)
+                chip(L("关注", "Starred") + (starredCount > 0 ? " \(starredCount)" : ""), icon: filter.starredOnly ? "star.fill" : "star",
+                     selected: filter.starredOnly, tint: Theme.amber) { filter.starredOnly.toggle() }
+                    .help(L("只看关注的任务", "Show starred jobs only"))
+                Spacer(minLength: 6)
+                HostFilterMenu(hosts: hosts.map(\.0), selected: $filter.host)
+                Text(L("\(count) 项", "\(count) items")).font(Theme.rounded(10.5).monospacedDigit()).foregroundStyle(Theme.tertiary)
+                    .fixedSize()
+            }
+            TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                MaybeScroll(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: IslandLayout.jobGap) {
+                        if groups.isEmpty { empty }
+                        ForEach(groups) { g in
+                            groupHeader(g)
+                            ForEach(g.jobs) { job in
+                                let starred = engine.isStarred(g.host.id, job.id)
+                                JobRowButton(job: job, kind: g.host.kind, now: ctx.date, sampledAt: g.host.paused ? nil : g.snap.lastUpdate,
+                                             starred: starred, onStar: { engine.toggleStar(hostID: g.host.id, job: job) }) {
+                                    onOpen(g.host, job)
+                                }
+                                .frame(height: IslandLayout.jobRow)
+                                .opacity(g.host.paused ? 0.45 : 1)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 6)
+                }
+            }
+            .frame(maxHeight: .infinity)
+            .clipped()
+        }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass").font(.system(size: 10)).foregroundStyle(Theme.tertiary)
+            if IslandPreview.active {
+                // 离屏渲染画不出文本框
+                Text(filter.query.isEmpty ? L("搜索名称 / 作业号 / 目录", "Search name / ID / folder") : filter.query)
+                    .font(Theme.rounded(11.5)).foregroundStyle(filter.query.isEmpty ? Theme.tertiary : Theme.text)
+                    .frame(width: 170, alignment: .leading)
+            } else {
+                TextField(L("搜索名称 / 作业号 / 目录", "Search name / ID / folder"), text: $filter.query)
+                    .textFieldStyle(.plain)
+                    .font(Theme.rounded(11.5))
+                    .foregroundStyle(Theme.text)
+                    .focused($searching)
+                    .frame(width: 170)
+            }
+            if !filter.query.isEmpty {
+                Button { filter.query = "" } label: {
+                    Image(systemName: "xmark.circle.fill").font(.system(size: 10)).foregroundStyle(Theme.tertiary)
+                }.buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 5)
+        .background(Capsule().fill(Color.white.opacity(searching ? 0.12 : 0.07)))
+    }
+
+    private func chip(_ title: String, icon: String? = nil, selected: Bool, tint: Color = Theme.text, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                if let icon { Image(systemName: icon).font(.system(size: 9, weight: .bold)) }
+                Text(title).font(Theme.rounded(10.5, .semibold).monospacedDigit())
+            }
+            .foregroundStyle(selected ? tint : Theme.tertiary)
+            .padding(.horizontal, 10).padding(.vertical, 3.5)
+            .background(Capsule().fill(selected ? (tint == Theme.text ? Color.white.opacity(0.14) : tint.opacity(0.18)) : Color.white.opacity(0.04)))
+            .fixedSize()
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 分组标题：服务器名、类型、这台的运行 / 排队数。
+    private func groupHeader(_ g: Group) -> some View {
+        HStack(spacing: 7) {
+            StatusDot(color: g.host.paused ? Theme.tertiary : Theme.color(for: g.snap.health), size: 5.5)
+            Text(g.host.displayName).font(Theme.rounded(11, .semibold)).foregroundStyle(Theme.secondary).lineLimit(1)
+            KindBadge(kind: g.host.kind)
+            if g.snap.runningCount + g.snap.pendingCount > 0 {
+                JobCountChips(running: g.snap.runningCount, pending: g.snap.pendingCount, dimmed: g.host.paused)
+            }
+            Spacer(minLength: 6)
+            if let t = g.snap.lastUpdate {
+                Text(Format.relative(t)).font(Theme.rounded(10).monospacedDigit()).foregroundStyle(Theme.tertiary)
+            }
+        }
+        .frame(height: 20)
+        .padding(.top, 2)
+    }
+
+    private var empty: some View {
+        VStack(spacing: 8) {
+            PetView(mood: .idle, size: 26)
+            if filter.starredOnly && filter.query.isEmpty && filter.status == .all {
+                Text(L("还没有关注的任务", "No starred jobs yet")).font(Theme.rounded(12, .semibold)).foregroundStyle(Theme.secondary)
+                Text(L("鼠标移到任务行上，点名称旁边的 ☆ 就能关注", "Hover over a job and click the ☆ next to its name"))
+                    .font(Theme.rounded(10.5)).foregroundStyle(Theme.tertiary)
+            } else {
+                Text(L("没有匹配的任务", "No matching jobs")).font(Theme.rounded(12, .semibold)).foregroundStyle(Theme.secondary)
+                if filter != JobsFilter() {
+                    Button { filter = JobsFilter() } label: {
+                        Text(L("清除筛选", "Clear Filters")).font(Theme.rounded(10.5, .semibold))
+                            .padding(.horizontal, 10).padding(.vertical, 3.5)
+                            .background(Capsule().fill(Theme.cyan.opacity(0.16)))
+                            .foregroundStyle(Theme.cyan)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 50)
+    }
+}
+
+/// 全部任务页右上的服务器筛选菜单。
+struct HostFilterMenu: View {
+    var hosts: [HostConfig]
+    @Binding var selected: UUID?
+
+    var body: some View {
+        if IslandPreview.active { label } else { menu }
+    }
+
+    private var menu: some View {
+        Menu {
+            Button { selected = nil } label: {
+                Label(L("全部服务器", "All Servers"), systemImage: selected == nil ? "checkmark" : "")
+            }
+            Divider()
+            ForEach(hosts) { h in
+                Button { selected = h.id } label: {
+                    Label(h.displayName, systemImage: selected == h.id ? "checkmark" : "")
+                }
+            }
+        } label: { label }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(L("按服务器筛选", "Filter by server"))
+    }
+
+    private var label: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "server.rack").font(.system(size: 9, weight: .semibold))
+            Text(hosts.first { $0.id == selected }?.displayName ?? L("全部服务器", "All Servers"))
+                .font(Theme.rounded(10.5, .semibold)).lineLimit(1).truncationMode(.middle)
+                .frame(maxWidth: 120)
+            Image(systemName: "chevron.down").font(.system(size: 7.5, weight: .bold))
+        }
+        .foregroundStyle(selected == nil ? Theme.tertiary : Theme.cyan)
+        .padding(.horizontal, 9).frame(height: 21)
+        .background(Capsule().fill(selected == nil ? Color.white.opacity(0.04) : Theme.cyan.opacity(0.16)))
+        .fixedSize()
     }
 }
 

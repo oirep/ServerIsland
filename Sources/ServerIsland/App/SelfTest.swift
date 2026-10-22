@@ -249,6 +249,7 @@ enum SelfTest {
         SelfTestApps.run(check)
         SelfTestConnection.run(check)
         SelfTestPBS.run(check)
+        SelfTestMonitor.run(check)
         return ok
     }
 

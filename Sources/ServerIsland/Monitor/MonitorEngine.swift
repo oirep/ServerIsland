@@ -281,31 +281,54 @@ final class MonitorEngine: ObservableObject {
         }
 
         failures[id] = 0
+        await ingest(host: host, parsed: parsed, latency: result.duration)
+    }
+
+    /// 处理一次成功的采样：更新状态、识别事件、记下运行中的任务。自检直接用样例输出调用它。
+    func ingest(host: HostConfig, parsed: RemoteScript.Parsed, latency: TimeInterval) async {
+        let id = host.id
+        var snap = snapshots[id] ?? HostSnapshot()
+        snap.isRefreshing = false
         let previous = snap
         snap = build(host: host, parsed: parsed, previous: previous)
-        snap.latency = result.duration
+        let listed = Self.jobsListed(host: host, parsed: parsed)
+        snap.jobs = Self.jobsAfterPoll(built: snap.jobs, previous: previous.jobs, listed: listed)
+        snap.latency = latency
         snap.lastUpdate = Date()
         snap.health = .ok
         snapshots[id] = snap
-        DebugLog.log("[\(host.displayName)] 轮询成功 \(String(format: "%.2fs", result.duration))：运行 \(snap.runningCount) 排队 \(snap.pendingCount)"
+        DebugLog.log("[\(host.displayName)] 轮询成功 \(String(format: "%.2fs", latency))：运行 \(snap.runningCount) 排队 \(snap.pendingCount)"
                      + (snap.jobs.isEmpty ? "" : " · " + snap.jobs.prefix(8).map { "\($0.id)(\($0.name.prefix(24)),\(Int($0.elapsed ?? -1))s)" }.joined(separator: " ")))
         await detectEvents(host: host, old: previous, new: snap)
+        // 关注的任务结束后自动取消关注（在提醒发出之后；列表没读全时不动）
+        if listed { pruneStarred(host.id, keep: Set(snap.jobs.map(\.id))) }
         // 任务列表读全了才更新"上次看到的任务"（squeue 出错时列表是空的，不能当成全部结束）
-        if host.watchJobs, !demo, jobsListed(host: host, parsed: parsed) {
+        if host.watchJobs, !demo, listed {
             if previous.lastUpdate == nil { await recordEndedWhileAway(host: host, now: snap) }
             history.setActive(id, snap.jobs)
         }
         await initializeArrays(host: host)
     }
 
-    /// 这次采样的任务列表是否完整（作业队列 / 进程列表的命令都成功了）。
-    private func jobsListed(host: HostConfig, parsed: RemoteScript.Parsed) -> Bool {
+    /// 这次采样后的任务列表：没读全时（squeue / qstat / 进程列表出错）沿用上一份，
+    /// 否则会把所有任务当成已经结束、弹出结束提醒。出错的原因照常显示在警告里。
+    nonisolated static func jobsAfterPoll(built: [RemoteJob], previous: [RemoteJob], listed: Bool) -> [RemoteJob] {
+        listed ? built : previous
+    }
+
+    /// 这次采样的任务列表是否完整：远端脚本里列任务的段（作业队列 / 进程列表 / 手动监听的进程）都有输出且成功了。
+    /// 段的条件和 RemoteScript.build 一致；关闭了"监控任务"时没有这些段，进度文件照常更新。
+    nonisolated static func jobsListed(host: HostConfig, parsed: RemoteScript.Parsed) -> Bool {
         var names: [String] = []
-        switch host.kind {
-        case .slurm: names = ["squeue"] + (host.slurmAlsoProcesses ? ["procs"] : [])
-        case .pbs: names = ["qstat"] + (host.slurmAlsoProcesses ? ["procs"] : [])
-        case .direct: names = ["procs"]
+        if host.watchJobs {
+            switch host.kind {
+            case .slurm: names = ["squeue"]
+            case .pbs: names = ["qstat"]
+            case .direct: names = ["procs"]
+            }
+            if host.kind.isScheduler && host.slurmAlsoProcesses { names.append("procs") }
         }
+        if host.kind == .direct, host.watched.contains(where: { Int($0.pid) != nil }) { names.append("watch") }
         return names.allSatisfy { parsed.sections[$0]?.exitCode == 0 }
     }
 
@@ -322,16 +345,25 @@ final class MonitorEngine: ObservableObject {
                                         script: RemoteScript.sacctScript(for: host, jobIDs: slurmIDs), timeout: 20)
             if let sec = RemoteScript.parse(r.stdout).sections["sacct"] { finals = Parsers.sacct(sec.lines) }
         }
+        recordEndedWhileAway(host: host, gone: gone, finals: finals)
+    }
+
+    /// 查询结果与历史写入分开，便于用本地样例验证重启后的补记，不连接服务器。
+    func recordEndedWhileAway(host: HostConfig, gone: [HistoryStore.ActiveJob],
+                              finals: [String: (state: JobState, raw: String, elapsed: TimeInterval?, exit: String)]) {
         for j in gone.reversed() {
             let f = finals[j.id]
             // 数组的主编号在 sacct 里没有单独一行，按元素统计
-            let elems = finals.filter { $0.key.hasPrefix(j.id + "_") }
+            let elems = finals.filter { $0.key.hasPrefix(j.id + "_") && !$0.key.contains("[") }
             var state = f.map { $0.state.isActive ? HistoryEntry.endedUnknown : $0.raw } ?? HistoryEntry.endedUnknown
             var note = L("ServerIsland 未运行时结束", "ended while ServerIsland wasn't running")
-            if f == nil, !elems.isEmpty {
-                let bad = elems.values.filter { [.failed, .timeout, .cancelled].contains($0.state) }.count
-                state = bad > 0 ? "FAILED" : "COMPLETED"
-                note = L("数组 ", "array ") + "\(elems.count - bad)✓ \(bad)✗ · " + note
+            if f == nil, j.arrayTotal != nil || !elems.isEmpty {
+                let c = Self.arrayCounts(elems.values.map(\.state), expectedTotal: j.arrayTotal ?? 0)
+                // 旧记录没有总数时无法确认 sacct 是否漏了元素，不能仅凭返回的几条记录判成功。
+                let accurate = (j.arrayTotal ?? 0) > 0 && c.unknown == 0
+                state = Self.arrayOutcome(failed: c.failed, accurate: accurate).state
+                note = L("数组 ", "array ") + "\(c.done)✓ \(c.failed)✗ · "
+                    + (accurate ? "" : L("结果未确认 · ", "results unconfirmed · ")) + note
             }
             history.record(host.id, HistoryEntry(id: j.id, name: j.name, state: state, elapsed: f?.elapsed ?? j.elapsed,
                                                  endedAt: j.seenAt, exitCode: f?.exit, note: note, dir: j.dir))
@@ -615,11 +647,11 @@ final class MonitorEngine: ObservableObject {
             }
             if let now = newByID[job.id] {
                 if job.state == .pending && now.state == .running {
-                    batch.append(.init(kind: .started, title: L("\(now.name) 开始运行", "\(now.name) started"), subtitle: now.detail, hostName: host.displayName, hostID: host.id))
+                    batch.append(.init(kind: .started, title: L("\(now.name) 开始运行", "\(now.name) started"), subtitle: now.detail, hostName: host.displayName, hostID: host.id, jobID: now.id))
                 } else if job.source == .progressFile, now.state == .completed {
-                    batch.append(.init(kind: .finished, title: L("\(now.name) 已完成", "\(now.name) finished"), subtitle: now.message ?? "", hostName: host.displayName, hostID: host.id))
+                    batch.append(.init(kind: .finished, title: L("\(now.name) 已完成", "\(now.name) finished"), subtitle: now.message ?? "", hostName: host.displayName, hostID: host.id, jobID: now.id))
                 } else if job.source == .progressFile, now.state == .failed {
-                    batch.append(.init(kind: .failed, title: L("\(now.name) 失败", "\(now.name) failed"), subtitle: now.message ?? "", hostName: host.displayName, hostID: host.id))
+                    batch.append(.init(kind: .failed, title: L("\(now.name) 失败", "\(now.name) failed"), subtitle: now.message ?? "", hostName: host.displayName, hostID: host.id, jobID: now.id))
                 }
             } else if job.source == .slurm || job.watched || (job.elapsed ?? 0) >= 30 {
                 // 很短的进程（运行不到 30 秒）来去很正常，不打扰。
@@ -676,31 +708,36 @@ final class MonitorEngine: ObservableObject {
                     batch.append(.init(kind: done ? .finished : (final.canJudge ? .failed : .info),
                                        title: "\(job.name) " + (done ? L("已完成", "finished") : (final.canJudge ? L("提前结束", "ended early") : L("已离开队列", "left the queue"))),
                                        subtitle: "\(final.title) \(posText) · #\(job.id)",
-                                       hostName: host.displayName, hostID: host.id))
+                                       hostName: host.displayName, hostID: host.id, jobID: job.id))
                     continue
                 }
-                var state = f?.state ?? .completed
-                if state.isActive { state = .completed }
-                history.record(host.id, HistoryEntry(id: job.id, name: job.name, state: f?.raw ?? state.rawValue,
+                let outcome = Self.slurmOutcome(f)
+                var note: String?
+                if let f, f.state.isActive {
+                    note = L("sacct 仍显示 \(f.raw)，结果未确认", "sacct still shows \(f.raw); result unconfirmed")
+                } else if f == nil {
+                    note = L("sacct 不可用，按离开队列记录", "no sacct; recorded when it left the queue")
+                }
+                history.record(host.id, HistoryEntry(id: job.id, name: job.name, state: outcome.state,
                                                      elapsed: f?.elapsed ?? job.elapsed, endedAt: Date(),
-                                                     exitCode: f?.exit, note: f == nil ? L("sacct 不可用，按离开队列记录", "no sacct; recorded when it left the queue") : nil,
-                                                     dir: job.workdir ?? job.app?.dir))
+                                                     exitCode: f?.exit, note: note, dir: job.workdir ?? job.app?.dir))
                 let elapsed = f?.elapsed ?? job.elapsed
                 let time = elapsed.map { L("用时 ", "took ") + Format.duration($0) } ?? ""
-                switch state {
-                case .failed, .timeout, .cancelled:
-                    batch.append(.init(kind: .failed, title: "\(job.name) \(state.label)",
+                switch outcome.kind {
+                case .failed:
+                    batch.append(.init(kind: .failed, title: "\(job.name) \(f?.state.label ?? "")",
                                subtitle: [f?.raw.capitalized ?? "", time].filter { !$0.isEmpty }.joined(separator: " · "),
-                               hostName: host.displayName, hostID: host.id))
+                               hostName: host.displayName, hostID: host.id, jobID: job.id))
+                case .finished:
+                    batch.append(.init(kind: .finished, title: L("\(job.name) 已完成", "\(job.name) finished"),
+                                       subtitle: time, hostName: host.displayName, hostID: host.id, jobID: job.id))
                 default:
-                    if f == nil {
-                        // 没有 sacct：只知道离开了队列，不能断定成功。
-                        batch.append(.init(kind: .info, title: L("\(job.name) 已离开队列", "\(job.name) left the queue"),
-                                           subtitle: L("集群未开启作业记录，无法确认成功或失败 · ", "no job accounting; result unknown · ") + time, hostName: host.displayName, hostID: host.id))
-                    } else {
-                        batch.append(.init(kind: .finished, title: L("\(job.name) 已完成", "\(job.name) finished"),
-                                           subtitle: time, hostName: host.displayName, hostID: host.id))
-                    }
+                    // 只知道离开了队列，不能断定成功。
+                    let why = f == nil ? L("集群未开启作业记录，无法确认成功或失败", "no job accounting; result unknown")
+                                       : L("作业记录显示 \(f!.raw)，无法确认成功或失败", "accounting shows \(f!.raw); result unknown")
+                    batch.append(.init(kind: .info, title: L("\(job.name) 已离开队列", "\(job.name) left the queue"),
+                                       subtitle: [why, time].filter { !$0.isEmpty }.joined(separator: " · "),
+                                       hostName: host.displayName, hostID: host.id, jobID: job.id))
                 }
             case .process:
                 history.record(host.id, HistoryEntry(id: job.id, name: job.name, state: JobState.completed.rawValue,
@@ -724,10 +761,10 @@ final class MonitorEngine: ObservableObject {
                     batch.append(.init(kind: done ? .finished : .failed,
                                        title: app.title + (done ? L("完成", " finished") : L("提前结束", " ended early")),
                                        subtitle: (done ? pos : L("停在 ", "stopped at ") + pos) + " · " + folder,
-                                       hostName: host.displayName, hostID: host.id))
+                                       hostName: host.displayName, hostID: host.id, jobID: job.id))
                 } else {
                     batch.append(.init(kind: .finished, title: L("\(job.name) 已结束", "\(job.name) ended"),
-                               subtitle: job.elapsed.map { L("运行了至少 ", "ran for at least ") + Format.duration($0) } ?? "", hostName: host.displayName, hostID: host.id))
+                               subtitle: job.elapsed.map { L("运行了至少 ", "ran for at least ") + Format.duration($0) } ?? "", hostName: host.displayName, hostID: host.id, jobID: job.id))
                 }
             case .progressFile:
                 break
@@ -757,7 +794,7 @@ final class MonitorEngine: ObservableObject {
                     t.alertedFailure = true
                     batch.append(.init(kind: .failed, title: L("\(e.name) 数组中有元素失败", "\(e.name): an array element failed"),
                                        subtitle: "#\(e.id) \(finals[e.id]?.raw ?? st.label)" + L(" · 之后的失败不再单独提醒", " · later failures won't alert separately"),
-                                       hostName: host.displayName, hostID: host.id))
+                                       hostName: host.displayName, hostID: host.id, jobID: base))
                 }
             } else {
                 t.done += 1
@@ -770,44 +807,97 @@ final class MonitorEngine: ObservableObject {
             guard let a = job.array else { continue }
             let key = arrayKey(host.id, a.baseID)
             var t = arrayTracks[key] ?? ArrayTrack()
+            t.total = max(t.total, a.total)
             let mine = finals.filter { $0.key.hasPrefix(a.baseID + "_") && !$0.key.contains("[") }
             if !mine.isEmpty {
-                t.done = mine.values.filter { $0.state == .completed }.count
-                t.failed = mine.values.filter { [.failed, .timeout, .cancelled].contains($0.state) }.count
-                t.accurate = true
+                let c = Self.arrayCounts(mine.values.map(\.state), expectedTotal: t.total)
+                t.done = c.done
+                t.failed = c.failed
+                t.accurate = c.unknown == 0
             } else {
+                // 这次没查到 sacct：之前的计数可能来自 sacct，但最后这批元素的结果没确认
                 t.done += a.running.count
+                t.accurate = false
             }
             let total = max(t.total, t.done + t.failed)
+            let outcome = Self.arrayOutcome(failed: t.failed, accurate: t.accurate)
             history.record(host.id, HistoryEntry(id: a.baseID, name: job.name,
-                                                 state: t.failed > 0 ? "FAILED" : "COMPLETED", elapsed: job.elapsed,
+                                                 state: outcome.state, elapsed: job.elapsed,
                                                  endedAt: Date(), exitCode: nil,
                                                  note: L("数组 ", "array ") + "\(t.done)✓ \(t.failed)✗", dir: job.workdir))
-            batch.append(.init(kind: t.failed > 0 ? .failed : (t.accurate ? .finished : .info),
+            let unconfirmed = mine.isEmpty ? L("（sacct 不可用，结果未确认）", " (no sacct; unconfirmed)")
+                                           : L("（部分元素的结果还未确认）", " (some results unconfirmed)")
+            batch.append(.init(kind: outcome.kind,
                                title: L("\(job.name) 数组已全部结束", "\(job.name): array finished"),
                                subtitle: L("\(t.done) 个成功", "\(t.done) done") + (t.failed > 0 ? L(" · \(t.failed) 个失败", " · \(t.failed) failed") : "") + L(" / 共 \(total) 个", " / \(total) total")
-                                   + (t.accurate ? "" : L("（sacct 不可用，结果未确认）", " (no sacct; unconfirmed)")),
-                               hostName: host.displayName, hostID: host.id))
+                                   + (t.accurate ? "" : unconfirmed),
+                               hostName: host.displayName, hostID: host.id, jobID: a.baseID))
             arrayTracks[key] = nil
         }
     }
 
-    /// 同一次轮询里事件太多时合并成一条，避免连续弹窗。
+    /// 同一次轮询里事件太多时合并成一条，避免连续弹窗。先按提醒设置（种类、关注范围）过滤，再合并。
     private func flush(_ batch: [IslandEvent], host: HostConfig) {
+        let batch = Self.alertable(batch, settings: store.settings, watchedPIDs: Set(host.watched.map(\.pid)))
         guard !batch.isEmpty else { return }
         if batch.count <= 2 {
             batch.forEach(emit)
             return
         }
-        let failed = batch.filter { $0.kind == .failed }.count
-        let done = batch.filter { $0.kind == .finished }.count
-        var parts: [String] = []
-        if done > 0 { parts.append(L("\(done) 个完成", "\(done) finished")) }
-        if failed > 0 { parts.append(L("\(failed) 个失败", "\(failed) failed")) }
-        let started = batch.count - done - failed
-        if started > 0 { parts.append(L("\(started) 个开始运行", "\(started) started")) }
-        emit(.init(kind: failed > 0 ? .failed : .finished, title: parts.joined(separator: L("，", ", ")),
-                   subtitle: batch.prefix(3).map(\.title).joined(separator: " · "), hostName: host.displayName, hostID: host.id))
+        emit(Self.merged(batch, hostName: host.displayName, hostID: host.id))
+    }
+
+    /// 按提醒设置过滤这一批事件，被过滤掉的写进日志（排查"为什么没提醒"）。
+    /// 手动监听的进程是用户点名要看的，"只提醒关注的任务"时也照常提醒。
+    nonisolated static func alertable(_ batch: [IslandEvent], settings: AppSettings, watchedPIDs: Set<String> = []) -> [IslandEvent] {
+        var everyJob = settings
+        everyJob.alertScope = .all
+        return batch.filter { e in
+            if settings.allowsAlert(e) { return true }
+            if let j = e.jobID, watchedPIDs.contains(j), everyJob.allowsAlert(e) { return true }
+            DebugLog.log("提醒按设置跳过：\(e.title)（范围 \(settings.alertScope.rawValue)）")
+            return false
+        }
+    }
+
+    /// 同一次轮询里的多条事件合并成一条：按种类分别计数，种类取最要紧的（失败 > 警告 > 完成 > 结果未知 > 开始运行）。
+    nonisolated static func merged(_ batch: [IslandEvent], hostName: String, hostID: UUID?) -> IslandEvent {
+        func count(_ k: IslandEvent.Kind) -> Int { batch.filter { $0.kind == k }.count }
+        let order: [(IslandEvent.Kind, String)] = [
+            (.finished, L("\(count(.finished)) 个完成", "\(count(.finished)) finished")),
+            (.failed, L("\(count(.failed)) 个失败", "\(count(.failed)) failed")),
+            (.info, L("\(count(.info)) 个结果未知", "\(count(.info)) result unknown")),
+            (.started, L("\(count(.started)) 个开始运行", "\(count(.started)) started")),
+            (.warning, L("\(count(.warning)) 条警告", "\(count(.warning)) warnings")),
+        ]
+        let parts = order.filter { count($0.0) > 0 }.map(\.1)
+        let kind = [IslandEvent.Kind.failed, .warning, .finished, .info, .started].first { count($0) > 0 } ?? .info
+        return .init(kind: kind, title: parts.joined(separator: L("，", ", ")),
+                     subtitle: batch.prefix(3).map(\.title).joined(separator: " · "), hostName: hostName, hostID: hostID)
+    }
+
+    /// 数组元素在 sacct 里的最终状态计数：运行中、状态不认识、以及已知总数里缺失的元素都算"未确认"。
+    nonisolated static func arrayCounts(_ states: [JobState], expectedTotal: Int = 0) -> (done: Int, failed: Int, unknown: Int) {
+        let done = states.filter { $0 == .completed }.count
+        let failed = states.filter { [.failed, .timeout, .cancelled].contains($0) }.count
+        return (done, failed, max(states.count, expectedTotal) - done - failed)
+    }
+
+    /// 整个数组结束时历史里记的状态和提醒种类：有失败就算失败；全部元素都确认完成才算成功，否则"结果未知"。
+    nonisolated static func arrayOutcome(failed: Int, accurate: Bool) -> (state: String, kind: IslandEvent.Kind) {
+        if failed > 0 { return ("FAILED", .failed) }
+        return accurate ? ("COMPLETED", .finished) : (HistoryEntry.endedUnknown, .info)
+    }
+
+    /// 离开队列的 Slurm 作业（没有按计算软件输出判断时）：按 sacct 结果定历史里记的状态和提醒的种类。
+    /// 只有 sacct 明确是 COMPLETED 才算成功；查不到、仍显示运行中或状态不认识，都算"结果未知"（.info）。
+    nonisolated static func slurmOutcome(_ f: (state: JobState, raw: String, elapsed: TimeInterval?, exit: String)?) -> (state: String, kind: IslandEvent.Kind) {
+        guard let f, !f.state.isActive else { return (HistoryEntry.endedUnknown, .info) }
+        switch f.state {
+        case .completed: return (f.raw, .finished)
+        case .failed, .timeout, .cancelled: return (f.raw, .failed)
+        default: return (f.raw, .info)
+        }
     }
 
     func emit(_ event: IslandEvent) {
@@ -816,8 +906,12 @@ final class MonitorEngine: ObservableObject {
             DebugLog.log("提醒已静音：\(event.title)")
             return
         }
-        DebugLog.log("提醒：\(event.title) · \(event.subtitle)（弹窗 \(store.settings.islandAlerts) 声音 \(store.settings.soundEnabled)）")
+        // 勿扰时段：系统通知照发（不出声，见 AppDelegate），不响铃、不弹窗。
+        let quiet = store.settings.isQuiet()
+        DebugLog.log("提醒：\(event.title) · \(event.subtitle)（弹窗 \(store.settings.islandAlerts) 声音 \(store.settings.soundEnabled)"
+                     + (quiet ? " · 勿扰时段" : "") + "）")
         onEvent?(event)
+        if quiet { return }
         if store.settings.soundEnabled, event.kind != .started {
             SoundPlayer.shared.play(event.kind == .failed ? .failure : (event.kind == .warning ? .warning : .success),
                                     volume: store.settings.soundVolume)
@@ -870,6 +964,45 @@ final class MonitorEngine: ObservableObject {
 
     func setSnapshot(_ snap: HostSnapshot, for id: UUID) {
         snapshots[id] = snap
+    }
+
+    // MARK: - 关注
+
+    func isStarred(_ hostID: UUID, _ jobID: String) -> Bool {
+        store.settings.isStarred(hostID, jobID)
+    }
+
+    /// 关注 / 取消关注。数组作业用主编号（分组行的 id），关注的是整个数组。
+    func toggleStar(hostID: UUID, job: RemoteJob) {
+        // 关注存在设置里；只订阅了引擎的页面（详情页）也要刷新
+        objectWillChange.send()
+        let id = job.array?.baseID ?? job.id
+        if let i = store.settings.starredJobs.firstIndex(where: { $0.hostID == hostID && $0.jobID == id }) {
+            store.settings.starredJobs.remove(at: i)
+            DebugLog.log("取消关注：\(id) \(job.name)")
+        } else {
+            store.settings.starredJobs.append(StarredJob(hostID: hostID, jobID: id, name: job.name))
+            DebugLog.log("关注：\(id) \(job.name)")
+        }
+    }
+
+    /// 去掉已经不在列表里的关注（任务结束了）。只在这台服务器的任务列表读全时调用。
+    func pruneStarred(_ hostID: UUID, keep: Set<String>) {
+        let gone = store.settings.starredJobs.filter { $0.hostID == hostID && !keep.contains($0.jobID) }
+        guard !gone.isEmpty else { return }
+        store.settings.starredJobs.removeAll { $0.hostID == hostID && !keep.contains($0.jobID) }
+        DebugLog.log("关注的任务已结束，取消关注：\(gone.map(\.jobID).joined(separator: " "))")
+    }
+
+    /// 显示顺序：关注的任务排在前面，其余保持原来的顺序。
+    func displayJobs(_ hostID: UUID, _ jobs: [RemoteJob]) -> [RemoteJob] {
+        Self.starredFirst(jobs) { isStarred(hostID, $0.id) }
+    }
+
+    nonisolated static func starredFirst(_ jobs: [RemoteJob], _ starred: (RemoteJob) -> Bool) -> [RemoteJob] {
+        let s = jobs.filter(starred)
+        guard !s.isEmpty else { return jobs }
+        return s + jobs.filter { !starred($0) }
     }
 
     // MARK: - 汇总

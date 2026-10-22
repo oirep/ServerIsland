@@ -50,6 +50,8 @@ public static class EnumLabels
     /// 可以记住密码（动态口令每次都不同，不能记）。
     public static bool CanRemember(this AuthMode a) => a is AuthMode.Password or AuthMode.KeyPassword;
 
+    public static string Label(this AlertScope a) => a == AlertScope.All ? L("全部任务", "All Jobs") : L("只提醒关注的任务", "Starred Jobs Only");
+
     public static string Label(this KeepAlive k) => k switch
     {
         KeepAlive.H8 => L("8 小时", "8 hours"),
@@ -233,6 +235,19 @@ public sealed class AppSettings
     public string IslandScreen { get; set; } = "";
     /// 已经在刘海里提醒过的新版本（同一个版本只提醒一次）。
     public string NotifiedUpdateVersion { get; set; } = "";
+    /// 关注的任务（跨服务器）。任务从完整的列表里消失后自动移除。
+    public List<StarredJob> StarredJobs { get; set; } = [];
+    /// 任务提醒的范围：全部任务 / 只提醒关注的任务。磁盘等服务器级提醒不受影响。
+    public AlertScope AlertScope { get; set; } = AlertScope.All;
+    /// 分别控制四类任务提醒。
+    public bool AlertStarted { get; set; } = true;
+    public bool AlertFinished { get; set; } = true;
+    public bool AlertFailed { get; set; } = true;
+    public bool AlertUnknown { get; set; } = true;
+    /// 勿扰时段：这段时间里不响铃、不弹窗，系统通知照发但不出声（默认关）。时间是一天里的分钟数，起点晚于终点表示跨午夜。
+    public bool QuietHours { get; set; }
+    public int QuietStart { get; set; } = 23 * 60;
+    public int QuietEnd { get; set; } = 8 * 60;
 
     // —— 只有 Windows / Linux 版用到的设置 ——
     public DisplayMode DisplayMode { get; set; } = DisplayMode.Island;
@@ -242,7 +257,53 @@ public sealed class AppSettings
     public int? PetY { get; set; }
 
     public AppSettings Clone() => Json.Clone(this);
+
+    /// 现在是否在勿扰时段里。起点等于终点时不算勿扰。
+    public bool IsQuiet(DateTime? at = null)
+    {
+        if (!QuietHours || QuietStart == QuietEnd) return false;
+        var t = at ?? DateTime.Now;
+        int m = t.Hour * 60 + t.Minute;
+        return QuietStart < QuietEnd ? m >= QuietStart && m < QuietEnd : m >= QuietStart || m < QuietEnd;
+    }
+
+    /// 勿扰时段的文字，例如 23:00–08:00。
+    [JsonIgnore] public string QuietLabel => Clock(QuietStart) + "–" + Clock(QuietEnd);
+    public static string Clock(int minutes) => $"{minutes / 60 % 24:00}:{minutes % 60:00}";
+
+    public bool IsStarred(Guid hostId, string jobId) => StarredJobs.Any(s => s.HostID == hostId && s.JobID == jobId);
+
+    /// 这条提醒要不要发：服务器级提醒（没有任务号，如磁盘）总是发；任务提醒看种类开关和关注范围。
+    /// 静音在 Emit 里判断，优先于这里。anyScope：不看关注范围（手动监听的进程）。
+    public bool AllowsAlert(IslandEvent e, bool anyScope = false)
+    {
+        if (e.JobID is not { } job || e.HostID is not { } host) return true;
+        var on = e.Kind switch
+        {
+            EventKind.Started => AlertStarted,
+            EventKind.Finished => AlertFinished,
+            EventKind.Failed => AlertFailed,
+            EventKind.Info => AlertUnknown,
+            _ => true,
+        };
+        return on && (anyScope || AlertScope == AlertScope.All || IsStarred(host, job));
+    }
 }
+
+/// 一个关注的任务。数组作业关注的是整个数组（主编号）。
+public sealed class StarredJob
+{
+    [JsonConverter(typeof(UpperGuidConverter))]
+    public Guid HostID { get; set; }
+    public string JobID { get; set; } = "";
+    /// 关注时的名称（只用于日志和排查）。
+    public string Name { get; set; } = "";
+    [JsonConverter(typeof(ReferenceDateConverter))]
+    public DateTime? Since { get; set; } = DateTime.Now;
+}
+
+/// 存储的值 all / starred 和 Mac 版一致。
+public enum AlertScope { All, Starred }
 
 public static class Json
 {
@@ -353,17 +414,46 @@ public sealed class ConfigStore
     /// 设置有变化（界面据此刷新、引擎据此重新安排轮询）。
     public event Action? Changed;
 
+    /// 配置文件读不出来时的说明（启动后在刘海里提醒一次）；首次启动没有文件时为 null。
+    public string? LoadProblem { get; }
+    /// 读取失败、原文件又没能备份时不再保存，免得默认设置把它覆盖掉。
+    readonly bool _saveBlocked;
+
     public ConfigStore(bool persist = true)
     {
         _persist = persist;
         AppSettings? loaded = null;
-        if (persist && File.Exists(AppPaths.ConfigFile))
-        {
-            try { loaded = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(AppPaths.ConfigFile), Json.Options); }
-            catch (Exception e) { DebugLog.Log("读取配置失败：" + e.Message); }
-        }
+        if (persist) (loaded, LoadProblem, _saveBlocked) = Load(AppPaths.ConfigFile);
         Settings = loaded ?? new AppSettings();
         Apply();
+    }
+
+    /// 读配置文件。没有文件（首次启动）返回 null、没有问题；读不出来时先把原文件复制成 `config.broken-<时间>.json`，
+    /// 再返回原因（之后改设置会覆盖 config.json，备份不动）。复制也失败时 BlockSave 为 true。
+    public static (AppSettings? Settings, string? Problem, bool BlockSave) Load(string path)
+    {
+        if (!File.Exists(path)) return (null, null, false);
+        try
+        {
+            if (JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), Json.Options) is { } s) return (s, null, false);
+            throw new JsonException("null");
+        }
+        catch (Exception e)
+        {
+            DebugLog.Log("读取配置失败：" + e.Message);
+            var backup = Path.Combine(Path.GetDirectoryName(path) ?? ".", $"config.broken-{DateTime.Now:yyyyMMdd-HHmmss}.json");
+            try
+            {
+                File.Copy(path, backup);
+                return (null, L($"设置文件读取失败，已改用默认设置；原文件备份为 {Path.GetFileName(backup)}",
+                                $"Couldn't read the settings file; using defaults. The original was saved as {Path.GetFileName(backup)}"), false);
+            }
+            catch
+            {
+                return (null, L($"设置文件读取失败，也没能备份；这次改动不会保存，原文件留在 {path}",
+                                $"Couldn't read or back up the settings file; changes won't be saved. The original is at {path}"), true);
+            }
+        }
     }
 
     void Apply()
@@ -388,7 +478,7 @@ public sealed class ConfigStore
     {
         Apply();
         Changed?.Invoke();
-        if (!_persist) return;
+        if (!_persist || _saveBlocked) return;
         lock (_lock)
         {
             _saveTimer?.Dispose();
@@ -399,7 +489,7 @@ public sealed class ConfigStore
 
     public void SaveNow()
     {
-        if (!_persist) return;
+        if (!_persist || _saveBlocked) return;
         lock (_lock) { _saveTimer?.Dispose(); _saveTimer = null; }
         Write(JsonSerializer.Serialize(Settings, Json.Options));
     }

@@ -1,6 +1,6 @@
 import Foundation
 
-/// 详情页里的小曲线：NEP / GNEP 的 loss，VASP 结构优化每个离子步的能量和最大力（两张并排）。
+/// 详情页里的小曲线：NEP / GNEP / TorchNEP / MACE 的 loss，VASP 结构优化每个离子步的能量和最大力（两张并排）。
 /// 只在详情页打开时读取，并且是增量的：记住已经读到第几行和文件第一行，下次只取新增的行；
 /// 第一行变了（重新训练）或文件变短时从头读。
 struct AppCurve: Equatable {
@@ -42,7 +42,8 @@ enum AppCurves {
     static let maxRows = 50_000
 
     enum Source: Equatable {
-        case loss(path: String, gnep: Bool)
+        /// NEP / GNEP / TorchNEP 的 loss.out，MACE 的训练日志（logs/*.log 里每 eval_interval 个 epoch 一行验证集误差）。
+        case loss(path: String, kind: AppProgress.Kind)
         case vaspEnergy(path: String)
         /// OUTCAR 每个离子步 TOTAL-FORCE 块里最大的原子受力 |F|；INCAR 的 EDIFFG 作为收敛目标。
         case vaspForce(path: String)
@@ -57,11 +58,11 @@ enum AppCurves {
         }
     }
 
-    /// 哪些任务有曲线：NEP / GNEP 训练、VASP 结构优化（能量 + 最大力）。
+    /// 哪些任务有曲线：NEP / GNEP / TorchNEP / MACE 训练、VASP 结构优化（能量 + 最大力）。
     static func sources(for app: AppProgress) -> [Source] {
         switch app.kind {
-        case .nep: return [.loss(path: app.dir + "/loss.out", gnep: false)]
-        case .gnep: return [.loss(path: app.dir + "/loss.out", gnep: true)]
+        case .nep, .gnep: return [.loss(path: app.dir + "/loss.out", kind: app.kind)]
+        case .torchnep, .mace: return app.dataFile.map { [.loss(path: app.dir + "/" + $0, kind: app.kind)] } ?? []
         case .vasp where app.vaspMode == .relax: return [.vaspEnergy(path: app.dir + "/OSZICAR"), .vaspForce(path: app.dir + "/OUTCAR")]
         case .vasp where app.vaspMode == .neb: return [.neb(dir: app.dir)]
         default: return []
@@ -92,7 +93,20 @@ enum AppCurves {
         if case .vaspForce = src { return forceScript(src.path, offset: offset, head: head) }
         if case .neb(let dir) = src { return nebScript(dir) }
         let filter: String
+        var extra = ""
         switch src {
+        case .loss(_, .nep):
+            // GPUMD 新版在每次（重新）开始训练时写一段 # 表头，其中 # output_interval N 是之后每行间隔的代数：输出成 "-1 N"。
+            filter = #"awk '/^[[:space:]]*#[[:space:]]*output_interval[[:space:]]/ { print -1, $3; next } NF >= 2 && $1 ~ /^[0-9]+$/ { print }' | cut -c1-300"#
+            extra = #"awk '$1=="output_interval" && $2~/^[0-9]+$/ {print "interval="$2; exit}' "$(dirname "$f")/nep.in" 2>/dev/null"# + "\n"
+        case .loss(_, .mace):
+            // 每行：epoch 和各个误差的数字；误差的名字变了才输出一次 keys=。多头训练同一个 epoch 有好几行，只取第一行。
+            filter = #"""
+            awk '/INFO: Epoch [0-9]+:/ { s = $0; sub(/.*INFO: Epoch /, "", s); e = s + 0; if (n && e == p) next; p = e; n = 1
+              sub(/^[0-9]+: */, "", s); gsub(/= +/, "=", s); k = ""; o = e; m = split(s, a, ",")
+              for (i = 1; i <= m; i++) if (a[i] ~ /=/) { split(a[i], b, "="); sub(/^ +/, "", b[1]); split(b[2], c, " "); k = k (k == "" ? "" : ",") b[1]; o = o " " c[1] }
+              if (k != K) { print "keys=" k; K = k }; print o }'
+            """#
         case .loss:
             filter = #"awk 'NF >= 2 && $1 ~ /^[0-9]+$/ { print }' | cut -c1-300"#
         case .vaspEnergy, .vaspForce, .neb:
@@ -106,7 +120,7 @@ enum AppCurves {
         if [ "$h" != \(SSHRunner.shellQuote(head)) ] || [ "$n" -lt "$off" ]; then off=0; echo reset=1; fi
         if [ $((n - off)) -gt \(maxRows) ]; then off=$((n - \(maxRows))); echo reset=1; fi
         echo "n=$n"; echo "head=$h"
-        tail -n +$((off + 1)) "$f" | head -n $((n - off)) | \(filter) | sed 's/^/row=/'
+        \(extra)tail -n +$((off + 1)) "$f" | head -n $((n - off)) | \(filter) | sed '/^keys=/!s/^/row=/'
 
         """
     }
@@ -163,6 +177,9 @@ enum AppCurves {
         c.head = lines.first(where: { $0.hasPrefix("head=") }).map { String($0.dropFirst(5)) } ?? ""
         if let e = lines.first(where: { $0.hasPrefix("ediffg=") }) { c.extra["ediffg"] = String(e.dropFirst(7)) }
         if let e = lines.first(where: { $0.hasPrefix("images=") }) { c.extra["images"] = String(e.dropFirst(7)) }
+        if let e = lines.first(where: { $0.hasPrefix("interval=") }) { c.extra["interval"] = String(e.dropFirst(9)) }
+        if let e = lines.last(where: { $0.hasPrefix("keys=") }) { c.extra["keys"] = String(e.dropFirst(5)) }
+        c.extra["head"] = c.head
         for l in lines where l.hasPrefix("row=") {
             let nums = l.dropFirst(4).split(separator: " ").compactMap { Double($0) }
             if nums.count >= 2 { c.rows.append(nums) }
@@ -231,22 +248,50 @@ enum AppCurves {
         if case .neb = src { return nebCurves(rows: rows, extra: extra).first }
         guard rows.count >= 2 else { return nil }
         switch src {
-        case .loss(_, let gnep):
-            // NEP：gen Total L1 L2 E F V [E-test F-test V-test]；GNEP：epoch Loss E F V
-            let cols: [(String, Int)] = gnep
-                ? [("Loss", 1), (L("能量", "Energy"), 2), (L("力", "Force"), 3), (L("维里", "Virial"), 4)]
-                : (rows.last!.count >= 7
-                    ? [("Total", 1), (L("能量", "Energy"), 4), (L("力", "Force"), 5), (L("维里", "Virial"), 6)]
-                    : [("Loss", 1), (L("能量", "Energy"), 2), (L("力", "Force"), 3), (L("维里", "Virial"), 4)])
+        case .loss(_, let kind):
+            var data = rows
+            var names: [String]
+            switch kind {
+            case .nep:
+                // loss.out 是追加写入的：重新开始 / 续跑时代数从头数起，所以横轴不用第一列，而是按行累加
+                // （每行间隔 output_interval 代，默认 100；新版 GPUMD 每段开头的 # output_interval 会改变之后的间隔）。
+                var step = extra["interval"].flatMap(Double.init) ?? 100, x = 0.0
+                data = rows.compactMap { r in
+                    if r[0] < 0 { step = r[1]; return nil }
+                    x += step
+                    return [x] + r.dropFirst()
+                }
+                names = AppDetectors.nepLossLabels(columns: data.last?.count ?? 0)
+            case .torchnep:
+                names = AppDetectors.torchnepLabels(extra["head"] ?? "")
+                data = monotonic(rows)
+            case .mace:
+                names = ["epoch"] + (extra["keys"] ?? "").split(separator: ",").map {
+                    $0 == "loss" ? "Loss" : $0.replacingOccurrences(of: "_per_atom", with: "").replacingOccurrences(of: "_", with: " ")
+                }
+                data = monotonic(rows)
+            default:
+                names = AppDetectors.nepLossLabels(columns: 0)
+            }
+            // 画哪几列、图例里叫什么
+            let wanted: [(String, String)] = [("Total", "Total"), ("Loss", "Loss"), ("Energy", L("能量", "Energy")), ("Force", L("力", "Force")),
+                                              ("Virial", L("维里", "Virial")), ("P-train", "Train"), ("P-test", "Test")]
+            var cols: [(String, Int)] = []
+            for (i, n) in names.enumerated() where i > 0 {
+                let base = n.components(separatedBy: " (").first ?? n
+                if let w = wanted.first(where: { $0.0 == base }) { cols.append((w.1, i)) }
+                else if kind == .torchnep, ["E", "F", "V"].contains(base) { cols.append((base, i)) }
+                else if kind == .mace { cols.append((base, i)) }
+            }
             let series: [AppCurve.Series] = cols.compactMap { name, i in
-                let pts = rows.compactMap { r -> CGPoint? in
+                let pts = data.compactMap { r -> CGPoint? in
                     guard i < r.count, r[i] > 0 else { return nil }
                     return CGPoint(x: r[0], y: r[i])
                 }
                 return pts.count >= 2 ? .init(name: name, points: downsample(pts)) : nil
             }
             guard !series.isEmpty else { return nil }
-            return AppCurve(title: "Loss", series: series, logY: true, xLabel: gnep ? "epoch" : L("代", "gen"))
+            return AppCurve(title: "Loss", series: series, logY: true, xLabel: kind == .nep ? L("代", "gen") : "epoch")
         case .vaspEnergy:
             let pts = rows.map { CGPoint(x: $0[0], y: $0[1]) }
             return AppCurve(title: L("能量 E0（eV）", "Energy E0 (eV)"), series: [.init(name: "E0", points: downsample(pts))],
@@ -270,6 +315,16 @@ enum AppCurves {
                             series: [.init(name: "|F|max", points: downsample(pts)), .init(name: L("最低", "lowest"), points: downsample(lows), faint: true)],
                             logY: true, xLabel: L("离子步", "ionic step"), threshold: target, note: note)
         }
+    }
+
+    /// 横轴倒退（从较早的检查点续跑，日志 / loss.out 是追加写入的）时，丢掉之前跑过、又被重跑的那一段。
+    static func monotonic(_ rows: [[Double]]) -> [[Double]] {
+        var out: [[Double]] = []
+        for r in rows {
+            while let l = out.last, l[0] >= r[0] { out.removeLast() }
+            out.append(r)
+        }
+        return out
     }
 
     /// 点太多时等间隔抽样（保留首尾），画图用不到上万个点。
