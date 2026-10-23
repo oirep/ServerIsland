@@ -54,6 +54,8 @@ final class IslandController {
         panel.isMovable = false
         panel.ignoresMouseEvents = true
         panel.acceptsMouseMovedEvents = true
+        // 首页保持非激活状态，但原生 tooltip 仍应响应悬停，无需抢占当前应用的键盘焦点。
+        panel.allowsToolTipsWhenApplicationIsInactive = true
         panel.contentView = IslandHostingView(rootView: IslandRootView(vm: vm, engine: engine, store: store))
         panel.allowsKey = { [weak self] in
             if case .jobs = self?.vm.page { return true }

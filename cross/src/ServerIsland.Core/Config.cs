@@ -243,6 +243,8 @@ public sealed class AppSettings
     public int ProgressFileStaySeconds { get; set; }
     /// false：所有机器都只手动刷新。
     public bool AutoRefresh { get; set; } = true;
+    // Preserve the macOS menu bar preference when sharing configuration.
+    public bool ShowMenuBarIcon { get; set; } = true;
     public CollapsedStyle CollapsedStyle { get; set; } = CollapsedStyle.Always;
     /// 展开面板里把空闲的机器合并成一行（全部空闲时照常显示卡片）。
     public bool FoldIdleHosts { get; set; } = true;

@@ -218,7 +218,8 @@ struct IslandIconButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help(help)
+        // 详情持续刷新时保留原生提示区域，避免反复重置系统悬停计时。
+        .islandHelp(help)
     }
 }
 

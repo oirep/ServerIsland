@@ -283,6 +283,8 @@ struct AppSettings: Codable, Equatable {
     var defaultInterval = 60
     /// false：所有机器都只手动刷新。
     var autoRefresh = true
+    /// 隐藏菜单栏入口后仍可通过再次启动应用进入设置。
+    var showMenuBarIcon = true
     var collapsedStyle: CollapsedStyle = .always
     /// 展开面板里把空闲的机器合并成一行（全部空闲时照常显示卡片）。
     var foldIdleHosts = true
@@ -329,6 +331,7 @@ struct AppSettings: Codable, Equatable {
         hosts = try c.decodeIfPresent([HostConfig].self, forKey: .hosts) ?? []
         defaultInterval = try c.decodeIfPresent(Int.self, forKey: .defaultInterval) ?? 60
         autoRefresh = try c.decodeIfPresent(Bool.self, forKey: .autoRefresh) ?? true
+        showMenuBarIcon = try c.decodeIfPresent(Bool.self, forKey: .showMenuBarIcon) ?? true
         collapsedStyle = try c.decodeIfPresent(CollapsedStyle.self, forKey: .collapsedStyle) ?? .always
         foldIdleHosts = try c.decodeIfPresent(Bool.self, forKey: .foldIdleHosts) ?? true
         islandAlerts = try c.decodeIfPresent(Bool.self, forKey: .islandAlerts) ?? true

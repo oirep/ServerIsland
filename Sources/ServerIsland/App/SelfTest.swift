@@ -253,6 +253,14 @@ enum SelfTest {
         // Action 用临时进程环境隔离文件；会初始化常驻引擎的详情集成测试放在其后。
         SelfTestDocker.run(check)
         MainActor.assumeIsolated { SelfTestScrollbars.run(check) }
+        let legacyMenuSettings = try? JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
+        check(legacyMenuSettings?.showMenuBarIcon == true, "菜单栏图标：旧配置缺少字段时默认显示")
+        var hiddenMenuSettings = AppSettings()
+        hiddenMenuSettings.showMenuBarIcon = false
+        let hiddenMenuRoundTrip = (try? JSONEncoder().encode(hiddenMenuSettings)).flatMap {
+            try? JSONDecoder().decode(AppSettings.self, from: $0)
+        }
+        check(hiddenMenuRoundTrip?.showMenuBarIcon == false, "菜单栏图标：隐藏设置可往返保存")
         var customizedSettings = AppSettings()
         var customizedHost = HostConfig(alias: "demo-preserved")
         var disabledAction = HostAction(name: "Demo deploy", command: "printf demo", target: .local)
