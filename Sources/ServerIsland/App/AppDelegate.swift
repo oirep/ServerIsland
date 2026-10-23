@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import UserNotifications
 
@@ -12,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var island: IslandController!
     private var settings: SettingsWindowController!
     private var statusItem: NSStatusItem!
+    private var menuBarVisibility: AnyCancellable?
 
     init(demo: Bool) {
         self.demo = demo
@@ -42,6 +44,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         setupStatusItem()
+        statusItem.isVisible = store.settings.showMenuBarIcon
+        // 设置变更只更新菜单栏入口，不重建监控或影响灵动岛。
+        menuBarVisibility = store.$settings.map(\.showMenuBarIcon).removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] visible in self?.statusItem?.isVisible = visible }
         island.show()
         engine.start()
 
@@ -52,6 +59,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if store.settings.hosts.isEmpty && !demo {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.settings.show() }
         }
+    }
+
+    /// 图标隐藏后，Finder / open 再次启动已有实例仍能找回设置入口。
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        settings?.show()
+        return false
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

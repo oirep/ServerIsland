@@ -391,6 +391,11 @@ struct GeneralSettingsView: View {
             } header: { SettingsHeader(title: L("轮询", "Refresh"), symbol: "arrow.triangle.2.circlepath", tint: .blue) }
 
             Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(L("显示菜单栏图标", "Show Menu Bar Icon"), isOn: $store.settings.showMenuBarIcon)
+                    Text(L("如果隐藏该图标，可以通过触发刘海或再次启动应用来打开偏好设置。", "If you hide this icon, open Settings from the island or launch the app again."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Picker(L("收起时", "When Collapsed"), selection: $store.settings.collapsedStyle) {
                     ForEach(CollapsedStyle.allCases) { Text($0.label).tag($0) }
                 }
