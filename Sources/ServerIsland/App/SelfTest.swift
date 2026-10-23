@@ -273,6 +273,29 @@ enum SelfTest {
         }
         check(customizedRoundTrip == customizedSettings,
               "v0.3.0 合并：Action 脚本/禁用状态、Docker 收藏、停留时长与新显示器设置完整往返保存")
+        var transferable = customizedSettings
+        transferable.showMenuBarIcon = false
+        transferable.quietHours = true
+        transferable.alertFailed = false
+        transferable.hosts[0].showDocker = true
+        transferable.hosts[0].dockerAllView = .grid
+        var deploymentRule = ProgressRule()
+        deploymentRule.source = .actionLog
+        deploymentRule.name = "Demo stages"
+        deploymentRule.stages = [.init(name: "Build", pattern: "building")]
+        transferable.progressRules = [deploymentRule]
+        let transferBack = (try? ConfigTransfer.exportData(transferable)).flatMap { try? ConfigTransfer.read($0) }
+        check(transferBack == transferable,
+              "v0.4.0 合并：完整导出导入保留 Action、Docker、自定义日志规则、菜单栏及勿扰设置")
+        if let transferBack {
+            let replaced = ConfigTransfer.apply(current: transferable, imported: transferBack, mode: .replace)
+            check(replaced == transferable, "v0.4.0 合并：替换导入不会丢失定制字段")
+            var empty = AppSettings()
+            empty.showMenuBarIcon = false
+            let added = ConfigTransfer.apply(current: empty, imported: transferBack, mode: .addHosts)
+            check(added.hosts == transferable.hosts && !added.showMenuBarIcon && added.progressRules.isEmpty,
+                  "v0.4.0 合并：仅添加服务器保留其 Action/Docker 设置，不覆盖本机通用偏好")
+        }
         let protectedRelease = UpdateChecker.Release(version: "99.0.0", pageURL: URL(string: "https://example.org/release")!,
             downloadURL: URL(string: "https://example.org/update.dmg")!, notes: "", digest: String(repeating: "0", count: 64))
         check(UpdateChecker.isCustomizedBuild && UpdateInstaller.unsupportedReason(protectedRelease) == UpdateChecker.customizedUpdateMessage,

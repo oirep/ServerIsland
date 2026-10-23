@@ -828,7 +828,7 @@ struct AllJobsPage: View {
     @Binding var filter: JobsFilter
     var onBack: () -> Void
     var onOpen: (HostConfig, RemoteJob) -> Void
-    @FocusState private var searching: Bool
+    @State private var searching = false
 
     private struct Group: Identifiable {
         var host: HostConfig
@@ -841,7 +841,7 @@ struct AllJobsPage: View {
         let hosts = engine.orderedHosts
         let groups: [Group] = hosts.compactMap { host, snap in
             if let h = filter.host, h != host.id { return nil }
-            let jobs = engine.displayJobs(host.id, snap.jobs)
+            let jobs = engine.displayJobs(host.id, IslandLayout.visibleJobs(snap))
                 .filter { filter.matches($0, starred: engine.isStarred(host.id, $0.id), hostName: host.displayName) }
             return jobs.isEmpty ? nil : Group(host: host, snap: snap, jobs: jobs)
         }
@@ -893,23 +893,19 @@ struct AllJobsPage: View {
     private var searchField: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass").font(.system(size: 10)).foregroundStyle(Theme.tertiary)
-            if IslandPreview.active {
-                // 离屏渲染画不出文本框
-                Text(filter.query.isEmpty ? L("搜索名称 / 作业号 / 目录", "Search name / ID / folder") : filter.query)
-                    .font(Theme.rounded(11.5)).foregroundStyle(filter.query.isEmpty ? Theme.tertiary : Theme.text)
-                    .frame(width: 170, alignment: .leading)
-            } else {
-                TextField(L("搜索名称 / 作业号 / 目录", "Search name / ID / folder"), text: $filter.query)
-                    .textFieldStyle(.plain)
-                    .font(Theme.rounded(11.5))
-                    .foregroundStyle(Theme.text)
-                    .focused($searching)
-                    .frame(width: 170)
-            }
+            ZStack(alignment: .leading) {
+                if filter.query.isEmpty {
+                    Text(L("搜索名称 / 作业号 / 目录", "Search name / ID / folder"))
+                        .font(Theme.rounded(11.5)).foregroundStyle(Theme.tertiary)
+                        .allowsHitTesting(false)
+                }
+                DockerSearchInput(text: $filter.query, focused: $searching,
+                                  label: L("搜索名称 / 作业号 / 目录", "Search name / ID / folder"))
+            }.frame(width: 170, height: 18)
             if !filter.query.isEmpty {
                 Button { filter.query = "" } label: {
                     Image(systemName: "xmark.circle.fill").font(.system(size: 10)).foregroundStyle(Theme.tertiary)
-                }.buttonStyle(.plain)
+                }.buttonStyle(.plain).islandHelp(L("清除搜索", "Clear Search"))
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 5)

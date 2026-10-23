@@ -287,6 +287,18 @@ enum SelfTestMonitor {
             await ingest(sa, [("squeue", 0, ["700_1|scan|RUNNING|0:10|1:00:00|1|cn01|cpu|700|1", "700_[2-5]|scan|PENDING|0:00|1:00:00|1|(Priority)|cpu|700|[2-5]"])])
             if let g = engine.snapshots[sa.id]?.jobs.first { engine.toggleStar(hostID: sa.id, job: g) }
             results.items.append((store.settings.starredJobs.last?.jobID == "700" && engine.isStarred(sa.id, "700"), "关注：数组作业按主编号关注"))
+            // 远端列表失败时仍保持本地 Action 的最新状态，不因沿用快照重复追加。
+            let localHost = host(.direct)
+            var local = RemoteJob(id: "local:merge-test", name: "Deploy", state: .running, source: .progressFile)
+            engine.localJobs[localHost.id] = [local]
+            await ingest(localHost, [("procs", 0, [py])])
+            local.state = .completed
+            engine.localJobs[localHost.id] = [local]
+            await ingest(localHost, [("procs", 1, [])])
+            results.items.append((engine.snapshots[localHost.id]?.jobs.filter { $0.id == local.id }.count == 1
+                                  && engine.snapshots[localHost.id]?.jobs.first { $0.id == local.id }?.state == .completed
+                                  && engine.snapshots[localHost.id]?.jobs.contains { $0.id == "4242" } == true,
+                                  "v0.4.0 合并：远端失败沿用进程，本地 Action 仍更新且不重复"))
             sem.signal()
         }
         while sem.wait(timeout: .now()) == .timedOut { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
