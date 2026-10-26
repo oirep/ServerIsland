@@ -373,23 +373,36 @@ public sealed partial class MonitorEngine
         }
 
         _failures[id] = 0;
+        await Ingest(host, parsed, result.Duration);
+    }
+
+    /// 处理一次成功的采样：更新状态、识别事件、记下运行中的任务。自检直接用样例输出调用它。
+    public async Task Ingest(HostConfig host, RemoteScript.Parsed parsed, double latency)
+    {
+        var id = host.Id;
+        var snap = (Snapshots.GetValueOrDefault(id) ?? new HostSnapshot()).Copy();
+        snap.IsRefreshing = false;
         var previous = snap;
         snap = Build(host, parsed, previous);
+        var listed = JobsListed(host, parsed);
+        snap.Jobs = JobsAfterPoll(snap.Jobs, previous.Jobs.Where(j => !j.Id.StartsWith("local:")).ToList(), listed);
         if (host.ShowDocker) snap.Docker = DockerSnapshot.Parse(parsed.Get("docker")?.Lines ?? [], Snapshots.GetValueOrDefault(id)?.Docker);
         if (snap.Docker is { } docker) DockerHistory.Record(id, docker);
         snap.Jobs.AddRange(_localJobs.GetValueOrDefault(id) ?? []);
         snap.Jobs = snap.Jobs.OrderByDescending(j => j.State.IsActive())
             .ThenByDescending(j => j.Id.StartsWith("local:")).ToList();
-        snap.Latency = result.Duration;
+        snap.Latency = latency;
         snap.LastUpdate = DateTime.Now;
         snap.Health = HostHealth.Ok;
         Snapshots[id] = snap;
         NotifyChanged();
-        DebugLog.Log($"[{host.DisplayName}] 轮询成功 {result.Duration:0.00}s：运行 {snap.RunningCount} 排队 {snap.PendingCount}"
+        DebugLog.Log($"[{host.DisplayName}] 轮询成功 {latency:0.00}s：运行 {snap.RunningCount} 排队 {snap.PendingCount}"
                      + (snap.Jobs.Count == 0 ? "" : " · " + string.Join(" ", snap.Jobs.Take(8).Select(j => $"{j.Id}({j.Name.Prefix(24)},{(int)(j.Elapsed ?? -1)}s)"))));
         await DetectEvents(host, previous, snap);
+        // 关注的任务结束后自动取消关注（在提醒发出之后；列表没读全时不动）
+        if (listed) PruneStarred(id, snap.Jobs.Select(j => j.Id).ToHashSet());
         // 任务列表读全了才更新"上次看到的任务"（squeue 出错时列表是空的，不能当成全部结束）
-        if (host.WatchJobs && !Demo && JobsListed(host, parsed))
+        if (host.WatchJobs && !Demo && listed)
         {
             if (previous.LastUpdate == null) await RecordEndedWhileAway(host, snap);
             History.SetActive(id, snap.Jobs);
@@ -397,15 +410,21 @@ public sealed partial class MonitorEngine
         await InitializeArrays(host);
     }
 
-    /// 这次采样的任务列表是否完整（作业队列 / 进程列表的命令都成功了）。
-    static bool JobsListed(HostConfig host, RemoteScript.Parsed parsed)
+    /// 这次采样后的任务列表：没读全时（squeue / qstat / 进程列表出错）沿用上一份，
+    /// 否则会把所有任务当成已经结束、弹出结束提醒。出错的原因照常显示在警告里。
+    public static List<RemoteJob> JobsAfterPoll(List<RemoteJob> built, List<RemoteJob> previous, bool listed) => listed ? built : [.. previous];
+
+    /// 这次采样的任务列表是否完整：远端脚本里列任务的段（作业队列 / 进程列表 / 手动监听的进程）都有输出且成功了。
+    /// 段的条件和 RemoteScript.Build 一致；关闭了"监控任务"时没有这些段，进度文件照常更新。
+    public static bool JobsListed(HostConfig host, RemoteScript.Parsed parsed)
     {
-        var names = host.Kind switch
+        var names = new List<string>();
+        if (host.WatchJobs)
         {
-            HostKind.Slurm => host.SlurmAlsoProcesses ? new[] { "squeue", "procs" } : ["squeue"],
-            HostKind.Pbs => host.SlurmAlsoProcesses ? new[] { "qstat", "procs" } : ["qstat"],
-            _ => ["procs"],
-        };
+            names.Add(host.Kind switch { HostKind.Slurm => "squeue", HostKind.Pbs => "qstat", _ => "procs" });
+            if (host.Kind.IsScheduler() && host.SlurmAlsoProcesses) names.Add("procs");
+        }
+        if (host.Kind == HostKind.Direct && host.Watched.Any(w => int.TryParse(w.Pid, out _))) names.Add("watch");
         return names.All(n => parsed.Get(n)?.ExitCode == 0);
     }
 
@@ -423,18 +442,28 @@ public sealed partial class MonitorEngine
             var r = await Run(host, RemoteScript.SacctScript(host, slurmIds), 20);
             if (RemoteScript.Parse(r.Stdout).Get("sacct") is { } sec) finals = Parsers.Sacct(sec.Lines);
         }
+        RecordEndedWhileAway(host, gone, finals);
+    }
+
+    /// 查询结果与历史写入分开，便于用本地样例验证重启后的补记，不连接服务器。
+    internal void RecordEndedWhileAway(HostConfig host, List<HistoryStore.ActiveJob> gone, Dictionary<string, SacctFinal> finals)
+    {
         foreach (var j in Enumerable.Reverse(gone))
         {
             var f = finals.GetValueOrDefault(j.Id);
             // 数组的主编号在 sacct 里没有单独一行，按元素统计
-            var elems = finals.Where(kv => kv.Key.StartsWith(j.Id + "_", StringComparison.Ordinal)).Select(kv => kv.Value).ToList();
+            var elems = finals.Where(kv => kv.Key.StartsWith(j.Id + "_", StringComparison.Ordinal) && !kv.Key.Contains('['))
+                .Select(kv => kv.Value).ToList();
             var state = f == null ? HistoryEntry.EndedUnknown : f.State.IsActive() ? HistoryEntry.EndedUnknown : f.Raw;
             var note = L("ServerIsland 未运行时结束", "ended while ServerIsland wasn't running");
-            if (f == null && elems.Count > 0)
+            if (f == null && (j.ArrayTotal != null || elems.Count > 0))
             {
-                int bad = elems.Count(e => e.State is JobState.Failed or JobState.Timeout or JobState.Cancelled);
-                state = bad > 0 ? "FAILED" : "COMPLETED";
-                note = L("数组 ", "array ") + $"{elems.Count - bad}✓ {bad}✗ · " + note;
+                var c = ArrayCounts(elems.Select(e => e.State), j.ArrayTotal ?? 0);
+                // 旧记录没有总数时无法确认 sacct 是否漏了元素，不能仅凭返回的几条记录判成功。
+                bool accurate = (j.ArrayTotal ?? 0) > 0 && c.Unknown == 0;
+                state = ArrayOutcome(c.Failed, accurate).State;
+                note = L("数组 ", "array ") + $"{c.Done}✓ {c.Failed}✗ · "
+                    + (accurate ? "" : L("结果未确认 · ", "results unconfirmed · ")) + note;
             }
             History.Record(host.Id, new HistoryEntry
             {
@@ -717,11 +746,11 @@ public sealed partial class MonitorEngine
                 if (newByID.TryGetValue(job.Id, out var n2))
                 {
                     if (job.State == JobState.Pending && n2.State == JobState.Running)
-                        batch.Add(new IslandEvent(EventKind.Started, L($"{n2.Name} 开始运行", $"{n2.Name} started"), n2.Detail, host.DisplayName, host.Id));
+                        batch.Add(new IslandEvent(EventKind.Started, L($"{n2.Name} 开始运行", $"{n2.Name} started"), n2.Detail, host.DisplayName, host.Id, n2.Id));
                     else if (job.Source == JobSource.ProgressFile && n2.State == JobState.Completed)
-                        batch.Add(new IslandEvent(EventKind.Finished, L($"{n2.Name} 已完成", $"{n2.Name} finished"), n2.Message ?? "", host.DisplayName, host.Id));
+                        batch.Add(new IslandEvent(EventKind.Finished, L($"{n2.Name} 已完成", $"{n2.Name} finished"), n2.Message ?? "", host.DisplayName, host.Id, n2.Id));
                     else if (job.Source == JobSource.ProgressFile && n2.State == JobState.Failed)
-                        batch.Add(new IslandEvent(EventKind.Failed, L($"{n2.Name} 失败", $"{n2.Name} failed"), n2.Message ?? "", host.DisplayName, host.Id));
+                        batch.Add(new IslandEvent(EventKind.Failed, L($"{n2.Name} 失败", $"{n2.Name} failed"), n2.Message ?? "", host.DisplayName, host.Id, n2.Id));
                 }
                 else if (job.Source == JobSource.Slurm || job.Watched || (job.Elapsed ?? 0) >= 30)
                 {
@@ -778,32 +807,34 @@ public sealed partial class MonitorEngine
                             });
                             batch.Add(new IslandEvent(done ? EventKind.Finished : final.CanJudge ? EventKind.Failed : EventKind.Info,
                                 $"{job.Name} " + (done ? L("已完成", "finished") : final.CanJudge ? L("提前结束", "ended early") : L("已离开队列", "left the queue")),
-                                $"{final.Title} {posText} · #{job.Id}", host.DisplayName, host.Id));
+                                $"{final.Title} {posText} · #{job.Id}", host.DisplayName, host.Id, job.Id));
                             continue;
                         }
-                        var state = f?.State ?? JobState.Completed;
-                        if (state.IsActive()) state = JobState.Completed;
+                        var outcome = SlurmOutcome(f);
+                        string? note = f == null ? L("sacct 不可用，按离开队列记录", "no sacct; recorded when it left the queue")
+                            : f.State.IsActive() ? L($"sacct 仍显示 {f.Raw}，结果未确认", $"sacct still shows {f.Raw}; result unconfirmed") : null;
                         History.Record(host.Id, new HistoryEntry
                         {
-                            Id = job.Id, Name = job.Name, State = f?.Raw ?? state.Raw(), Elapsed = f?.Elapsed ?? job.Elapsed, EndedAt = DateTime.Now,
-                            ExitCode = f?.Exit, Note = f == null ? L("sacct 不可用，按离开队列记录", "no sacct; recorded when it left the queue") : null,
-                            Dir = job.Workdir ?? job.App?.Dir,
+                            Id = job.Id, Name = job.Name, State = outcome.State, Elapsed = f?.Elapsed ?? job.Elapsed, EndedAt = DateTime.Now,
+                            ExitCode = f?.Exit, Note = note, Dir = job.Workdir ?? job.App?.Dir,
                         });
                         var elapsed = f?.Elapsed ?? job.Elapsed;
                         var time = elapsed is { } el ? L("用时 ", "took ") + Format.Duration(el) : "";
-                        switch (state)
+                        switch (outcome.Kind)
                         {
-                            case JobState.Failed or JobState.Timeout or JobState.Cancelled:
-                                batch.Add(new IslandEvent(EventKind.Failed, $"{job.Name} {state.Label()}",
-                                    string.Join(" · ", new[] { Capitalized(f?.Raw ?? ""), time }.Where(s => s.Length > 0)), host.DisplayName, host.Id));
+                            case EventKind.Failed:
+                                batch.Add(new IslandEvent(EventKind.Failed, $"{job.Name} {f?.State.Label()}",
+                                    string.Join(" · ", new[] { Capitalized(f?.Raw ?? ""), time }.Where(s => s.Length > 0)), host.DisplayName, host.Id, job.Id));
+                                break;
+                            case EventKind.Finished:
+                                batch.Add(new IslandEvent(EventKind.Finished, L($"{job.Name} 已完成", $"{job.Name} finished"), time, host.DisplayName, host.Id, job.Id));
                                 break;
                             default:
-                                if (f == null)
-                                    // 没有 sacct：只知道离开了队列，不能断定成功。
-                                    batch.Add(new IslandEvent(EventKind.Info, L($"{job.Name} 已离开队列", $"{job.Name} left the queue"),
-                                        L("集群未开启作业记录，无法确认成功或失败 · ", "no job accounting; result unknown · ") + time, host.DisplayName, host.Id));
-                                else
-                                    batch.Add(new IslandEvent(EventKind.Finished, L($"{job.Name} 已完成", $"{job.Name} finished"), time, host.DisplayName, host.Id));
+                                // 只知道离开了队列，不能断定成功。
+                                var why = f == null ? L("集群未开启作业记录，无法确认成功或失败", "no job accounting; result unknown")
+                                    : L($"作业记录显示 {f.Raw}，无法确认成功或失败", $"accounting shows {f.Raw}; result unknown");
+                                batch.Add(new IslandEvent(EventKind.Info, L($"{job.Name} 已离开队列", $"{job.Name} left the queue"),
+                                    string.Join(" · ", new[] { why, time }.Where(s => s.Length > 0)), host.DisplayName, host.Id, job.Id));
                                 break;
                         }
                         break;
@@ -833,12 +864,12 @@ public sealed partial class MonitorEngine
                             var pos = AppProgress.Compact(c) + (finalApp.Total is { } t ? "/" + AppProgress.Compact(t) : "") + " " + finalApp.Unit;
                             batch.Add(new IslandEvent(done ? EventKind.Finished : EventKind.Failed,
                                 finalApp.Title + (done ? L("完成", " finished") : L("提前结束", " ended early")),
-                                (done ? pos : L("停在 ", "stopped at ") + pos) + " · " + folder, host.DisplayName, host.Id));
+                                (done ? pos : L("停在 ", "stopped at ") + pos) + " · " + folder, host.DisplayName, host.Id, job.Id));
                         }
                         else
                         {
                             batch.Add(new IslandEvent(EventKind.Finished, L($"{job.Name} 已结束", $"{job.Name} ended"),
-                                job.Elapsed is { } e ? L("运行了至少 ", "ran for at least ") + Format.Duration(e) : "", host.DisplayName, host.Id));
+                                job.Elapsed is { } e ? L("运行了至少 ", "ran for at least ") + Format.Duration(e) : "", host.DisplayName, host.Id, job.Id));
                         }
                         break;
                     }
@@ -889,7 +920,7 @@ public sealed partial class MonitorEngine
                     t.AlertedFailure = true;
                     batch.Add(new IslandEvent(EventKind.Failed, L($"{e.Name} 数组中有元素失败", $"{e.Name}: an array element failed"),
                         $"#{e.Id} {fe?.Raw ?? st.Label()}" + L(" · 之后的失败不再单独提醒", " · later failures won't alert separately"),
-                        host.DisplayName, host.Id));
+                        host.DisplayName, host.Id, bas));
                 }
             }
             else t.Done += 1;
@@ -901,44 +932,106 @@ public sealed partial class MonitorEngine
             if (job.Array is not { } a) continue;
             var key = ArrayKey(host.Id, a.BaseID);
             if (!ArrayTracks.TryGetValue(key, out var t)) t = new ArrayTrack();
+            t.Total = Math.Max(t.Total, a.Total);
             var mine = finals.Where(kv => kv.Key.StartsWith(a.BaseID + "_") && !kv.Key.Contains('[')).Select(kv => kv.Value).ToList();
             if (mine.Count > 0)
             {
-                t.Done = mine.Count(f => f.State == JobState.Completed);
-                t.Failed = mine.Count(f => f.State is JobState.Failed or JobState.Timeout or JobState.Cancelled);
-                t.Accurate = true;
+                var c = ArrayCounts(mine.Select(f => f.State), t.Total);
+                t.Done = c.Done;
+                t.Failed = c.Failed;
+                t.Accurate = c.Unknown == 0;
             }
-            else t.Done += a.Running.Count;
+            else
+            {
+                // 这次没查到 sacct：之前的计数可能来自 sacct，但最后这批元素的结果没确认
+                t.Done += a.Running.Count;
+                t.Accurate = false;
+            }
             var total = Math.Max(t.Total, t.Done + t.Failed);
+            var outcome = ArrayOutcome(t.Failed, t.Accurate);
             History.Record(host.Id, new HistoryEntry
             {
-                Id = a.BaseID, Name = job.Name, State = t.Failed > 0 ? "FAILED" : "COMPLETED", Elapsed = job.Elapsed, EndedAt = DateTime.Now,
+                Id = a.BaseID, Name = job.Name, State = outcome.State, Elapsed = job.Elapsed, EndedAt = DateTime.Now,
                 Note = L("数组 ", "array ") + $"{t.Done}✓ {t.Failed}✗",
                 Dir = job.Workdir,
             });
-            batch.Add(new IslandEvent(t.Failed > 0 ? EventKind.Failed : t.Accurate ? EventKind.Finished : EventKind.Info,
+            var unconfirmed = mine.Count == 0 ? L("（sacct 不可用，结果未确认）", " (no sacct; unconfirmed)")
+                                              : L("（部分元素的结果还未确认）", " (some results unconfirmed)");
+            batch.Add(new IslandEvent(outcome.Kind,
                 L($"{job.Name} 数组已全部结束", $"{job.Name}: array finished"),
                 L($"{t.Done} 个成功", $"{t.Done} done") + (t.Failed > 0 ? L($" · {t.Failed} 个失败", $" · {t.Failed} failed") : "")
-                    + L($" / 共 {total} 个", $" / {total} total") + (t.Accurate ? "" : L("（sacct 不可用，结果未确认）", " (no sacct; unconfirmed)")),
-                host.DisplayName, host.Id));
+                    + L($" / 共 {total} 个", $" / {total} total") + (t.Accurate ? "" : unconfirmed),
+                host.DisplayName, host.Id, a.BaseID));
             ArrayTracks.Remove(key);
         }
     }
 
     /// 同一次轮询里事件太多时合并成一条，避免连续弹窗。
+    /// 先按提醒设置（种类、关注范围）过滤，再合并。
     void Flush(List<IslandEvent> batch, HostConfig host)
     {
+        batch = Alertable(batch, Store.Settings, host.Watched.Select(w => w.Pid).ToHashSet());
         if (batch.Count == 0) return;
         if (batch.Count <= 2) { batch.ForEach(Emit); return; }
-        int failed = batch.Count(e => e.Kind == EventKind.Failed);
-        int done = batch.Count(e => e.Kind == EventKind.Finished);
-        var parts = new List<string>();
-        if (done > 0) parts.Add(L($"{done} 个完成", $"{done} finished"));
-        if (failed > 0) parts.Add(L($"{failed} 个失败", $"{failed} failed"));
-        int started = batch.Count - done - failed;
-        if (started > 0) parts.Add(L($"{started} 个开始运行", $"{started} started"));
-        Emit(new IslandEvent(failed > 0 ? EventKind.Failed : EventKind.Finished, string.Join(L("，", ", "), parts),
-            string.Join(" · ", batch.Take(3).Select(e => e.Title)), host.DisplayName, host.Id));
+        Emit(Merged(batch, host.DisplayName, host.Id));
+    }
+
+    /// 按提醒设置过滤这一批事件，被过滤掉的写进日志（排查"为什么没提醒"）。
+    /// 手动监听的进程是用户点名要看的，"只提醒关注的任务"时也照常提醒。
+    public static List<IslandEvent> Alertable(List<IslandEvent> batch, AppSettings settings, HashSet<string>? watchedPids = null)
+    {
+        return batch.Where(e =>
+        {
+            if (settings.AllowsAlert(e)) return true;
+            if (e.JobID is { } j && watchedPids?.Contains(j) == true && settings.AllowsAlert(e, anyScope: true)) return true;
+            DebugLog.Log($"提醒按设置跳过：{e.Title}（范围 {settings.AlertScope.ToString().ToLowerInvariant()}）");
+            return false;
+        }).ToList();
+    }
+
+    /// 同一次轮询里的多条事件合并成一条：按种类分别计数，种类取最要紧的（失败 > 警告 > 完成 > 结果未知 > 开始运行）。
+    public static IslandEvent Merged(List<IslandEvent> batch, string hostName, Guid? hostId)
+    {
+        int Count(EventKind k) => batch.Count(e => e.Kind == k);
+        var order = new (EventKind Kind, string Text)[]
+        {
+            (EventKind.Finished, L($"{Count(EventKind.Finished)} 个完成", $"{Count(EventKind.Finished)} finished")),
+            (EventKind.Failed, L($"{Count(EventKind.Failed)} 个失败", $"{Count(EventKind.Failed)} failed")),
+            (EventKind.Info, L($"{Count(EventKind.Info)} 个结果未知", $"{Count(EventKind.Info)} result unknown")),
+            (EventKind.Started, L($"{Count(EventKind.Started)} 个开始运行", $"{Count(EventKind.Started)} started")),
+            (EventKind.Warning, L($"{Count(EventKind.Warning)} 条警告", $"{Count(EventKind.Warning)} warnings")),
+        };
+        var parts = order.Where(o => Count(o.Kind) > 0).Select(o => o.Text);
+        var kind = new[] { EventKind.Failed, EventKind.Warning, EventKind.Finished, EventKind.Info, EventKind.Started }
+            .Where(k => Count(k) > 0).DefaultIfEmpty(EventKind.Info).First();
+        return new IslandEvent(kind, string.Join(L("，", ", "), parts),
+            string.Join(" · ", batch.Take(3).Select(e => e.Title)), hostName, hostId);
+    }
+
+    /// 数组元素在 sacct 里的最终状态计数：运行中、状态不认识、以及已知总数里缺失的元素都算"未确认"。
+    public static (int Done, int Failed, int Unknown) ArrayCounts(IEnumerable<JobState> states, int expectedTotal = 0)
+    {
+        var list = states.ToList();
+        int done = list.Count(s => s == JobState.Completed);
+        int failed = list.Count(s => s is JobState.Failed or JobState.Timeout or JobState.Cancelled);
+        return (done, failed, Math.Max(list.Count, expectedTotal) - done - failed);
+    }
+
+    /// 整个数组结束时历史里记的状态和提醒种类：有失败就算失败；全部元素都确认完成才算成功，否则"结果未知"。
+    public static (string State, EventKind Kind) ArrayOutcome(int failed, bool accurate) =>
+        failed > 0 ? ("FAILED", EventKind.Failed) : accurate ? ("COMPLETED", EventKind.Finished) : (HistoryEntry.EndedUnknown, EventKind.Info);
+
+    /// 离开队列的 Slurm 作业（没有按计算软件输出判断时）：按 sacct 结果定历史里记的状态和提醒的种类。
+    /// 只有 sacct 明确是 COMPLETED 才算成功；查不到、仍显示运行中或状态不认识，都算"结果未知"（Info）。
+    public static (string State, EventKind Kind) SlurmOutcome(SacctFinal? f)
+    {
+        if (f == null || f.State.IsActive()) return (HistoryEntry.EndedUnknown, EventKind.Info);
+        return f.State switch
+        {
+            JobState.Completed => (f.Raw, EventKind.Finished),
+            JobState.Failed or JobState.Timeout or JobState.Cancelled => (f.Raw, EventKind.Failed),
+            _ => (f.Raw, EventKind.Info),
+        };
     }
 
     public void Emit(IslandEvent ev)
@@ -949,8 +1042,11 @@ public sealed partial class MonitorEngine
             DebugLog.Log("提醒已静音：" + ev.Title);
             return;
         }
-        DebugLog.Log($"提醒：{ev.Title} · {ev.Subtitle}（弹窗 {Store.Settings.IslandAlerts} 声音 {Store.Settings.SoundEnabled}）");
+        // 勿扰时段：系统通知照发（不出声，见 App），不响铃、不弹窗。
+        var quiet = Store.Settings.IsQuiet();
+        DebugLog.Log($"提醒：{ev.Title} · {ev.Subtitle}（弹窗 {Store.Settings.IslandAlerts} 声音 {Store.Settings.SoundEnabled}{(quiet ? " · 勿扰时段" : "")}）");
         EventEmitted?.Invoke(ev);
+        if (quiet) return;
         if (Store.Settings.SoundEnabled && ev.Kind != EventKind.Started)
             PlaySound?.Invoke(ev.Kind == EventKind.Failed ? "failure" : ev.Kind == EventKind.Warning ? "warning" : "success", Store.Settings.SoundVolume);
         if (!Store.Settings.IslandAlerts) return;
@@ -1013,6 +1109,49 @@ public sealed partial class MonitorEngine
     {
         Snapshots[id] = snap;
         NotifyChanged();
+    }
+
+    // MARK: - 关注
+
+    public bool IsStarred(Guid hostId, string jobId) => Store.Settings.IsStarred(hostId, jobId);
+
+    /// 关注 / 取消关注。数组作业用主编号（分组行的 id），关注的是整个数组。
+    public void ToggleStar(Guid hostId, RemoteJob job)
+    {
+        var id = job.Array?.BaseID ?? job.Id;
+        var list = Store.Settings.StarredJobs;
+        var i = list.FindIndex(s => s.HostID == hostId && s.JobID == id);
+        if (i >= 0)
+        {
+            list.RemoveAt(i);
+            DebugLog.Log($"取消关注：{id} {job.Name}");
+        }
+        else
+        {
+            list.Add(new StarredJob { HostID = hostId, JobID = id, Name = job.Name });
+            DebugLog.Log($"关注：{id} {job.Name}");
+        }
+        Store.Touch();
+        NotifyChanged();
+    }
+
+    /// 去掉已经不在列表里的关注（任务结束了）。只在这台服务器的任务列表读全时调用。
+    public void PruneStarred(Guid hostId, HashSet<string> keep)
+    {
+        var gone = Store.Settings.StarredJobs.Where(s => s.HostID == hostId && !keep.Contains(s.JobID)).ToList();
+        if (gone.Count == 0) return;
+        Store.Settings.StarredJobs.RemoveAll(s => s.HostID == hostId && !keep.Contains(s.JobID));
+        Store.Touch();
+        DebugLog.Log("关注的任务已结束，取消关注：" + string.Join(" ", gone.Select(g => g.JobID)));
+    }
+
+    /// 显示顺序：关注的任务排在前面，其余保持原来的顺序。
+    public List<RemoteJob> DisplayJobs(Guid hostId, IEnumerable<RemoteJob> jobs) => StarredFirst(jobs, j => IsStarred(hostId, j.Id));
+
+    public static List<RemoteJob> StarredFirst(IEnumerable<RemoteJob> jobs, Func<RemoteJob, bool> starred)
+    {
+        var all = jobs.ToList();
+        return [.. all.Where(starred), .. all.Where(j => !starred(j))];
     }
 
     // MARK: - 汇总

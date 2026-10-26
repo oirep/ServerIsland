@@ -21,14 +21,17 @@ ARM_BIN="$(swift build -c release --arch arm64 --show-bin-path)/ServerIsland"
 
 # 尝试同时编译 Intel 版本并合成通用二进制；失败时只打包 Apple Silicon 版本。
 BIN="$ARM_BIN"
-if swift build -c release --triple x86_64-apple-macosx14.0 >/dev/null 2>&1; then
+X86_LOG="$ROOT/build/x86_64-build.log"
+mkdir -p "$ROOT/build"
+if swift build -c release --triple x86_64-apple-macosx14.0 >"$X86_LOG" 2>&1; then
   X86_BIN="$(swift build -c release --triple x86_64-apple-macosx14.0 --show-bin-path)/ServerIsland"
   mkdir -p build
   lipo -create "$ARM_BIN" "$X86_BIN" -output build/ServerIsland-universal
   BIN="build/ServerIsland-universal"
   echo "▸ 已合成通用二进制（Apple Silicon + Intel）"
 else
-  echo "▸ Intel 版本编译失败，只打包 Apple Silicon 版本"
+  echo "▸ Intel 版本编译失败，只打包 Apple Silicon 版本（完整输出见 build/x86_64-build.log）："
+  grep -E "error" "$X86_LOG" | grep -v PlatformPath | tail -5 || true
 fi
 
 echo "▸ 组装 ServerIsland.app"

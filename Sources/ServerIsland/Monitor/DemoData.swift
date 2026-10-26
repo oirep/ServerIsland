@@ -109,10 +109,10 @@ enum DemoData {
             var lmp = appJob("41377", "lmp", source: .process, lmpApp)
             lmp.elapsed = 2_300 + t * 2; lmp.cpuPercent = 1_580
 
-            // 自定义规则识别的机器学习势训练
-            var mace = AppProgress(kind: .custom, dir: home + "/MACE/run-02")
-            mace.customName = L("MACE 训练", "MACE training"); mace.customUnit = "epoch"
-            mace.current = 37; mace.total = 200; mace.updatedAt = Date()
+            // MACE 机器学习势训练
+            var mace = AppProgress(kind: .mace, dir: home + "/MACE/run-02")
+            mace.current = 37; mace.total = 200; mace.updatedAt = Date(); mace.dataFile = "logs/MACE_run-123.log"
+            mace.losses = [.init(label: "Loss", value: 0.0213), .init(label: "RMSE E (meV)", value: 0.41), .init(label: "RMSE F (meV/Å)", value: 14.6)]
             var train = appJob("41856", "python train_mace.py", source: .process, mace)
             train.elapsed = 9_250 + t * 2; train.cpuPercent = 104; train.gpuMemoryMB = 14_800
 

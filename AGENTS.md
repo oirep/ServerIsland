@@ -52,7 +52,7 @@ ServerIsland 是一个菜单栏 / 刘海（灵动岛风格）App：通过 SSH �
 ```
 Sources/ServerIsland/
   App/        main.swift（命令行开关）、AppDelegate（菜单栏、通知）、SelfTest / SelfTestApps（自检、诊断）、PreviewRenderer（离屏渲染预览图）
-  Models/     Config.swift（全部设置项，Codable，缺字段自动补默认值）、Snapshot.swift（运行时数据）、ProgressRule（自定义进度识别规则）
+  Models/     Config.swift（全部设置项，Codable，缺字段自动补默认值）、ConfigTransfer（设置导入导出）、Snapshot.swift（运行时数据）、ProgressRule（自定义进度识别规则）
   SSH/        SSHRunner（ssh 调用、连接复用、错误归类、PATH 补全）、AskPass（密码弹窗、记住密码、自动重新登录）、SSHHosts（手动服务器和跳板机的私有 ssh 配置）、Keychain、SSHConfigParser
   Monitor/    MonitorEngine（轮询循环、事件识别）、+Actions（详情、取消、历史、监听、登录、检查命令）
               RemoteScript（远端脚本生成与解析）、Parsers、AppDetectors（NEP/GPUMD/VASP/LAMMPS/自定义规则）、AppCurves（详情页曲线，增量读取）、PendingReason、Partitions、HistoryStore、DemoData
@@ -79,7 +79,7 @@ references/   专题文档（见下）
 
 ```bash
 swift build                                          # 调试构建（会打印 "xcrun: error: PlatformPath" 两行，属于无害噪音）
-.build/debug/ServerIsland --selftest                 # 解析 / 脚本自检（目前 134 项，应全部 ✓；其中计算软件识别会用本机 bash 跑假文件，连接部分会调用本机 ssh -G）
+.build/debug/ServerIsland --selftest                 # 解析 / 脚本自检（目前 198 项，应全部 ✓；其中计算软件识别会用本机 bash 跑假文件，连接部分会调用本机 ssh -G）
 ./scripts/build_app.sh --run                         # release 构建 + 打包 + 重启 App
 ./scripts/install_local.sh                           # release 构建并替换本机的 /Applications/ServerIsland.app，然后启动
 ./scripts/package_all.sh                             # 三个平台的安装包（DMG / win-x64.zip / linux-x64.tar.gz）+ 替换本机 Mac 版，最后打印 SHA-256
@@ -97,7 +97,7 @@ open build/ServerIsland.app --args --demo            # 演示模式
 Windows / Linux 版（在 `cross/src/ServerIsland.Desktop` 下运行）：
 
 ```bash
-dotnet build && dotnet run -- --selftest             # 自检（163 项，含和 Swift 版对应的检查）
+dotnet build && dotnet run -- --selftest             # 自检（Mac 上 202 项，含和 Swift 版对应的检查；Windows / Linux 上更多）
 dotnet run -- --render-preview <目录> [zh|en]          # 离屏预览图（刘海各状态、各页面、设置窗口浅色 / 深色、图标表）
 dotnet run -- --ui-smoke <目录>                       # 在真实窗口上走一遍界面并截图，输出 OK 或错误
 dotnet run -- --demo                                  # 演示模式

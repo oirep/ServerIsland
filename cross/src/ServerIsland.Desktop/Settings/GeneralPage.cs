@@ -4,6 +4,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Avalonia.Platform.Storage;
 using ServerIsland.Core;
 using ServerIsland.Core.Ssh;
 using ServerIsland.Desktop.Platform;
@@ -55,6 +56,9 @@ public static class IntervalPicker
 /// 设置 → 通用。
 public sealed class GeneralPage(SettingsWindow window, SettingsKit k, ConfigStore store, MonitorEngine engine)
 {
+    /// 导入设置后整页重建，结果文字留到重建后显示。
+    static string _transferNote = "";
+
     AppSettings S => store.Settings;
     TextBlock? _summary;
     PetView? _pet;
@@ -206,23 +210,66 @@ public sealed class GeneralPage(SettingsWindow window, SettingsKit k, ConfigStor
             k.Row(L("默认轮询间隔", "Default Interval"), null, IntervalPicker.Build(k, S.DefaultInterval, false, 60, v => { S.DefaultInterval = v ?? 60; Touch(); })),
         ]));
 
-        // 显示与提醒
-        var rows = new List<Control?>
-        {
+        // 刘海（显示）
+        col.Children.Add(k.Section(L("刘海", "Island"), "display", Color.Parse("#5E5CE6"), [
             k.Row(L("收起时", "When Collapsed"), L("灵动岛收起时两侧小翅膀的显示方式；从不显示时只在屏幕顶端留一条细把手。", "What the collapsed island shows; with Never only a thin handle stays at the top edge."),
                 k.Combo(Enum.GetValues<CollapsedStyle>().Select(c => (c, c.Label())), S.CollapsedStyle, v => { S.CollapsedStyle = v; Touch(); })),
             k.ToggleRow(L("合并空闲的服务器", "Group Idle Servers"), L("展开面板里，没有任务的服务器合并成一行，点击可以展开。全部空闲时照常显示。",
                 "Servers with no jobs are grouped into one line you can click to expand. All cards show when everything is idle."), S.FoldIdleHosts, v => { S.FoldIdleHosts = v; Touch(); }),
+        ]));
+
+        // 提醒
+        CheckBox Check(string title, bool value, Action<bool> set)
+        {
+            var cb = new CheckBox { IsChecked = value, Content = k.Text(title), MinWidth = 0 };
+            cb.IsCheckedChanged += (_, _) => { set(cb.IsChecked == true); Touch(); };
+            return cb;
+        }
+        var kinds = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14, Children =
+        {
+            Check(L("开始运行", "Started"), S.AlertStarted, v => S.AlertStarted = v),
+            Check(L("完成", "Finished"), S.AlertFinished, v => S.AlertFinished = v),
+            Check(L("失败", "Failed"), S.AlertFailed, v => S.AlertFailed = v),
+            Check(L("结果未知", "Unknown"), S.AlertUnknown, v => S.AlertUnknown = v),
+        } };
+        var quietNext = k.Text(L("（次日）", "(next day)"), c: k.P.Secondary);
+        quietNext.VerticalAlignment = VerticalAlignment.Center;
+        quietNext.IsVisible = S.QuietStart > S.QuietEnd;
+        ComboBox QuietTime(int value, Action<int> set) =>
+            k.Combo(Enumerable.Range(0, 48).Select(i => (i * 30, AppSettings.Clock(i * 30))), value, v => { set(v); Touch(); quietNext.IsVisible = S.QuietStart > S.QuietEnd; }, 96);
+        var toWord = k.Text(L("至", "to"), c: k.P.Secondary);
+        toWord.VerticalAlignment = VerticalAlignment.Center;
+        var quietTimes = k.Row(L("时间", "Time"), null, new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children =
+        {
+            QuietTime(S.QuietStart, v => S.QuietStart = v), toWord, QuietTime(S.QuietEnd, v => S.QuietEnd = v), quietNext,
+        } });
+        quietTimes.IsVisible = S.QuietHours;
+        var rows = new List<Control?>
+        {
             k.ToggleRow(L("弹出提示", "Pop-ups"), L("任务结束 / 开始时从灵动岛（或小章鱼旁边）弹出提示。", "Show a pop-up from the island (or next to Tako) when jobs end or start."),
                 S.IslandAlerts, v => { S.IslandAlerts = v; Touch(); }),
             Notifier.Supported ? k.ToggleRow(L("系统通知", "System Notifications"), null, S.SystemNotifications, v => { S.SystemNotifications = v; Touch(); }) : null,
+            k.Row(L("提醒哪些任务", "Alert For"),
+                L("关注任务：在刘海的任务行上点 ☆，或在详情页点星标。关注的任务结束后自动取消关注。手动监听的进程照常提醒；磁盘等服务器提醒不受影响。",
+                  "Star a job with the ☆ on its row or on its details page. Stars are removed when the job ends. Watched processes still alert; disk and other server alerts are not affected."),
+                k.Combo(Enum.GetValues<AlertScope>().Select(a => (a, a.Label())), S.AlertScope, v => { S.AlertScope = v; Touch(); })),
+            k.Row(L("提醒这些事件", "Alert When"),
+                L("开始运行：排队的作业开始运行（不响提示音）。结果未知：作业离开了队列，但查不到成功还是失败（例如集群没有开启作业记录）。",
+                  "Started: a pending job begins running (no sound). Unknown: a job left the queue but its result couldn't be found (e.g. no job accounting)."),
+                kinds),
+            k.ToggleRow(L("勿扰时段", "Quiet Hours"),
+                L("这段时间里不响提示音、不弹窗；系统通知照发但不出声，历史记录照常。",
+                  "During these hours there are no sounds or pop-ups; system notifications still arrive silently and history is kept as usual."),
+                S.QuietHours, v => { S.QuietHours = v; quietTimes.IsVisible = v; Touch(); }),
+            quietTimes,
             k.ToggleRow(L("数组作业首个失败立即提醒", "Alert on First Array Failure"), L("数组作业平时只在全部结束时提醒一次；打开后第一个元素失败时会额外提醒一次。",
                 "Job arrays normally alert once when all elements finish; this adds one alert when the first element fails."), S.ArrayFirstFailureAlert, v => { S.ArrayFirstFailureAlert = v; Touch(); }),
-            k.Row(L("磁盘提醒阈值", "Disk Alert Threshold"), L("超过时提醒一次；回落后再次超过会重新提醒。", "Alerts once when exceeded; alerts again after it drops and rises again."),
+            k.Row(L("磁盘提醒阈值", "Disk Alert Threshold"), L("超过时提醒一次；回落后再次超过会重新提醒。不受“提醒哪些任务”影响。", "Alerts once when exceeded, and again after it drops and rises again. Not affected by Alert For."),
                 k.Combo(new[] { 0.8, 0.85, 0.9, 0.95 }.Select(v => (v, $"{(int)Math.Round(v * 100)}%")), S.DiskWarnThreshold, v => { S.DiskWarnThreshold = v; Touch(); }, 100)),
         };
-        col.Children.Add(k.Section(L("显示与提醒", "Display & Alerts"), "bell", Color.Parse("#FF9F0A"), rows,
-            OperatingSystem.IsWindows() ? L("Windows 上没有打包安装的程序发不了系统通知，提醒以弹窗和提示音为主。", "On Windows, alerts use pop-ups and sounds (unpackaged apps can't post system notifications).") : null));
+        var muteNote = L("静音的服务器（卡片上的铃铛）什么都不提醒，优先于这里的设置。", "Muted servers (the bell on a card) never alert, whatever is set here.");
+        col.Children.Add(k.Section(L("提醒", "Alerts"), "bell", Color.Parse("#FF9F0A"), rows,
+            OperatingSystem.IsWindows() ? muteNote + "\n" + L("Windows 上没有打包安装的程序发不了系统通知，提醒以弹窗和提示音为主。", "On Windows, alerts use pop-ups and sounds (unpackaged apps can't post system notifications).") : muteNote));
 
         // 提示音
         var slider = new Slider { Minimum = 0.1, Maximum = 1, Value = S.SoundVolume, Width = 220, IsEnabled = S.SoundEnabled };
@@ -299,6 +346,60 @@ public sealed class GeneralPage(SettingsWindow window, SettingsKit k, ConfigStor
             engine.History.Clear();
             logStatus.Text = L("历史记录已清除", "History cleared");
         });
+        // 导入 / 导出设置
+        var transferStatus = k.Caption(_transferNote);
+        _transferNote = "";
+        transferStatus.VerticalAlignment = VerticalAlignment.Center;
+        var export = k.Button(L("导出设置…", "Export Settings…"), async () =>
+        {
+            var file = await window.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = L("导出设置", "Export Settings"),
+                SuggestedFileName = ConfigTransfer.DefaultFileName(),
+                DefaultExtension = "json",
+                FileTypeChoices = [new FilePickerFileType("JSON") { Patterns = ["*.json"] }],
+            });
+            if (file?.TryGetLocalPath() is not { } path) return;
+            try
+            {
+                File.WriteAllText(path, ConfigTransfer.ExportJson(S));
+                transferStatus.Text = L("已导出", "Exported");
+                DebugLog.Log("导出设置：" + Path.GetFileName(path));
+            }
+            catch (Exception e) { transferStatus.Text = L("导出失败：", "Export failed: ") + e.Message; }
+        });
+        var import = k.Button(L("导入设置…", "Import Settings…"), async () =>
+        {
+            var files = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = L("导入设置", "Import Settings"),
+                AllowMultiple = false,
+                FileTypeFilter = [new FilePickerFileType("JSON") { Patterns = ["*.json"] }],
+            });
+            if (files.FirstOrDefault()?.TryGetLocalPath() is not { } path) return;
+            AppSettings imported;
+            try { imported = ConfigTransfer.Read(File.ReadAllText(path)); }
+            catch (ConfigTransfer.NotSettingsException) { transferStatus.Text = L("这不是 ServerIsland 的设置文件", "Not a ServerIsland settings file"); return; }
+            catch { transferStatus.Text = L("读不出这个文件", "Couldn't read this file"); return; }
+            int n = ConfigTransfer.NewHosts(S, imported).Count;
+            var choice = await PromptDialog.Choose(L("导入设置", "Import Settings"),
+                L("替换前会把当前设置备份到配置文件旁边。密码不在设置文件里，需要时重新登录即可。",
+                  "Your current settings are backed up next to the config file before replacing. Passwords aren't in the file; log in again if asked."),
+                L($"替换全部设置（{imported.Hosts.Count} 台服务器）", $"Replace All Settings ({imported.Hosts.Count} servers)"),
+                L($"只添加新的服务器（{n} 台）", $"Only Add New Servers ({n})"),
+                L("取消", "Cancel"), secondEnabled: n > 0);
+            if (choice < 0) return;
+            var mode = choice == 0 ? ConfigTransfer.Mode.Replace : ConfigTransfer.Mode.AddHosts;
+            if (mode == ConfigTransfer.Mode.Replace && store.Persist) ConfigTransfer.BackupCurrent(S);
+            int before = S.Hosts.Count;
+            store.Replace(ConfigTransfer.Apply(S, imported, mode));
+            DebugLog.Log($"导入设置（{(mode == ConfigTransfer.Mode.Replace ? "替换" : "只添加服务器")}）");
+            // 整页重建（导入后各项设置都可能变了），结果写在重建后的状态文字里
+            _transferNote = mode == ConfigTransfer.Mode.Replace ? L($"已导入 {store.Settings.Hosts.Count} 台服务器", $"Imported {store.Settings.Hosts.Count} servers")
+                                                                : L($"已添加 {store.Settings.Hosts.Count - before} 台服务器", $"Added {store.Settings.Hosts.Count - before} servers");
+            window.RefreshPage();
+        });
+
         col.Children.Add(k.Section(L("文件与诊断", "Files & Diagnostics"), "folder", Color.Parse("#8E8E93"), [
             k.Row(L("配置文件", "Config File"), null, new SelectableTextBlock { Text = AppPaths.Tilde(AppPaths.ConfigFile), FontFamily = Hue.Mono, FontSize = 12, Foreground = k.P.Secondary.B() }),
             k.Row(L("诊断日志", "Diagnostic Log"), null, new SelectableTextBlock { Text = AppPaths.Tilde(DebugLog.Path), FontFamily = Hue.Mono, FontSize = 12, Foreground = k.P.Secondary.B() }),
@@ -307,6 +408,10 @@ public sealed class GeneralPage(SettingsWindow window, SettingsKit k, ConfigStor
                   "Diagnostic log entries older than this are deleted automatically (at launch and every 6 hours). The log stays on this computer and helps answer questions like “why was there no alert?”."),
                 k.Combo(new[] { 1, 3, 7, 14, 30, 0 }.Select(d => (d, d == 0 ? L("永久保留", "Forever") : L($"{d} 天", d == 1 ? "1 day" : $"{d} days"))),
                     store.Settings.LogRetentionDays, v => { store.Settings.LogRetentionDays = v; Touch(); DebugLog.Prune(v); }, minWidth: 120)),
+            k.Row(L("导入 / 导出", "Import / Export"),
+                L("把全部设置（服务器、提醒、进度识别规则……）存成一个 JSON 文件，换电脑或在 Mac 和 Windows / Linux 版之间迁移。不包含密码。~/.ssh/config 里的别名和私钥路径要在新电脑上也有效。",
+                  "Save all settings (servers, alerts, progress rules…) to a JSON file to move to another computer, or between the Mac and Windows / Linux versions. Passwords aren't included. ~/.ssh/config aliases and key paths must also work on the new computer."),
+                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { transferStatus, export, import } }),
             new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
             {
                 k.Button(L("显示配置文件", "Show Config"), () => { store.SaveNow(); Shell.Reveal(AppPaths.ConfigFile); }),

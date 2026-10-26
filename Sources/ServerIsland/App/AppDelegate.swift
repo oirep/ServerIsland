@@ -59,6 +59,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if store.settings.hosts.isEmpty && !demo {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.settings.show() }
         }
+        // 配置文件损坏：在刘海里说明一次（原文件已备份）。
+        if let problem = store.loadProblem {
+            DebugLog.log(problem)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                self?.engine.emit(.init(kind: .warning, title: L("设置文件读取失败", "Couldn't read settings"),
+                                        subtitle: problem, hostName: "ServerIsland"))
+            }
+        }
     }
 
     /// 图标隐藏后，Finder / open 再次启动已有实例仍能找回设置入口。
@@ -168,8 +176,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         content.title = event.title
         content.subtitle = event.hostName
         content.body = event.subtitle
-        // 已经播放了自己的提示音时，系统通知就不再响。
-        content.sound = store.settings.soundEnabled ? nil : (event.kind == .failed ? .defaultCritical : .default)
+        // 已经播放了自己的提示音时，系统通知就不再响；勿扰时段里也不响。
+        content.sound = store.settings.soundEnabled || store.settings.isQuiet() ? nil : (event.kind == .failed ? .defaultCritical : .default)
         let req = UNNotificationRequest(identifier: event.id.uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(req) { _ in }
     }

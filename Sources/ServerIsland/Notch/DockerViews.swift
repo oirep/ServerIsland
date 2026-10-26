@@ -119,25 +119,45 @@ struct DockerContainerCollection: View {
     var onOpen: (DockerContainer) -> Void
 
     var body: some View {
-        if mode == .grid {
-            if groupStopped {
-                VStack(spacing: IslandLayout.jobGap) {
-                    grid(containers.filter { favorites.contains($0.name) })
-                    grid(containers.filter { !favorites.contains($0.name) && !$0.isStopped })
-                    grid(containers.filter { !favorites.contains($0.name) && $0.isStopped })
-                }
-            } else { grid(containers) }
+        if groupStopped {
+            VStack(alignment: .leading, spacing: 10) {
+                section(L("关注", "Starred"), items: containers.filter { favorites.contains($0.name) }, starred: true)
+                section(L("运行中", "Running"), items: containers.filter { !favorites.contains($0.name) && !$0.isStopped })
+                section(L("已停止", "Stopped"), items: containers.filter { !favorites.contains($0.name) && $0.isStopped })
+            }
+        } else if mode == .grid {
+            grid(containers)
         } else {
-            VStack(spacing: IslandLayout.jobGap) {
-                ForEach(containers) { container in
-                    DockerContainerRow(container: container, now: now,
-                                       isFavorite: favorites.contains(container.name),
-                                       onFavorite: onFavorite.map { action in { action(container) } }) { onOpen(container) }
-                        .equatable()
-                        .padding(decorated ? 8 : 0)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(decorated ? Theme.card : .clear))
-                        .modifier(DockerContainerHover())
-                }
+            rows(containers)
+        }
+    }
+
+    /// 收藏独立成组，其余按活动/停止分隔；List 与 Grid 使用相同标题，空组不占空间。
+    @ViewBuilder private func section(_ title: String, items: [DockerContainer], starred: Bool = false) -> some View {
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: IslandLayout.jobGap) {
+                HStack(spacing: 5) {
+                    if starred {
+                        Image(systemName: "star.fill").font(.system(size: 9)).foregroundStyle(Theme.amber)
+                    }
+                    Text(title).font(Theme.rounded(10.5, .semibold)).foregroundStyle(Theme.secondary)
+                    Text("\(items.count)").font(Theme.mono(10)).foregroundStyle(Theme.tertiary)
+                }.padding(.horizontal, 2)
+                if mode == .grid { grid(items) } else { rows(items) }
+            }
+        }
+    }
+
+    private func rows(_ items: [DockerContainer]) -> some View {
+        VStack(spacing: IslandLayout.jobGap) {
+            ForEach(items) { container in
+                DockerContainerRow(container: container, now: now,
+                                   isFavorite: favorites.contains(container.name),
+                                   onFavorite: onFavorite.map { action in { action(container) } }) { onOpen(container) }
+                    .equatable()
+                    .padding(decorated ? 8 : 0)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(decorated ? Theme.card : .clear))
+                    .modifier(DockerContainerHover())
             }
         }
     }
@@ -326,14 +346,14 @@ private struct DockerFavoriteButton: View {
         Button(action: action) {
             Image(systemName: active ? "star.fill" : "star")
                 .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(Theme.tertiary)
+                .foregroundStyle(active ? Theme.amber : Theme.tertiary)
                 .frame(width: 22, height: 20)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .modifier(DockerToolbarHover())
-        .islandHelp(active ? L("取消收藏", "Unfavorite") : L("收藏容器", "Favorite Container"))
-        .accessibilityLabel(active ? L("取消收藏", "Unfavorite") : L("收藏容器", "Favorite Container"))
+        .islandHelp(active ? L("取消关注", "Unstar") : L("关注容器", "Star Container"))
+        .accessibilityLabel(active ? L("取消关注", "Unstar") : L("关注容器", "Star Container"))
     }
 }
 
@@ -387,7 +407,7 @@ enum DockerContainerFilter: CaseIterable {
     var label: String {
         switch self {
         case .all: return L("全部", "All")
-        case .favorites: return L("收藏", "Favorites")
+        case .favorites: return L("关注", "Starred")
         case .running: return L("运行中", "Running")
         case .stopped: return L("已停止", "Stopped")
         case .unhealthy: return L("不健康", "Unhealthy")
@@ -405,6 +425,7 @@ enum DockerContainerFilter: CaseIterable {
 }
 
 struct DockerPage: View {
+    @Environment(\.islandContentActive) private var contentActive
     var host: HostConfig
     @ObservedObject var engine: MonitorEngine
     var onBack: () -> Void
@@ -540,12 +561,12 @@ struct DockerPage: View {
             }
             .padding(IslandLayout.cardPad)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .task(id: selectedID) {
-                guard selectedID == nil else { return }
+            .task(id: "\(selectedID ?? "list")|\(contentActive)") {
+                guard contentActive, selectedID == nil else { return }
                 await engine.monitorDockerList(host: host) { result in listError = result.message }
             }
-            .task(id: manualRefreshID) {
-                guard let refreshID = manualRefreshID else { return }
+            .task(id: contentActive ? manualRefreshID : nil) {
+                guard contentActive, let refreshID = manualRefreshID else { return }
                 defer { if manualRefreshID == refreshID { manualRefreshID = nil } }
                 if let selectedID {
                     let key = host.id.uuidString + "|" + selectedID

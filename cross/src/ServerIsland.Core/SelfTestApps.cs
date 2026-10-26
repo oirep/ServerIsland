@@ -175,6 +175,76 @@ public static class SelfTestApps
         check(vCache?.Rows.Count == 3 && vCache.Rows[^1].SequenceEqual([3.0, -440.0]) && vc?.LogY == false, "曲线：VASP 离子步 E0");
         check(AppCurves.Merge(Bash(AppCurves.Script(new AppCurves.Source(lossDir + "/nope", AppCurves.CurveKind.Loss), 0, "")), new CurveCache()) == null, "曲线：文件不存在");
 
+        // NEP 续跑：loss.out 追加写入，代数从头数起；横轴按行累加（新版 GPUMD 每段开头有 # output_interval）
+        const string nepCols = "# columns generation total L1 L2 rmse_energy_train rmse_force_train rmse_virial_train rmse_energy_test rmse_force_test rmse_virial_test\n";
+        var restartDir = Make("curve-nep-restart", new()
+        {
+            ["nep.in"] = "generation 1000\n",
+            ["loss.out"] = "100 0.30 0.01 0.02 0.20 0.50 0.10 0 0 0\n200 0.20 0.01 0.02 0.10 0.40 0.08 0 0 0\n100 0.18 0.01 0.02 0.09 0.35 0.07 0 0 0\n"
+                + "# format_version 1\n# output_interval 50\n" + nepCols + "50 0.15 0.01 0.02 0.08 0.30 0.06 0 0 0\n# format_version 1\n# output_interval 50\n" + nepCols,
+        });
+        var rSrc = new AppCurves.Source(restartDir + "/loss.out", AppCurves.CurveKind.Loss);
+        var rCache = AppCurves.Merge(Bash(AppCurves.Script(rSrc, 0, "")), new CurveCache());
+        var rc = rCache == null ? null : AppCurves.Curve(rSrc, rCache.Rows, rCache.Extra);
+        check(rc != null && rc.SeriesList[0].Points.Select(p => p.Item1).SequenceEqual([100.0, 200, 300, 350]), "曲线：NEP 续跑按行累加代数（每段的 output_interval）");
+        var rNep = Detect(restartDir);
+        check(rNep?.Kind == AppKind.Nep && rNep.Current == 50 && rNep.Total == 1000, "NEP：刚续跑、末尾是 # 表头时取最后一行数据");
+
+        // TorchNEP：loss.out 在输出目录（默认 output/）里，带表头；总 epoch 取自 output.log
+        const string tnHeader = "# epoch  loss  rmse_e(eV/atom)  rmse_f(eV/A)  rmse_v(eV/atom)  rmse_stress(GPa)\n";
+        var tnDir = Make("torchnep", new()
+        {
+            ["nep.in"] = "type 4 Li La Zr O\nepoch 300\n",
+            ["output/loss.out"] = tnHeader + "1 5.16e-01 0.068 0.717 0.404 5.51\n2 2.65e-01 0.201 0.514 0.284 3.82\n",
+            ["output/output.log"] = "torchnep v1.0.7\nTraining: epochs 1..200, Stage 2 from epoch 100 (SWA=off)\nEpoch    1 | loss 5.1618e-01\n",
+        });
+        var tn = Detect(tnDir);
+        check(tn?.Kind == AppKind.TorchNep && tn.Current == 2 && tn.Total == 200 && tn.DataFile == "output/loss.out"
+              && tn.Losses.Select(l => l.Label).SequenceEqual(["Loss", "E (eV/atom)", "F (eV/A)", "V (eV/atom)", "S (GPa)"]) && tn.EndMarker == null,
+              "TorchNEP：output/loss.out + output.log");
+        File.WriteAllText(tnDir + "/output/output.log", "Done. Best loss: 2.65e-01\nTotal time: 00:00:26.9\n");
+        var tnDone = Detect(tnDir);
+        check(tnDone?.EndMarker == true && tnDone.Total == 300 && tnDone.Finished, "TorchNEP：Done 结束标记；没有 Training 行时用 nep.in 的 epoch");
+        var tnHere = Detect(Make("torchnep-here", new() { ["nep.in"] = "epoch 50\n", ["loss.out"] = tnHeader + "7 1e-02 0.01 0.2 0.05 0.5\n" }));
+        check(tnHere?.Kind == AppKind.TorchNep && tnHere.Current == 7 && tnHere.Total == 50, "TorchNEP：输出在工作目录里时不当成 NEP");
+        var tnSrc = new AppCurves.Source(tnDir + "/output/loss.out", AppCurves.CurveKind.Loss, AppKind.TorchNep);
+        File.WriteAllText(tnDir + "/output/loss.out", tnHeader + "1 0.5 0.06 0.7 0.4 5\n2 0.3 0.05 0.5 0.3 4\n3 0.2 0.04 0.4 0.2 3\n2 0.25 0.05 0.45 0.25 3.5\n3 0.15 0.03 0.3 0.15 2\n");
+        var tnCache = AppCurves.Merge(Bash(AppCurves.Script(tnSrc, 0, "")), new CurveCache());
+        var tnc = tnCache == null ? null : AppCurves.Curve(tnSrc, tnCache.Rows, tnCache.Extra);
+        check(tnc != null && tnc.SeriesList.Select(x => x.Name).SequenceEqual(["Loss", "E", "F", "V"]) && tnc.SeriesList[0].Points.Select(p => p.Item1).SequenceEqual([1.0, 2, 3])
+              && tnc.SeriesList[0].Points[^1].Item2 == 0.15 && tnc.XLabel == "epoch", "曲线：TorchNEP（从检查点续跑时去掉重跑的那段）");
+
+        // MACE：logs/<名字>_run-<种子>.log；总 epoch 取自 _debug.log 的参数，正在跑的 epoch 取自 results/*_train.txt
+        var maceLog = """
+            2026-01-14 20:25:46.805 INFO: ===========VERIFYING SETTINGS===========
+            2026-01-14 20:25:46.805 INFO: MACE version: 0.3.15
+            2026-01-14 20:26:10.051 INFO: Initial: head: Default, loss=93.68933105, RMSE_E_per_atom=  288.65 meV, RMSE_F=  917.99 meV / A
+            2026-01-14 20:27:19.883 INFO: Epoch 0: head: Default, loss=2.62567067, RMSE_E_per_atom=    3.04 meV, RMSE_F=  161.12 meV / A
+            2026-01-14 20:28:54.625 INFO: Epoch 5: head: Default, loss=0.25760791, RMSE_E_per_atom=    6.65 meV, RMSE_F=   50.07 meV / A
+            2026-01-14 20:30:17.603 INFO: Epoch 10: head: Default, loss=0.13423754, RMSE_E_per_atom=    2.73 meV, RMSE_F=   36.35 meV / A
+
+            """;
+        var maceDir = Make("mace", new()
+        {
+            ["logs/LLZO_run-123.log"] = maceLog,
+            ["logs/LLZO_run-123_debug.log"] = "DEBUG: Configuration: Namespace(config='config.yaml', max_num_epochs=600, patience=40)\nINFO: Epoch 10: x\n",
+            ["results/LLZO_run-123_train.txt"] = """{"loss": 0.07, "time": 0.088, "mode": "opt", "epoch": 13}""" + "\n",
+        });
+        var mace = Detect(maceDir);
+        check(mace?.Kind == AppKind.Mace && mace.Current == 13 && mace.Total == 600 && mace.DataFile == "logs/LLZO_run-123.log"
+              && mace.Losses.Select(l => l.Label).SequenceEqual(["Loss", "RMSE E (meV)", "RMSE F (meV/Å)"]) && mace.Losses[^1].V == 36.35 && mace.EndMarker == null,
+              "MACE：日志 + debug 日志 + results");
+        File.WriteAllText(maceDir + "/logs/LLZO_run-123.log", maceLog + "2026-01-14 23:14:21.092 INFO: Training complete\n2026-01-14 23:14:41.335 INFO: Done\n");
+        Directory.Delete(maceDir + "/results", true);
+        var maceDone = Detect(maceDir);
+        check(maceDone?.Current == 11 && maceDone.EndMarker == true && maceDone.Finished, "MACE：Training complete 结束标记（提前停止也算完成）");
+        check(Detect(Make("mace-not", new() { ["logs/run.log"] = "hello\n" })) == null, "MACE：logs 里不是 MACE 的日志不识别");
+        var mSrc = new AppCurves.Source(maceDir + "/logs/LLZO_run-123.log", AppCurves.CurveKind.Loss, AppKind.Mace);
+        var mCache = AppCurves.Merge(Bash(AppCurves.Script(mSrc, 0, "")), new CurveCache());
+        var mc = mCache == null ? null : AppCurves.Curve(mSrc, mCache.Rows, mCache.Extra);
+        check(mCache?.Rows.Count == 3 && mc != null && mc.SeriesList.Select(x => x.Name).SequenceEqual(["Loss", "RMSE E", "RMSE F"])
+              && mc.SeriesList[^1].Points.Select(p => p.Item1).SequenceEqual([0.0, 5, 10]), "曲线：MACE 验证集误差（跳过 Initial）");
+
         // 完整的轮询脚本（含两条规则）语法正确
         var saved = ProgressRule.Active;
         ProgressRule.Active = [kw, tf];

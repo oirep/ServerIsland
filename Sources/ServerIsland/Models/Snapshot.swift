@@ -185,13 +185,15 @@ struct IslandEvent: Identifiable, Equatable {
     let id = UUID()
     var kind: Kind
     var hostID: UUID?
+    /// 任务提醒对应的任务号（数组是主编号）；服务器级提醒（磁盘等）为 nil。用于按关注范围和种类过滤。
+    var jobID: String?
     var title: String
     var subtitle: String
     var hostName: String
     var date = Date()
 
-    init(kind: Kind, title: String, subtitle: String, hostName: String, hostID: UUID? = nil) {
-        self.kind = kind; self.title = title; self.subtitle = subtitle; self.hostName = hostName; self.hostID = hostID
+    init(kind: Kind, title: String, subtitle: String, hostName: String, hostID: UUID? = nil, jobID: String? = nil) {
+        self.kind = kind; self.title = title; self.subtitle = subtitle; self.hostName = hostName; self.hostID = hostID; self.jobID = jobID
     }
 }
 

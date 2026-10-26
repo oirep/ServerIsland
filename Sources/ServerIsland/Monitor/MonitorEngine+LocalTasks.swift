@@ -27,11 +27,17 @@ extension MonitorEngine {
                 let host = hosts.first { $0.id == id } ?? LocalTaskStore.localHost
                 if !host.muted {
                     let kind: IslandEvent.Kind = record.job.state == .completed ? .finished
-                        : record.job.state == .failed ? .failed : .warning
-                    emit(IslandEvent(kind: kind,
+                        : record.job.state == .failed ? .failed : .info
+                    let event = IslandEvent(kind: kind,
                         title: record.job.name + " · " + record.job.state.label,
-                        subtitle: record.job.message ?? "", hostName: host.displayName, hostID: host.id))
+                        subtitle: record.job.message ?? "", hostName: host.displayName, hostID: host.id, jobID: record.job.id)
+                    // 本地部署同样遵守事件种类/关注范围；勿扰和服务器静音继续由 emit 处理。
+                    for allowed in Self.alertable([event], settings: store.settings) { emit(allowed) }
                 }
+            }
+            // 结束提醒筛选完再取消关注，保留已完成进度的停留显示。
+            if !record.job.state.isActive {
+                store.settings.starredJobs.removeAll { $0.hostID == id && $0.jobID == record.job.id }
             }
             localTaskStates[record.job.id] = record.job.state
         }

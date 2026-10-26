@@ -153,6 +153,21 @@ enum SelfTestActions {
         engine.refreshLocalTasks(from: directory)
         engine.refreshLocalTasks(from: directory)
         check(events == 1, "本机任务：终态仅通知一次，不被远端轮询重复处理")
+        store.settings.alertFinished = false
+        write("running", hostID: host.id.uuidString); engine.refreshLocalTasks(from: directory)
+        write("done", hostID: host.id.uuidString); engine.refreshLocalTasks(from: directory)
+        check(events == 1, "v0.4.0 Action：关闭完成提醒后本地部署不再通知")
+        store.settings.alertFinished = true
+        store.settings.alertScope = .starred
+        write("running", hostID: host.id.uuidString); engine.refreshLocalTasks(from: directory)
+        write("done", hostID: host.id.uuidString); engine.refreshLocalTasks(from: directory)
+        check(events == 1, "v0.4.0 Action：只提醒关注任务时，未关注部署不通知")
+        write("running", hostID: host.id.uuidString); engine.refreshLocalTasks(from: directory)
+        if let job = engine.snapshots[host.id]?.jobs.first { engine.toggleStar(hostID: host.id, job: job) }
+        write("done", hostID: host.id.uuidString); engine.refreshLocalTasks(from: directory)
+        check(events == 2 && !store.settings.starredJobs.contains { $0.hostID == host.id },
+              "v0.4.0 Action：关注部署完成先提醒，再取消关注，进度仍保留显示")
+        store.settings.alertScope = .all
         store.settings.progressFileStaySeconds = 1
         check(engine.displaySnapshot(host.id, now: Date().addingTimeInterval(5)).jobs.isEmpty
               && engine.snapshots[host.id]?.jobs.count == 1, "停留时长：只隐藏展示，不删除快照或触发重复结束")

@@ -170,7 +170,7 @@ enum SelfTestApps {
 
         """])
         let lossFile = lossDir + "/loss.out"
-        let lossSrc = AppCurves.Source.loss(path: lossFile, gnep: false)
+        let lossSrc = AppCurves.Source.loss(path: lossFile, kind: .nep)
         var cache = AppCurves.merge(bash(AppCurves.script(lossSrc, offset: 0, head: "")), into: CurveCache())
         check(cache?.rows.count == 3 && cache?.lineCount == 3, "曲线：第一次读取全部行")
         // 追加两行完整的 + 半行（还没写完）
@@ -196,8 +196,80 @@ enum SelfTestApps {
         let vCache = AppCurves.merge(bash(AppCurves.script(vSrc, offset: 0, head: "")), into: CurveCache())
         let vc = vCache.flatMap { AppCurves.curve(vSrc, rows: $0.rows) }
         check(vCache?.rows.count == 3 && vCache?.rows.last == [3, -440] && vc?.logY == false, "曲线：VASP 离子步 E0")
-        check(AppCurves.merge(bash(AppCurves.script(.loss(path: lossDir + "/nope", gnep: false), offset: 0, head: "")), into: CurveCache()) == nil,
+        check(AppCurves.merge(bash(AppCurves.script(.loss(path: lossDir + "/nope", kind: .nep), offset: 0, head: "")), into: CurveCache()) == nil,
               "曲线：文件不存在")
+
+        // NEP 续跑：loss.out 追加写入，代数从头数起；横轴按行累加（新版 GPUMD 每段开头有 # output_interval）
+        let restartDir = make("curve-nep-restart", ["nep.in": "generation 1000\n", "loss.out": """
+        100 0.30 0.01 0.02 0.20 0.50 0.10 0 0 0
+        200 0.20 0.01 0.02 0.10 0.40 0.08 0 0 0
+        100 0.18 0.01 0.02 0.09 0.35 0.07 0 0 0
+        # format_version 1
+        # output_interval 50
+        # columns generation total L1 L2 rmse_energy_train rmse_force_train rmse_virial_train rmse_energy_test rmse_force_test rmse_virial_test
+        50 0.15 0.01 0.02 0.08 0.30 0.06 0 0 0
+        # format_version 1
+        # output_interval 50
+        # columns generation total L1 L2 rmse_energy_train rmse_force_train rmse_virial_train rmse_energy_test rmse_force_test rmse_virial_test
+
+        """])
+        let rSrc = AppCurves.Source.loss(path: restartDir + "/loss.out", kind: .nep)
+        let rCache = AppCurves.merge(bash(AppCurves.script(rSrc, offset: 0, head: "")), into: CurveCache())
+        let rc = rCache.flatMap { AppCurves.curve(rSrc, rows: $0.rows, extra: $0.extra) }
+        check(rc?.series.first?.points.map(\.x) == [100, 200, 300, 350], "曲线：NEP 续跑按行累加代数（每段的 output_interval）")
+        let rNep = detect(restartDir)
+        check(rNep?.kind == .nep && rNep?.current == 50 && rNep?.total == 1000, "NEP：刚续跑、末尾是 # 表头时取最后一行数据")
+
+        // TorchNEP：loss.out 在输出目录（默认 output/）里，带表头；总 epoch 取自 output.log
+        let tnHeader = "# epoch  loss  rmse_e(eV/atom)  rmse_f(eV/A)  rmse_v(eV/atom)  rmse_stress(GPa)\n"
+        let tnDir = make("torchnep", ["nep.in": "type 4 Li La Zr O\nepoch 300\n",
+                                      "output/loss.out": tnHeader + "1 5.16e-01 0.068 0.717 0.404 5.51\n2 2.65e-01 0.201 0.514 0.284 3.82\n",
+                                      "output/output.log": "torchnep v1.0.7\nTraining: epochs 1..200, Stage 2 from epoch 100 (SWA=off)\nEpoch    1 | loss 5.1618e-01\n"])
+        let tn = detect(tnDir)
+        check(tn?.kind == .torchnep && tn?.current == 2 && tn?.total == 200 && tn?.dataFile == "output/loss.out"
+              && tn?.losses.map(\.label) == ["Loss", "E (eV/atom)", "F (eV/A)", "V (eV/atom)", "S (GPa)"] && tn?.endMarker == nil,
+              "TorchNEP：output/loss.out + output.log")
+        try? "Done. Best loss: 2.65e-01\nTotal time: 00:00:26.9\n".write(toFile: tnDir + "/output/output.log", atomically: true, encoding: .utf8)
+        let tnDone = detect(tnDir)
+        check(tnDone?.endMarker == true && tnDone?.total == 300 && tnDone?.finished == true, "TorchNEP：Done 结束标记；没有 Training 行时用 nep.in 的 epoch")
+        let tnHere = detect(make("torchnep-here", ["nep.in": "epoch 50\n", "loss.out": tnHeader + "7 1e-02 0.01 0.2 0.05 0.5\n"]))
+        check(tnHere?.kind == .torchnep && tnHere?.current == 7 && tnHere?.total == 50, "TorchNEP：输出在工作目录里时不当成 NEP")
+        let tnSrc = AppCurves.Source.loss(path: tnDir + "/output/loss.out", kind: .torchnep)
+        try? (tnHeader + "1 0.5 0.06 0.7 0.4 5\n2 0.3 0.05 0.5 0.3 4\n3 0.2 0.04 0.4 0.2 3\n2 0.25 0.05 0.45 0.25 3.5\n3 0.15 0.03 0.3 0.15 2\n")
+            .write(toFile: tnDir + "/output/loss.out", atomically: true, encoding: .utf8)
+        let tnCache = AppCurves.merge(bash(AppCurves.script(tnSrc, offset: 0, head: "")), into: CurveCache())
+        let tnc = tnCache.flatMap { AppCurves.curve(tnSrc, rows: $0.rows, extra: $0.extra) }
+        check(tnc?.series.map(\.name) == ["Loss", "E", "F", "V"] && tnc?.series.first?.points.map(\.x) == [1, 2, 3]
+              && tnc?.series.first?.points.last?.y == 0.15 && tnc?.xLabel == "epoch", "曲线：TorchNEP（从检查点续跑时去掉重跑的那段）")
+
+        // MACE：logs/<名字>_run-<种子>.log；总 epoch 取自 _debug.log 的参数，正在跑的 epoch 取自 results/*_train.txt
+        let maceLog = """
+        2026-01-14 20:25:46.805 INFO: ===========VERIFYING SETTINGS===========
+        2026-01-14 20:25:46.805 INFO: MACE version: 0.3.15
+        2026-01-14 20:26:10.051 INFO: Initial: head: Default, loss=93.68933105, RMSE_E_per_atom=  288.65 meV, RMSE_F=  917.99 meV / A
+        2026-01-14 20:27:19.883 INFO: Epoch 0: head: Default, loss=2.62567067, RMSE_E_per_atom=    3.04 meV, RMSE_F=  161.12 meV / A
+        2026-01-14 20:28:54.625 INFO: Epoch 5: head: Default, loss=0.25760791, RMSE_E_per_atom=    6.65 meV, RMSE_F=   50.07 meV / A
+        2026-01-14 20:30:17.603 INFO: Epoch 10: head: Default, loss=0.13423754, RMSE_E_per_atom=    2.73 meV, RMSE_F=   36.35 meV / A
+
+        """
+        let maceDir = make("mace", ["logs/LLZO_run-123.log": maceLog,
+                                    "logs/LLZO_run-123_debug.log": "DEBUG: Configuration: Namespace(config='config.yaml', max_num_epochs=600, patience=40)\nINFO: Epoch 10: x\n",
+                                    "results/LLZO_run-123_train.txt": #"{"loss": 0.07, "time": 0.088, "mode": "opt", "epoch": 13}"# + "\n"])
+        let mace = detect(maceDir)
+        check(mace?.kind == .mace && mace?.current == 13 && mace?.total == 600 && mace?.dataFile == "logs/LLZO_run-123.log"
+              && mace?.losses.map(\.label) == ["Loss", "RMSE E (meV)", "RMSE F (meV/Å)"] && mace?.losses.last?.value == 36.35 && mace?.endMarker == nil,
+              "MACE：日志 + debug 日志 + results")
+        try? (maceLog + "2026-01-14 23:14:21.092 INFO: Training complete\n2026-01-14 23:14:41.335 INFO: Done\n")
+            .write(toFile: maceDir + "/logs/LLZO_run-123.log", atomically: true, encoding: .utf8)
+        try? FileManager.default.removeItem(atPath: maceDir + "/results")
+        let maceDone = detect(maceDir)
+        check(maceDone?.current == 11 && maceDone?.endMarker == true && maceDone?.finished == true, "MACE：Training complete 结束标记（提前停止也算完成）")
+        check(detect(make("mace-not", ["logs/run.log": "hello\n"])) == nil, "MACE：logs 里不是 MACE 的日志不识别")
+        let mSrc = AppCurves.Source.loss(path: maceDir + "/logs/LLZO_run-123.log", kind: .mace)
+        let mCache = AppCurves.merge(bash(AppCurves.script(mSrc, offset: 0, head: "")), into: CurveCache())
+        let mc = mCache.flatMap { AppCurves.curve(mSrc, rows: $0.rows, extra: $0.extra) }
+        check(mCache?.rows.count == 3 && mc?.series.map(\.name) == ["Loss", "RMSE E", "RMSE F"] && mc?.series.last?.points.map(\.x) == [0, 5, 10],
+              "曲线：MACE 验证集误差（跳过 Initial）")
 
         // 完整的轮询脚本（含两条规则）语法正确
         let saved = ProgressRule.active

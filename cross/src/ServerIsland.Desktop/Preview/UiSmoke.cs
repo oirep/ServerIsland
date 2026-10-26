@@ -32,7 +32,20 @@ public static class UiSmoke
                 island.State.PinnedJob = job;
                 island.State.Page = new IslandPage(PageKind.Job, host.Id, job.Id);
             }, () => island),
-            (0.2, "4-all-jobs", () => island.State.Page = new IslandPage(PageKind.Jobs, store.Settings.Hosts[0].Id), () => island),
+            (0.2, "4-all-jobs", () => island.State.OpenAllJobs(), () => island),
+            (0.2, "4b-all-jobs-starred", () =>
+            {
+                // 关注一个任务，再只看关注的任务
+                var host = store.Settings.Hosts[0];
+                var job = engine.Snapshots[host.Id].Jobs.Last(j => j.ArrayJobID == null || j.Array != null);
+                if (!engine.IsStarred(host.Id, job.Id)) engine.ToggleStar(host.Id, job);
+                island.State.Jobs = island.State.Jobs with { StarredOnly = true };
+                island.State.RequestRebuild();
+            }, () =>
+            {
+                if (!store.Settings.StarredJobs.Any()) Errors.Add("4b-all-jobs-starred: star was not saved");
+                return island;
+            }),
             (0.2, "5-toast", () =>
             {
                 island.State.Pinned = false;

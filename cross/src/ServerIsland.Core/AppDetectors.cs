@@ -4,7 +4,7 @@ using static ServerIsland.Core.Lang;
 
 namespace ServerIsland.Core;
 
-public enum AppKind { Nep, Gnep, Gpumd, Vasp, Lammps, Custom }
+public enum AppKind { Nep, Gnep, TorchNep, Mace, Gpumd, Vasp, Lammps, Custom }
 
 /// VASP 的计算类型。
 public enum VaspMode { Md, Relax, Scf, Neb }
@@ -22,6 +22,8 @@ public sealed class AppProgress
     public double? Total;
     /// nep.in / run.in 里是否写了目标（没写时用默认值，进度仅供参考）。
     public bool HasTarget = true;
+    /// 曲线读的文件（相对工作目录）：TorchNEP 的 loss.out、MACE 的训练日志，不在固定位置。
+    public string? DataFile;
     public List<Value> Losses = [];
     public Neighbor? Neigh;
     /// 输出文件的最后修改时间（用来判断是否卡住）。
@@ -56,6 +58,8 @@ public sealed class AppProgress
     {
         AppKind.Nep => L("NEP 训练", "NEP training"),
         AppKind.Gnep => L("GNEP 训练", "GNEP training"),
+        AppKind.TorchNep => L("TorchNEP 训练", "TorchNEP training"),
+        AppKind.Mace => L("MACE 训练", "MACE training"),
         AppKind.Gpumd => L("GPUMD 模拟", "GPUMD MD"),
         AppKind.Vasp => (Vasp ?? VaspMode.Scf) switch
         {
@@ -71,7 +75,7 @@ public sealed class AppProgress
     public string Unit => Kind switch
     {
         AppKind.Nep => L("代", "gen"),
-        AppKind.Gnep => "epoch",
+        AppKind.Gnep or AppKind.TorchNep or AppKind.Mace => "epoch",
         AppKind.Gpumd or AppKind.Lammps => L("步", "steps"),
         AppKind.Vasp => (Vasp ?? VaspMode.Scf) switch
         {
@@ -113,7 +117,7 @@ public sealed class AppProgress
             }
             switch (Kind)
             {
-                case AppKind.Nep or AppKind.Gnep:
+                case AppKind.Nep or AppKind.Gnep or AppKind.TorchNep or AppKind.Mace:
                     if (Losses.Count > 0) parts.Add($"{Losses[0].Label} {Sci(Losses[0].V)}");
                     break;
                 case AppKind.Gpumd or AppKind.Lammps:
@@ -163,6 +167,7 @@ public static class AppDetectors
     /// shell 函数：si_pick 取最新的匹配文件；si_jobid 从 /proc/<pid>/environ 读出所属 Slurm 作业号（数组元素为 主编号_序号）。
     public const string JobIDFunction = """
         si_pick() { (cd "$1" 2>/dev/null && ls -td -- $2 2>/dev/null | head -n 1); }
+        si_tnep() { (cd "$1" 2>/dev/null && ls -td -- loss.out */loss.out 2>/dev/null) | while IFS= read -r f; do case "$(head -n 1 "$1/$f" 2>/dev/null)" in "#"*epoch*loss*rmse_*) echo "$f"; break;; esac; done; }
         si_jobid() { tr '\0' '\n' < /proc/$1/environ 2>/dev/null | awk -F= '$1=="SLURM_ARRAY_JOB_ID"{a=$2} $1=="SLURM_ARRAY_TASK_ID"{t=$2} $1=="SLURM_JOB_ID"{j=$2} $1=="PBS_JOBID"{b=$2} END{if(a!=""&&t!="")print a"_"t; else if(j!="")print j; else if(b!=""){sub(/\..*$/,"",b); sub(/\[/,"_",b); sub(/\]/,"",b); print b}}'; }
 
         """;
@@ -290,14 +295,28 @@ public static class AppDetectors
         """;
 
     static string BuiltinBranches => $$"""
-        [ -f "$d/loss.out" ] && [ -f "$d/nep.in" ]; then
+        tf=$(si_tnep "$d"); [ -n "$tf" ]; then
+            printf '{{Marker}}DIR %s|%s\n' "$id" "$d"; echo kind=torchnep; echo "file=$tf"; o=$(dirname "$d/$tf")
+            echo "hdr=$(head -n 1 "$d/$tf" | cut -c1-300)"; echo "last=$(tail -n 1 "$d/$tf" | cut -c1-300)"
+            head -n 300 "$o/output.log" 2>/dev/null | grep -a '^Training: epochs' | tail -n 1 | sed 's/^/sched=/'
+            awk '$1=="epoch" && $2~/^[0-9]+$/ {print "total="$2; exit}' "$d/nep.in" 2>/dev/null
+            tail -n 40 "$o/output.log" 2>/dev/null | grep -qa '^Done\. Best loss' && echo done=1
+            echo "mtime=$(stat -c %Y "$d/$tf" 2>/dev/null)"
+          elif [ -f "$d/loss.out" ] && [ -f "$d/nep.in" ]; then
             printf '{{Marker}}DIR %s|%s\n' "$id" "$d"; echo kind=nep
             awk '$1=="generation" && $2~/^[0-9]+$/ {print "total="$2; exit}' "$d/nep.in"
-            echo "last=$(tail -n 1 "$d/loss.out")"; echo "mtime=$(stat -c %Y "$d/loss.out" 2>/dev/null)"
+            echo "last=$(tail -n 8 "$d/loss.out" | grep -v '^[[:space:]]*#' | tail -n 1)"; echo "mtime=$(stat -c %Y "$d/loss.out" 2>/dev/null)"
           elif [ -f "$d/loss.out" ] && [ -f "$d/gnep.in" ]; then
             printf '{{Marker}}DIR %s|%s\n' "$id" "$d"; echo kind=gnep
             awk '$1=="epoch" && $2~/^[0-9]+$/ {print "total="$2; exit}' "$d/gnep.in"
             echo "last=$(tail -n 1 "$d/loss.out")"; echo "mtime=$(stat -c %Y "$d/loss.out" 2>/dev/null)"
+          elif ml=$(cd "$d" 2>/dev/null && ls -td -- logs/*.log 2>/dev/null | grep -v '_debug\.log$' | head -n 1); [ -n "$ml" ] && head -n 20 "$d/$ml" | grep -qa 'MACE version'; then
+            printf '{{Marker}}DIR %s|%s\n' "$id" "$d"; echo kind=mace; echo "file=$ml"; t=$(basename "$ml" .log); r="$d/results/${t}_train.txt"
+            grep -ao 'max_num_epochs=[0-9]*' "$d/logs/${t}_debug.log" 2>/dev/null | tail -n 1 | sed 's/^max_num_epochs=/total=/'
+            tail -n 200 "$d/$ml" | grep -a 'INFO: Epoch [0-9]*:' | tail -n 1 | cut -c1-300 | sed 's/^/last=/'
+            [ -f "$r" ] && tail -n 1 "$r" | sed -n 's/.*"epoch": *\([0-9][0-9]*\).*/opt=\1/p'
+            tail -n 80 "$d/$ml" | grep -qa 'INFO: Training complete' && echo done=1
+            echo "mtime=$(stat -c %Y "$d/$ml" "$r" 2>/dev/null | sort -n | tail -n 1)"
           elif [ -f "$d/run.in" ] && { [ -f "$d/neighbor.out" ] || [ -f "$d/thermo.out" ]; }; then
             printf '{{Marker}}DIR %s|%s\n' "$id" "$d"; echo kind=gpumd
             sg=$(stat -c '%Y.%s' "$d/run.in" "$d/neighbor.out" "$d/thermo.out" 2>/dev/null | tr '\n' ' ')
@@ -348,7 +367,7 @@ public static class AppDetectors
 
     static readonly Dictionary<string, AppKind> Kinds = new()
     {
-        ["nep"] = AppKind.Nep, ["gnep"] = AppKind.Gnep, ["gpumd"] = AppKind.Gpumd,
+        ["nep"] = AppKind.Nep, ["gnep"] = AppKind.Gnep, ["torchnep"] = AppKind.TorchNep, ["mace"] = AppKind.Mace, ["gpumd"] = AppKind.Gpumd,
         ["vasp"] = AppKind.Vasp, ["lammps"] = AppKind.Lammps, ["custom"] = AppKind.Custom,
     };
 
@@ -385,10 +404,7 @@ public static class AppDetectors
                         if (nums.Count > 0)
                         {
                             p.Current = nums[0];
-                            // loss.out 列：gen Total L1 L2 E-train F-train V-train [E-test F-test V-test]（与 plt_train.py 一致）
-                            string[] labels = nums.Count >= 7
-                                ? ["Total", "L1", "L2", "Energy", "Force", "Virial", "E-test", "F-test", "V-test"]
-                                : ["Loss", "Energy", "Force", "Virial"];
+                            string[] labels = kind == AppKind.Nep ? NepLossLabels(nums.Count)[1..] : ["Loss", "Energy", "Force", "Virial"];
                             for (int i = 1; i < nums.Count && i - 1 < labels.Length; i++)
                                 p.Losses.Add(new AppProgress.Value(labels[i - 1], nums[i]));
                             // 没有测试集时 test 列全是 0，不显示。
@@ -396,6 +412,35 @@ public static class AppDetectors
                             if (tests.Count > 0 && tests.All(l => l.V == 0)) p.Losses.RemoveAll(l => l.Label.EndsWith("-test"));
                         }
                         break;
+                    case AppKind.TorchNep:
+                    {
+                        // output.log 里的 "Training: epochs 1..200"（续跑时是 101..200），其次是 nep.in 的 epoch
+                        p.Total = kv.GetValueOrDefault("sched") is { } sched && Regex.Match(sched, @"\.\.(\d+)") is { Success: true } sm
+                            ? Text.Dbl(sm.Groups[1].Value) : Text.Dbl(kv.GetValueOrDefault("total"));
+                        p.HasTarget = p.Total != null;
+                        p.DataFile = kv.GetValueOrDefault("file");
+                        var tn = Text.Words(kv.GetValueOrDefault("last") ?? "").Select(Text.Dbl).Where(v => v != null).Select(v => v!.Value).ToList();
+                        // 表头：# epoch  loss  rmse_e(eV/atom)  rmse_f(eV/A)  rmse_v(eV/atom)  rmse_stress(GPa)
+                        var names = TorchnepLabels(kv.GetValueOrDefault("hdr") ?? "");
+                        if (tn.Count < 2 || names.Count != tn.Count) return;
+                        p.Current = tn[0];
+                        for (int i = 1; i < tn.Count; i++) p.Losses.Add(new AppProgress.Value(names[i], tn[i]));
+                        break;
+                    }
+                    case AppKind.Mace:
+                    {
+                        p.Total = Text.Dbl(kv.GetValueOrDefault("total"));
+                        p.HasTarget = p.Total != null;
+                        p.DataFile = kv.GetValueOrDefault("file");
+                        // 日志里的 Epoch N（从 0 数，验证集误差每 eval_interval 个 epoch 一行）表示已经跑完 N+1 个；
+                        // results/*_train.txt 最后一行的 epoch K 是正在跑的那个（已经跑完 K 个），更新更及时。
+                        var me = MaceEpochLine(kv.GetValueOrDefault("last") ?? "");
+                        var done = new[] { me is { } em ? em.Epoch + 1 : (double?)null, Text.Dbl(kv.GetValueOrDefault("opt")) }.Where(v => v != null).Max();
+                        p.Current = done ?? 0;
+                        p.Losses = me?.Values ?? [];
+                        if (p.Total is { } mt2 && p.Current > mt2) return;
+                        break;
+                    }
                     case AppKind.Gpumd:
                         p.Total = Text.Dbl(kv.GetValueOrDefault("total"));
                         p.HasTarget = p.Total != null;
@@ -516,6 +561,61 @@ public static class AppDetectors
     }
 
     /// LAMMPS：当前步 = 最后一行的 Step − 这段 run 第一行的 Step，目标 = run 的步数。任何一处不对就返回 nil。
+    /// NEP loss.out 各列（含第一列代数）的名字，按列数区分（GPUMD fitness.cu 的 write_row）：
+    /// 10 列普通势、12 列多了 ediff、14 / 16 列带电荷（Q、Z = BEC）、6 列偶极 / 极化率。
+    public static string[] NepLossLabels(int n)
+    {
+        string[] head = ["gen", "Total", "L1", "L2"];
+        return n switch
+        {
+            6 => [.. head, "P-train", "P-test"],
+            12 => [.. head, "Energy", "Force", "Virial", "E-test", "F-test", "V-test", "Ediff", "Ediff-test"],
+            14 => [.. head, "Energy", "Force", "Virial", "Charge", "BEC", "E-test", "F-test", "V-test", "Q-test", "Z-test"],
+            16 => [.. head, "Energy", "Force", "Virial", "Charge", "BEC", "E-test", "F-test", "V-test", "Q-test", "Z-test", "Ediff", "Ediff-test"],
+            >= 7 => [.. head, "Energy", "Force", "Virial", "E-test", "F-test", "V-test"],
+            _ => ["epoch", "Loss", "Energy", "Force", "Virial"],
+        };
+    }
+
+    /// TorchNEP loss.out 的表头 → 每列的名字（含第一列 epoch）：`rmse_e(eV/atom)` → `E (eV/atom)`，`loss` → `Loss`。
+    public static List<string> TorchnepLabels(string header)
+    {
+        var shortNames = new Dictionary<string, string> { ["e"] = "E", ["f"] = "F", ["v"] = "V", ["stress"] = "S" };
+        return Text.Words(header).Where(t => t != "#").Select(t =>
+        {
+            string name = t, unit = "";
+            var p = name.IndexOf('(');
+            if (p >= 0) { unit = " " + name[p..]; name = name[..p]; }
+            if (name == "loss") return "Loss";
+            if (name.StartsWith('#')) name = name[1..];
+            if (name.StartsWith("rmse_")) { name = name[5..]; name = shortNames.GetValueOrDefault(name) ?? name; }
+            return name + unit;
+        }).ToList();
+    }
+
+    static readonly Regex MaceValueRegex = new(@"(\w+)=\s*([-+0-9.eE]+)\s*([^,=]*?)\s*(?:,|$)");
+
+    /// MACE 训练日志里的一行验证集误差：
+    /// `… INFO: Epoch 595: head: Default, loss=0.00833367, RMSE_E_per_atom=    0.22 meV, RMSE_F=    9.08 meV / A`
+    /// （error_table 不同，误差的名字也不同，比如 RMSE_E、MAE_F；按 名字=数字 [单位] 通用地取。）
+    public static (double Epoch, List<AppProgress.Value> Values)? MaceEpochLine(string line)
+    {
+        var m = Regex.Match(line, @"Epoch (\d+):");
+        if (!m.Success || Text.Dbl(m.Groups[1].Value) is not { } ep) return null;
+        var rest = line[(m.Index + m.Length)..];
+        var values = new List<AppProgress.Value>();
+        foreach (Match v in MaceValueRegex.Matches(rest))
+        {
+            if (Text.Dbl(v.Groups[2].Value) is not { } x) continue;
+            var key = v.Groups[1].Value;
+            var unit = v.Groups[3].Value.Replace(" / A", "/Å");
+            if (key == "loss") { values.Add(new AppProgress.Value("Loss", x)); continue; }
+            var name = key.Replace("_per_atom", "").Replace("_", " ");
+            values.Add(new AppProgress.Value(unit.Length == 0 ? name : $"{name} ({unit})", x));
+        }
+        return (ep, values);
+    }
+
     public static (double Current, double Total)? ParseLammps(IReadOnlyDictionary<string, string> kv)
     {
         if (kv.GetValueOrDefault("bad") != "0") return null;

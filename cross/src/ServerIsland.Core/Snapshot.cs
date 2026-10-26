@@ -227,11 +227,13 @@ public sealed class HostSnapshot
 public enum EventKind { Finished, Failed, Started, Info, Warning }
 
 /// 刘海弹出提示。
-public sealed class IslandEvent(EventKind kind, string title, string subtitle, string hostName, Guid? hostID = null)
+public sealed class IslandEvent(EventKind kind, string title, string subtitle, string hostName, Guid? hostID = null, string? jobID = null)
 {
     public Guid Id { get; } = Guid.NewGuid();
     public EventKind Kind { get; } = kind;
     public Guid? HostID { get; } = hostID;
+    /// 任务提醒对应的任务号（数组是主编号）；服务器级提醒（磁盘等）为 null。用于按关注范围和种类过滤。
+    public string? JobID { get; } = jobID;
     public string Title { get; } = title;
     public string Subtitle { get; } = subtitle;
     public string HostName { get; } = hostName;

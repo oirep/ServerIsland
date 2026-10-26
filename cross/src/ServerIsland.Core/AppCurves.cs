@@ -45,16 +45,17 @@ public static class AppCurves
     public enum CurveKind { Loss, VaspEnergy, VaspForce, Neb }
 
     /// VaspForce：OUTCAR 每个离子步 TOTAL-FORCE 块里最大的原子受力 |F|；INCAR 的 EDIFFG 作为收敛目标。
-    public sealed record Source(string Path, CurveKind Kind, bool Gnep = false)
+    /// Loss：NEP / GNEP / TorchNEP 的 loss.out，MACE 的训练日志（logs/*.log 里每 eval_interval 个 epoch 一行验证集误差），App 说明是哪一种。
+    public sealed record Source(string Path, CurveKind Kind, AppKind App = AppKind.Nep)
     {
         public bool IsLoss => Kind == CurveKind.Loss;
     }
 
-    /// 哪些任务有曲线：NEP / GNEP 训练、VASP 结构优化（能量 + 最大力）。
+    /// 哪些任务有曲线：NEP / GNEP / TorchNEP / MACE 训练、VASP 结构优化（能量 + 最大力）。
     public static List<Source> SourcesFor(AppProgress app) => app.Kind switch
     {
-        AppKind.Nep => [new Source(app.Dir + "/loss.out", CurveKind.Loss)],
-        AppKind.Gnep => [new Source(app.Dir + "/loss.out", CurveKind.Loss, true)],
+        AppKind.Nep or AppKind.Gnep => [new Source(app.Dir + "/loss.out", CurveKind.Loss, app.Kind)],
+        AppKind.TorchNep or AppKind.Mace => app.DataFile is { } f ? [new Source(app.Dir + "/" + f, CurveKind.Loss, app.Kind)] : [],
         AppKind.Vasp when app.Vasp == VaspMode.Relax => [new Source(app.Dir + "/OSZICAR", CurveKind.VaspEnergy), new Source(app.Dir + "/OUTCAR", CurveKind.VaspForce)],
         AppKind.Vasp when app.Vasp == VaspMode.Neb => [new Source(app.Dir, CurveKind.Neb)],
         _ => [],
@@ -84,7 +85,25 @@ public static class AppCurves
     {
         if (src.Kind == CurveKind.VaspForce) return ForceScript(src.Path, offset, head);
         if (src.Kind == CurveKind.Neb) return NebScript(src.Path);
-        var filter = src.IsLoss
+        var extra = "";
+        string filter;
+        if (src.IsLoss && src.App == AppKind.Nep)
+        {
+            // GPUMD 新版在每次（重新）开始训练时写一段 # 表头，其中 # output_interval N 是之后每行间隔的代数：输出成 "-1 N"。
+            filter = "awk '/^[[:space:]]*#[[:space:]]*output_interval[[:space:]]/ { print -1, $3; next } NF >= 2 && $1 ~ /^[0-9]+$/ { print }' | cut -c1-300";
+            extra = """awk '$1=="output_interval" && $2~/^[0-9]+$/ {print "interval="$2; exit}' "$(dirname "$f")/nep.in" 2>/dev/null""" + "\n";
+        }
+        else if (src.IsLoss && src.App == AppKind.Mace)
+        {
+            // 每行：epoch 和各个误差的数字；误差的名字变了才输出一次 keys=。多头训练同一个 epoch 有好几行，只取第一行。
+            filter = """
+                awk '/INFO: Epoch [0-9]+:/ { s = $0; sub(/.*INFO: Epoch /, "", s); e = s + 0; if (n && e == p) next; p = e; n = 1
+                  sub(/^[0-9]+: */, "", s); gsub(/= +/, "=", s); k = ""; o = e; m = split(s, a, ",")
+                  for (i = 1; i <= m; i++) if (a[i] ~ /=/) { split(a[i], b, "="); sub(/^ +/, "", b[1]); split(b[2], c, " "); k = k (k == "" ? "" : ",") b[1]; o = o " " c[1] }
+                  if (k != K) { print "keys=" k; K = k }; print o }'
+                """;
+        }
+        else filter = src.IsLoss
             ? "awk 'NF >= 2 && $1 ~ /^[0-9]+$/ { print }' | cut -c1-300"
             : """awk '$1 ~ /^[0-9]+$/ && $2 ~ /^F=/ { for (i = 3; i <= NF; i++) if ($i ~ /^E0=/) { v = substr($i, 4); if (v == "") v = $(i + 1); print $1, v; break } }'""";
         return $"""
@@ -95,7 +114,7 @@ public static class AppCurves
             if [ "$h" != {RemoteScript.ShellQuote(head)} ] || [ "$n" -lt "$off" ]; then off=0; echo reset=1; fi
             if [ $((n - off)) -gt {MaxRows} ]; then off=$((n - {MaxRows})); echo reset=1; fi
             echo "n=$n"; echo "head=$h"
-            tail -n +$((off + 1)) "$f" | head -n $((n - off)) | {filter} | sed 's/^/row=/'
+            {extra}tail -n +$((off + 1)) "$f" | head -n $((n - off)) | {filter} | sed '/^keys=/!s/^/row=/'
 
             """;
     }
@@ -149,6 +168,9 @@ public static class AppCurves
         c.Head = lines.FirstOrDefault(l => l.StartsWith("head=", StringComparison.Ordinal)) is { } h ? h[5..] : "";
         if (lines.FirstOrDefault(l => l.StartsWith("ediffg=", StringComparison.Ordinal)) is { } e) c.Extra["ediffg"] = e[7..];
         if (lines.FirstOrDefault(l => l.StartsWith("images=", StringComparison.Ordinal)) is { } im) c.Extra["images"] = im[7..];
+        if (lines.FirstOrDefault(l => l.StartsWith("interval=", StringComparison.Ordinal)) is { } iv) c.Extra["interval"] = iv[9..];
+        if (lines.LastOrDefault(l => l.StartsWith("keys=", StringComparison.Ordinal)) is { } ks) c.Extra["keys"] = ks[5..];
+        c.Extra["head"] = c.Head;
         foreach (var l in lines.Where(l => l.StartsWith("row=", StringComparison.Ordinal)))
         {
             var nums = Text.Words(l[4..]).Select(Text.Dbl).Where(v => v != null).Select(v => v!.Value).ToArray();
@@ -252,20 +274,58 @@ public static class AppCurves
         }
         if (src.IsLoss)
         {
-            // NEP：gen Total L1 L2 E F V [E-test F-test V-test]；GNEP：epoch Loss E F V
-            (string, int)[] cols = src.Gnep
-                ? [("Loss", 1), (L("能量", "Energy"), 2), (L("力", "Force"), 3), (L("维里", "Virial"), 4)]
-                : rows[^1].Length >= 7
-                    ? [("Total", 1), (L("能量", "Energy"), 4), (L("力", "Force"), 5), (L("维里", "Virial"), 6)]
-                    : [("Loss", 1), (L("能量", "Energy"), 2), (L("力", "Force"), 3), (L("维里", "Virial"), 4)];
+            extra ??= [];
+            var data = rows;
+            IReadOnlyList<string> names;
+            switch (src.App)
+            {
+                case AppKind.Nep:
+                {
+                    // loss.out 是追加写入的：重新开始 / 续跑时代数从头数起，所以横轴不用第一列，而是按行累加
+                    // （每行间隔 output_interval 代，默认 100；新版 GPUMD 每段开头的 # output_interval 会改变之后的间隔）。
+                    double step = Text.Dbl(extra.GetValueOrDefault("interval")) ?? 100, x = 0;
+                    data = [];
+                    foreach (var r in rows)
+                    {
+                        if (r[0] < 0) { step = r[1]; continue; }
+                        x += step;
+                        data.Add([x, .. r[1..]]);
+                    }
+                    names = AppDetectors.NepLossLabels(data.Count > 0 ? data[^1].Length : 0);
+                    break;
+                }
+                case AppKind.TorchNep:
+                    names = AppDetectors.TorchnepLabels(extra.GetValueOrDefault("head") ?? "");
+                    data = Monotonic(rows);
+                    break;
+                case AppKind.Mace:
+                    names = ["epoch", .. (extra.GetValueOrDefault("keys") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)
+                        .Select(k => k == "loss" ? "Loss" : k.Replace("_per_atom", "").Replace("_", " "))];
+                    data = Monotonic(rows);
+                    break;
+                default:
+                    names = AppDetectors.NepLossLabels(0);
+                    break;
+            }
+            // 画哪几列、图例里叫什么
+            (string Key, string Name)[] wanted = [("Total", "Total"), ("Loss", "Loss"), ("Energy", L("能量", "Energy")), ("Force", L("力", "Force")),
+                                                  ("Virial", L("维里", "Virial")), ("P-train", "Train"), ("P-test", "Test")];
+            var cols = new List<(string, int)>();
+            for (int i = 1; i < names.Count; i++)
+            {
+                var b = names[i].Split(" (")[0];
+                if (wanted.FirstOrDefault(w => w.Key == b) is { Key: not null } w) cols.Add((w.Name, i));
+                else if (src.App == AppKind.TorchNep && b is "E" or "F" or "V") cols.Add((b, i));
+                else if (src.App == AppKind.Mace) cols.Add((b, i));
+            }
             var series = new List<AppCurve.Series>();
             foreach (var (name, i) in cols)
             {
-                var pts = rows.Where(r => i < r.Length && r[i] > 0).Select(r => (r[0], r[i])).ToList();
+                var pts = data.Where(r => i < r.Length && r[i] > 0).Select(r => (r[0], r[i])).ToList();
                 if (pts.Count >= 2) series.Add(new AppCurve.Series(name, Downsample(pts)));
             }
             if (series.Count == 0) return null;
-            return new AppCurve { Title = "Loss", SeriesList = series, LogY = true, XLabel = src.Gnep ? "epoch" : L("代", "gen") };
+            return new AppCurve { Title = "Loss", SeriesList = series, LogY = true, XLabel = src.App == AppKind.Nep ? L("代", "gen") : "epoch" };
         }
         var e0 = rows.Select(r => (r[0], r[1])).ToList();
         return new AppCurve
@@ -275,6 +335,18 @@ public static class AppCurves
             LogY = false,
             XLabel = L("离子步", "ionic step"),
         };
+    }
+
+    /// 横轴倒退（从较早的检查点续跑，日志 / loss.out 是追加写入的）时，丢掉之前跑过、又被重跑的那一段。
+    public static List<double[]> Monotonic(List<double[]> rows)
+    {
+        var outRows = new List<double[]>();
+        foreach (var r in rows)
+        {
+            while (outRows.Count > 0 && outRows[^1][0] >= r[0]) outRows.RemoveAt(outRows.Count - 1);
+            outRows.Add(r);
+        }
+        return outRows;
     }
 
     /// 点太多时等间隔抽样（保留首尾），画图用不到上万个点。

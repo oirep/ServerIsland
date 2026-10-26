@@ -55,7 +55,7 @@ static class Program
             return 0;
         }
 
-        // 开发用：读取（两次，第二次应是增量）详情页曲线。  --curve <别名> <目录> [nep|gnep|vasp]
+        // 开发用：读取（两次，第二次应是增量）详情页曲线。  --curve <别名> <目录> [nep|gnep|vasp|auto]
         if (Index(args, "--curve") is { } ci && ci + 2 < args.Length)
         {
             Diagnose.Curve(args[ci + 1], args[ci + 2], ci + 3 < args.Length ? args[ci + 3] : "nep").GetAwaiter().GetResult();
@@ -172,6 +172,14 @@ static class Diagnose
         var app = new AppProgress { Kind = mode == "gnep" ? AppKind.Gnep : mode == "vasp" ? AppKind.Vasp : AppKind.Nep, Dir = dir };
         if (mode == "vasp") app.Vasp = VaspMode.Relax;
         Console.WriteLine($"SSH：{ssh.Name}");
+        if (mode == "auto")
+        {
+            // 先在目录上跑一次识别（TorchNEP / MACE 要用它找文件）
+            var d = await ssh.RunAsync(host, host.Commands.Shell, AppDetectors.FinalStateScript("x", dir), TimeSpan.FromSeconds(30));
+            if (AppDetectors.Parse(d.Stdout.Split('\n')).GetValueOrDefault("x") is not { } found) { Console.WriteLine("没识别到\n" + d.Stdout); return; }
+            app = found;
+            Console.WriteLine($"{app.Title} {app.Summary}");
+        }
         foreach (var src in AppCurves.SourcesFor(app))
         {
             Console.WriteLine("== " + src.Path);

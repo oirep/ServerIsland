@@ -60,7 +60,20 @@ public static class PromptDialog
         return tcs.Task;
     }
 
-    static Window Window(string title, string message, Control? input, string okText, string cancelText, Action<bool> done)
+    /// 三个按钮：first（默认）→ 0，second → 1，取消或关掉窗口 → -1。
+    public static Task<int> Choose(string title, string message, string first, string second, string cancel, bool secondEnabled = true)
+    {
+        var tcs = new TaskCompletionSource<int>();
+        Window? w = null;
+        var extra = new Button { Content = second, MinWidth = 88, IsEnabled = secondEnabled, HorizontalContentAlignment = HorizontalAlignment.Center };
+        extra.Click += (_, _) => { tcs.TrySetResult(1); w?.Close(); };
+        w = Window(title, message, null, first, cancel, r => tcs.TrySetResult(r ? 0 : -1), extra);
+        w.Show();
+        w.Activate();
+        return tcs.Task;
+    }
+
+    static Window Window(string title, string message, Control? input, string okText, string cancelText, Action<bool> done, Button? extra = null)
     {
         var w = new Window
         {
@@ -103,6 +116,7 @@ public static class PromptDialog
         top.Children.Add(texts);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) };
         buttons.Children.Add(cancel);
+        if (extra != null) buttons.Children.Add(extra);
         buttons.Children.Add(ok);
         w.Content = new StackPanel { Margin = new Thickness(22), Children = { top, buttons } };
         return w;

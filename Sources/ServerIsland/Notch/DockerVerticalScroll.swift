@@ -24,20 +24,32 @@ struct DockerVerticalScroll<Content: View>: View {
     }
 }
 
-private struct DockerVerticalScrollProbe: NSViewRepresentable {
+struct DockerVerticalScrollProbe: NSViewRepresentable {
     func makeNSView(context: Context) -> Marker { Marker() }
     func updateNSView(_ view: Marker, context: Context) { view.schedule() }
 
     final class Marker: NSView {
         private var pending = false
         override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); schedule() }
-        func schedule() {
+        override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); schedule() }
+        override func layout() { super.layout(); schedule() }
+
+        // 首次 update 可能早于 SwiftUI 挂入 NSScrollView；不能把一次未找到祖先当成登记完成。
+        // 后续布局也再次确认方向，覆盖 SwiftUI 初始布局稍晚恢复横轴控件的情况。
+        func schedule(attempt: Int = 0) {
             guard !pending else { return }
             pending = true
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.pending = false
-                guard self.window is IslandPanel, let scroll = self.enclosingScrollView else { return }
+                guard self.window is IslandPanel, let scroll = self.enclosingScrollView else {
+                    if attempt < 6 {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.016) { [weak self] in
+                            self?.schedule(attempt: attempt + 1)
+                        }
+                    }
+                    return
+                }
                 IslandScrollbars.markVerticalOnly(scroll)
             }
         }

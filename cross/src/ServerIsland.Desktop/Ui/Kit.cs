@@ -232,16 +232,17 @@ public static class Kit
     }
 
     /// 小号圆形图标按钮（刷新 / 设置）。
-    public static Clickable IconButton(string icon, string help, Action action, bool active = false, bool spinning = false)
+    public static Clickable IconButton(string icon, string help, Action action, bool active = false, bool spinning = false, Color? activeTint = null)
     {
-        var ic = new Icon(icon, 12, (active ? Hue.Mint : Hue.Secondary).B(), 2.5);
+        var tint = activeTint ?? Hue.Mint;
+        var ic = new Icon(icon, 12, (active ? tint : Hue.Secondary).B(), 2.5);
         Control inner = spinning ? new Spinning(ic) : ic;
         var b = new Clickable(action)
         {
             Width = 24, Height = 24,
             CornerRadius = new CornerRadius(12),
-            Normal = active ? Hue.Mint.WithAlpha(0.18) : Hue.W(0.07),
-            Hover = active ? Hue.Mint.WithAlpha(0.26) : Hue.W(0.14),
+            Normal = active ? tint.WithAlpha(0.18) : Hue.W(0.07),
+            Hover = active ? tint.WithAlpha(0.26) : Hue.W(0.14),
             Child = inner,
         };
         b.HoverChanged = h => { if (!active) ic.Brush = (h ? Hue.Text : Hue.Secondary).B(); ic.InvalidateVisual(); };

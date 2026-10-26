@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.4.0 — 2026-10-21
+
+- **Star jobs**: click the ☆ next to a job's name (it appears on hover), use the right-click menu, or the star on its details page. Starred jobs stay at the top, survive restarts, and are unstarred automatically when they end. Job arrays are starred as a whole.
+- **All jobs across servers**: a new list button in the island header opens every server's jobs on one page — search by name, ID, folder or server, filter by status, server or starred only. Back from a job's details returns to the same filtered list.
+- **Finer alerts** (Settings → General → Alerts): alert for all jobs (default) or starred jobs only, and turn Started / Finished / Failed / Unknown alerts on or off separately. Muted servers still stay silent; disk alerts and watched processes are not affected by the starred-only setting.
+- **Quiet hours** (Settings → General → Alerts, off by default): no sounds or island pop-ups during the hours you pick; system notifications still arrive silently
+- **Import / export settings** (Settings → General → Files & Diagnostics): move all your servers and settings to another computer, including between the Mac and Windows / Linux versions. Replacing backs up your current settings first; passwords are never included.
+- **TorchNEP and MACE** progress and loss curves; NEP reads the new GPUMD `loss.out` header lines and charge / dipole column layouts, and its curve no longer folds back when a training run is resumed
+- **Safer self-updates on Windows / Linux**: a failed swap restores every file, and only the files the update renamed are cleaned up afterwards
+
 ## v0.3.0 — 2026-10-19
 
 - **One-click updates**: "Update to v…" downloads the new version, checks its SHA-256 against GitHub, replaces the app and reopens it (macOS, Windows and Linux). Updating from v0.2.0 or earlier still has to be done by hand once.

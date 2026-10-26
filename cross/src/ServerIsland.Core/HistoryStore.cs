@@ -18,6 +18,8 @@ public sealed class HistoryStore
         public string? Dir { get; set; }
         public double? Elapsed { get; set; }
         public DateTime SeenAt { get; set; }
+        /// 数组已知的元素总数，用于重启后检查 sacct 是否返回了完整结果；旧记录没有这个字段。
+        public int? ArrayTotal { get; set; }
     }
 
     public static readonly TimeSpan Retention = TimeSpan.FromDays(7);
@@ -98,12 +100,14 @@ public sealed class HistoryStore
     {
         var now = DateTime.Now;
         var list = jobs.Where(j => j.State.IsActive() && j.Source != JobSource.ProgressFile)
-            .Select(j => new ActiveJob { Id = j.Id, Name = j.Name, Slurm = j.Source == JobSource.Slurm, Dir = j.Workdir ?? j.App?.Dir, Elapsed = j.Elapsed, SeenAt = now })
+            .Select(j => new ActiveJob { Id = j.Id, Name = j.Name, Slurm = j.Source == JobSource.Slurm, Dir = j.Workdir ?? j.App?.Dir,
+                                         Elapsed = j.Elapsed, SeenAt = now, ArrayTotal = j.Array?.Total })
             .ToList();
         lock (_lock)
         {
             var old = _active.GetValueOrDefault(host) ?? [];
-            bool changed = !old.Select(a => $"{a.Id}|{a.Dir}").SequenceEqual(list.Select(a => $"{a.Id}|{a.Dir}"));
+            bool changed = !old.Select(a => $"{a.Id}|{a.Dir}|{a.ArrayTotal ?? 0}")
+                .SequenceEqual(list.Select(a => $"{a.Id}|{a.Dir}|{a.ArrayTotal ?? 0}"));
             // 列表没变时也隔 10 分钟更新一次时间，"大约什么时候结束"不会差太多
             if (!changed && !(old.Count > 0 && (now - old[0].SeenAt).TotalSeconds > 600)) return;
             _active[host] = list;

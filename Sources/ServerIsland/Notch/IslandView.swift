@@ -12,6 +12,42 @@ final class IslandViewModel: ObservableObject {
     var onUnpin: () -> Void = {}
     /// 打开详情时的任务快照（任务结束后仍能看到详情）。
     var pinnedJob: RemoteJob?
+    /// 全部任务页的筛选条件（打开详情再返回时保留）。
+    @Published var jobsFilter = JobsFilter()
+    /// 详情页"返回"回到哪里（从全部任务页打开时回到那里）。
+    var returnPage: IslandPage?
+
+    /// 打开全部任务页：从卡片进来时只看那台服务器，从头部进来时看全部。
+    func openAllJobs(host: UUID? = nil) {
+        jobsFilter = JobsFilter(host: host)
+        page = .jobs
+    }
+    @Published private(set) var contentRetainedUntil: Date?
+
+    /// 仅收起外观，短时保留视图身份，详情页标签、筛选和滚动位置不被销毁。
+    func retainCollapsedContent(seconds: Int, now: Date = Date()) {
+        pinned = false
+        if page != .list, seconds > 0 { contentRetainedUntil = now.addingTimeInterval(Double(seconds)) }
+        else { resetVisibleContent() }
+    }
+
+    func expireRetainedContent(now: Date = Date()) {
+        if let deadline = contentRetainedUntil, now >= deadline { resetVisibleContent() }
+    }
+
+    func resumeRetainedContent(now: Date = Date()) {
+        expireRetainedContent(now: now)
+        contentRetainedUntil = nil
+    }
+
+    func resetVisibleContent() {
+        contentRetainedUntil = nil
+        page = .list
+        pinnedJob = nil
+        returnPage = nil
+        showIdle = false
+    }
+
     var openSettings: () -> Void = {}
 
     func contentHeight(_ hosts: [(HostConfig, HostSnapshot)], fold: Bool) -> CGFloat {
@@ -33,6 +69,7 @@ struct IslandRootView: View {
         let hosts = engine.orderedHosts
         let contentHeight = vm.contentHeight(hosts, fold: store.settings.foldIdleHosts)
         let spec = IslandLayout.spec(mode: mode, geometry: vm.geometry, contentHeight: contentHeight)
+        let expandedSpec = IslandLayout.spec(mode: .expanded, geometry: vm.geometry, contentHeight: contentHeight)
         let shape = NotchShape(topRadius: spec.topRadius, bottomRadius: spec.bottomRadius)
 
         ZStack(alignment: .top) {
@@ -62,8 +99,16 @@ struct IslandRootView: View {
                                                     removal: .opacity.animation(.easeIn(duration: 0.12))))
                     }
                 case .expanded:
-                    ExpandedContent(engine: engine, vm: vm, store: store, hosts: hosts, scrolls: spec.scrolls,
+                    EmptyView()
+                }
+                if mode == .expanded || vm.contentRetainedUntil != nil {
+                    ExpandedContent(engine: engine, vm: vm, store: store, hosts: hosts, scrolls: expandedSpec.scrolls,
                                     contentHeight: min(contentHeight, IslandLayout.maxContentHeight))
+                        .frame(width: expandedSpec.size.width - 2 * expandedSpec.topRadius, height: expandedSpec.size.height, alignment: .top)
+                        .environment(\.islandContentActive, mode == .expanded)
+                        .opacity(mode == .expanded ? 1 : 0)
+                        .allowsHitTesting(mode == .expanded)
+                        .accessibilityHidden(mode != .expanded)
                         .transition(.asymmetric(
                             insertion: .opacity.combined(with: .scale(scale: 0.96, anchor: .top))
                                 .animation(.easeOut(duration: 0.28).delay(0.1)),
@@ -304,11 +349,12 @@ struct ExpandedContent: View {
                  onRefresh: { engine.refresh(host.id) },
                  onOpenJob: { job in
                      vm.pinnedJob = job
+                     vm.returnPage = nil
                      vm.page = .job(host: host.id, job: job.id)
                  },
                  onHistory: { vm.page = .history(host: host.id) },
                  onPicker: { vm.page = .picker(host: host.id) },
-                 onAllJobs: { vm.page = .jobs(host: host.id) },
+                 onAllJobs: { vm.openAllJobs(host: host.id) },
                  onPartitions: { vm.page = .partitions(host: host.id) },
                  onSwitchToDirect: { engine.setKind(host.id, .direct) },
                  onTogglePause: { engine.setPaused(host.id, !host.paused) },
@@ -317,14 +363,16 @@ struct ExpandedContent: View {
                  globalAuto: store.settings.autoRefresh,
                  onToggleMute: { engine.toggleMute(host.id) },
                  loggingIn: engine.loggingIn.contains(host.id),
+                 starred: Set(store.settings.starredJobs.filter { $0.hostID == host.id }.map(\.jobID)),
+                 onStar: { engine.toggleStar(hostID: host.id, job: $0) },
                  onRunAction: { engine.runHostAction(host: host, action: $0) },
                  actionIsRunning: { engine.actionIsRunning(host: host, action: $0) },
                  onDocker: { vm.page = .docker(host: host.id, container: $0) },
                  onDockerMode: { engine.setDockerView(host: host.id, mode: $0) },
                  onDockerSort: { engine.setDockerView(host: host.id, sort: $0) })
-            .task(id: host.showDocker) {
+            .task(id: "\(host.showDocker)|\(vm.hovering)") {
                 // 卡片显示即快读一次；收起首页或进入其它页面时由 SwiftUI 取消，不触发主机全量刷新。
-                guard host.enabled, host.showDocker else { return }
+                guard vm.hovering, host.enabled, host.showDocker else { return }
                 await engine.monitorDockerList(host: host, interval: 3) { _ in }
             }
     }
@@ -332,6 +380,12 @@ struct ExpandedContent: View {
     @ViewBuilder
     private var page: some View {
         let back = { withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { vm.page = .list } }
+        let backFromJob = {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                vm.page = vm.returnPage ?? .list
+                vm.returnPage = nil
+            }
+        }
         switch vm.page {
         case .job(let hid, let jid):
             if let host = engine.displayHost(hid) {
@@ -341,7 +395,7 @@ struct ExpandedContent: View {
                     ?? snap?.jobs.compactMap(\.array).flatMap(\.running).first { $0.id == jid }
                 if let job = live ?? vm.pinnedJob {
                     JobDetailPage(host: host, job: job, sampledAt: snap?.lastUpdate, stillListed: live != nil,
-                                  engine: engine, onBack: back, openSettings: vm.openSettings,
+                                  engine: engine, onBack: backFromJob, openSettings: vm.openSettings,
                                   onOpenElement: { e in
                                       vm.pinnedJob = e
                                       vm.page = .job(host: hid, job: e.id)
@@ -359,12 +413,11 @@ struct ExpandedContent: View {
             if let host = store.host(hid) {
                 DockerPage(host: host, engine: engine, onBack: back, selectedID: cid).id(hid)
             }
-        case .jobs(let hid):
-            if let host = store.host(hid) {
-                AllJobsPage(host: host, engine: engine, onBack: back) { job in
-                    vm.pinnedJob = job
-                    vm.page = .job(host: hid, job: job.id)
-                }
+        case .jobs:
+            AllJobsPage(engine: engine, store: store, filter: $vm.jobsFilter, onBack: back) { host, job in
+                vm.pinnedJob = job
+                vm.returnPage = .jobs
+                vm.page = .job(host: host.id, job: job.id)
             }
         case .list:
             EmptyView()
@@ -385,6 +438,11 @@ struct ExpandedContent: View {
                 summaryChip(icon: "bolt.fill", value: engine.totalRunning, color: Theme.mint, help: L("运行中", "Running"))
                     .padding(.leading, 4)
                 summaryChip(icon: "hourglass", value: engine.totalPending, color: Theme.amber, help: L("排队中", "Pending"))
+                if store.settings.isQuiet() {
+                    Image(systemName: "moon.fill").font(.system(size: 9.5, weight: .semibold))
+                        .foregroundStyle(Theme.tertiary)
+                        .help(L("勿扰时段（\(store.settings.quietLabel)）：不响铃、不弹窗", "Quiet hours (\(store.settings.quietLabel)): no sounds or pop-ups"))
+                }
                 if engine.demo {
                     Text(L("演示", "Demo"))
                         .font(Theme.rounded(9, .bold))
@@ -400,6 +458,10 @@ struct ExpandedContent: View {
 
             HStack(spacing: 8) {
                 GlobalPollMenu(store: store, engine: engine)
+                IslandIconButton(systemName: "list.bullet.rectangle", help: L("全部任务：所有服务器的任务，可搜索、筛选", "All jobs across servers: search and filter"),
+                                 active: vm.page == .jobs) {
+                    if vm.page == .jobs { vm.page = .list } else { vm.openAllJobs() }
+                }
                 IslandIconButton(systemName: vm.pinned ? "pin.fill" : "pin", help: vm.pinned ? L("取消固定", "Unpin") : L("固定面板（鼠标移开也不收起）", "Pin (stay open when the mouse leaves)"),
                                  active: vm.pinned) {
                     vm.pinned.toggle()

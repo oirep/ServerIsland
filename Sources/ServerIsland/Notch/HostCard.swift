@@ -18,6 +18,9 @@ struct HostCard: View {
     var globalAuto = true
     var onToggleMute: () -> Void = {}
     var loggingIn = false
+    /// 关注的任务号（这台服务器上的）。关注的任务排在前面。
+    var starred: Set<String> = []
+    var onStar: (RemoteJob) -> Void = { _ in }
     var onRunAction: (HostAction) -> Void = { _ in }
     var actionIsRunning: (HostAction) -> Bool = { _ in false }
     var onDocker: (String?) -> Void = { _ in }
@@ -101,8 +104,9 @@ struct HostCard: View {
             if p.jobRows > 0 {
                 gap
                 VStack(spacing: IslandLayout.jobGap) {
-                    ForEach(IslandLayout.visibleJobs(snap).prefix(IslandLayout.maxJobs)) { job in
-                        JobRowButton(job: job, kind: host.kind, now: now, sampledAt: host.paused ? nil : snap.lastUpdate) { onOpenJob(job) }
+                    ForEach(MonitorEngine.starredFirst(IslandLayout.visibleJobs(snap)) { starred.contains($0.id) }.prefix(IslandLayout.maxJobs)) { job in
+                        JobRowButton(job: job, kind: host.kind, now: now, sampledAt: host.paused ? nil : snap.lastUpdate,
+                                     starred: starred.contains(job.id), onStar: { onStar(job) }) { onOpenJob(job) }
                             .frame(height: IslandLayout.jobRow)
                             .opacity(host.paused ? 0.45 : 1)
                     }
@@ -353,6 +357,10 @@ struct JobRow: View {
     var kind: HostKind
     var now: Date
     var sampledAt: Date?
+    var starred = false
+    /// 鼠标在行上：显示空心星，点一下关注。
+    var hovering = false
+    var onStar: (() -> Void)?
 
     /// 运行中的任务在两次采样之间本地继续计时，看起来是"活"的。
     private var liveElapsed: TimeInterval? {
@@ -391,6 +399,11 @@ struct JobRow: View {
                             .font(Theme.mono(9.5))
                             .foregroundStyle(Theme.tertiary)
                             .lineLimit(1)
+                    }
+                    if let onStar, starred || hovering {
+                        StarToggle(on: starred, action: onStar)
+                    } else if starred {
+                        StarMark()
                     }
                     Spacer(minLength: 6)
                     Text(rightText)
@@ -510,43 +523,79 @@ struct JobRow: View {
 }
 
 /// 可点击的任务行：悬停高亮，点击查看详情。
+/// 关注按钮（星）是行里单独的按钮：整行用点击手势打开详情，星自己的点击优先，不会同时打开详情。
 struct JobRowButton: View {
     var job: RemoteJob
     var kind: HostKind
     var now: Date
     var sampledAt: Date?
+    var starred = false
+    /// nil：不能关注（数组里的单个元素）。
+    var onStar: (() -> Void)?
+    var action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        JobRow(job: job, kind: kind, now: now, sampledAt: sampledAt, starred: starred, hovering: hovering, onStar: onStar)
+            .padding(.horizontal, 6)
+            .frame(maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color.white.opacity(hovering ? 0.07 : 0)))
+            .overlay(alignment: .trailing) {
+                if hovering {
+                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Theme.tertiary).padding(.trailing, -4)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture(perform: action)
+            .padding(.horizontal, -6)
+            .onHover { hovering = $0 }
+            .islandHelp(onStar == nil ? L("点击查看详情和日志 · 右键复制", "Click for details & log · right-click to copy")
+                                : L("点击查看详情和日志 · ☆ 关注 · 右键复制", "Click for details & log · ☆ to star · right-click to copy"))
+            .contextMenu {
+                Button(L("查看详情和日志", "Details & Log"), action: action)
+                if let onStar {
+                    Button(starred ? L("取消关注", "Unstar") : L("关注", "Star"), action: onStar)
+                }
+                Divider()
+                if job.source != .progressFile {
+                    Button(job.source == .process ? L("复制 PID", "Copy PID") : L("复制作业号", "Copy Job ID")) { copy(job.id) }
+                }
+                Button(L("复制名称", "Copy Name")) { copy(job.name) }
+                if job.source == .process, !job.detail.isEmpty {
+                    Button(L("复制完整命令", "Copy Full Command")) { copy(job.detail) }
+                }
+            }
+    }
+}
+
+/// 任务行上的关注开关：实心琥珀色星 = 已关注；悬停在行上时显示空心星。
+struct StarToggle: View {
+    var on: Bool
     var action: () -> Void
     @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
-            JobRow(job: job, kind: kind, now: now, sampledAt: sampledAt)
-                .padding(.horizontal, 6)
-                .frame(maxHeight: .infinity)
-                .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(Color.white.opacity(hovering ? 0.07 : 0)))
-                .overlay(alignment: .trailing) {
-                    if hovering {
-                        Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(Theme.tertiary).padding(.trailing, -4)
-                    }
-                }
-                .contentShape(Rectangle())
+            Image(systemName: on ? "star.fill" : "star")
+                .font(.system(size: 9.5, weight: .semibold))
+                .foregroundStyle(on || hovering ? Theme.amber : Theme.tertiary)
+                .frame(width: 16, height: 16)
+                .background(Circle().fill(Color.white.opacity(hovering ? 0.12 : 0)))
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, -6)
         .onHover { hovering = $0 }
-        .islandHelp(L("点击查看详情和日志 · 右键复制", "Click for details & log · right-click to copy"))
-        .contextMenu {
-            Button(L("查看详情和日志", "Details & Log"), action: action)
-            if job.source != .progressFile {
-                Button(job.source == .process ? L("复制 PID", "Copy PID") : L("复制作业号", "Copy Job ID")) { copy(job.id) }
-            }
-            Button(L("复制名称", "Copy Name")) { copy(job.name) }
-            if job.source == .process, !job.detail.isEmpty {
-                Button(L("复制完整命令", "Copy Full Command")) { copy(job.detail) }
-            }
-        }
+        .islandHelp(on ? L("取消关注", "Unstar") : L("关注：排在前面，可以只提醒关注的任务", "Star: keep it on top; alerts can be limited to starred jobs"))
+    }
+}
+
+/// 只读的关注标记（不能点的地方，例如预览）。
+struct StarMark: View {
+    var body: some View {
+        Image(systemName: "star.fill").font(.system(size: 9.5, weight: .semibold)).foregroundStyle(Theme.amber)
+            .frame(width: 16, height: 16)
     }
 }
 

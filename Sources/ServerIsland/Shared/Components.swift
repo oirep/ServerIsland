@@ -202,6 +202,7 @@ struct IslandIconButton: View {
     var help: String
     var spinning = false
     var active = false
+    var activeTint = Theme.mint
     var action: () -> Void
     @State private var hovering = false
 
@@ -209,11 +210,11 @@ struct IslandIconButton: View {
         Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(active ? Theme.mint : (hovering ? Theme.text : Theme.secondary))
+                .foregroundStyle(active ? activeTint : (hovering ? Theme.text : Theme.secondary))
                 .rotationEffect(.degrees(spinning ? 360 : 0))
                 .animation(spinning ? .linear(duration: 0.9).repeatForever(autoreverses: false) : .default, value: spinning)
                 .frame(width: 24, height: 24)
-                .background(Circle().fill(active ? Theme.mint.opacity(0.18) : Color.white.opacity(hovering ? 0.14 : 0.07)))
+                .background(Circle().fill(active ? activeTint.opacity(0.18) : Color.white.opacity(hovering ? 0.14 : 0.07)))
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }

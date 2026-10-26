@@ -36,12 +36,17 @@ public sealed partial class MonitorEngine
                 || old != record.Job.State) && !record.Job.State.IsActive())
             {
                 var host = hosts.FirstOrDefault(h => h.Id == id) ?? LocalTaskStore.LocalHost;
-                if (!host.Muted) Emit(new IslandEvent(
+                var evt = new IslandEvent(
                     record.Job.State == JobState.Completed ? EventKind.Finished
-                        : record.Job.State == JobState.Failed ? EventKind.Failed : EventKind.Warning,
+                        : record.Job.State == JobState.Failed ? EventKind.Failed : EventKind.Info,
                     record.Job.Name + " · " + record.Job.State.Label(),
-                    record.Job.Message ?? "", host.DisplayName, id));
+                    record.Job.Message ?? "", host.DisplayName, id, record.Job.Id);
+                // Local deployment alerts use the same scope/event filters as remote jobs.
+                if (!host.Muted) foreach (var allowed in Alertable([evt], Store.Settings)) Emit(allowed);
             }
+            // Filter the final alert before removing the completed task's star.
+            if (!record.Job.State.IsActive())
+                Store.Settings.StarredJobs.RemoveAll(s => s.HostID == id && s.JobID == record.Job.Id);
             _localTaskStates[record.Job.Id] = record.Job.State;
         }
         foreach (var id in _localJobs.Keys.Union(grouped.Keys).ToList())

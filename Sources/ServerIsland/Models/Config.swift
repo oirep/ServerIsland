@@ -285,6 +285,8 @@ struct AppSettings: Codable, Equatable {
     var autoRefresh = true
     /// 隐藏菜单栏入口后仍可通过再次启动应用进入设置。
     var showMenuBarIcon = true
+    /// 收起后保留可视内容的秒数，0 为立即回首页。
+    var collapsedContentStaySeconds = 0
     var collapsedStyle: CollapsedStyle = .always
     /// 展开面板里把空闲的机器合并成一行（全部空闲时照常显示卡片）。
     var foldIdleHosts = true
@@ -310,6 +312,19 @@ struct AppSettings: Codable, Equatable {
     var autoCheckUpdates = true
     /// 灵动岛显示在哪块屏幕：""=自动（有刘海的屏幕 → 内建屏幕 → 主屏幕），"primary"=主屏幕，其它=屏幕名称。
     var islandScreen = ""
+    /// 关注的任务（跨服务器）。任务从完整的列表里消失后自动移除。
+    var starredJobs: [StarredJob] = []
+    /// 任务提醒的范围：全部任务 / 只提醒关注的任务。磁盘等服务器级提醒不受影响。
+    var alertScope: AlertScope = .all
+    /// 分别控制四类任务提醒。
+    var alertStarted = true
+    var alertFinished = true
+    var alertFailed = true
+    var alertUnknown = true
+    /// 勿扰时段：这段时间里不响铃、不在刘海弹窗，系统通知照发但不出声（默认关）。时间是一天里的分钟数，起点晚于终点表示跨午夜。
+    var quietHours = false
+    var quietStart = 23 * 60
+    var quietEnd = 8 * 60
 
     init() {}
 
@@ -319,6 +334,7 @@ struct AppSettings: Codable, Equatable {
         defaultInterval = try c.decodeIfPresent(Int.self, forKey: .defaultInterval) ?? 60
         autoRefresh = try c.decodeIfPresent(Bool.self, forKey: .autoRefresh) ?? true
         showMenuBarIcon = try c.decodeIfPresent(Bool.self, forKey: .showMenuBarIcon) ?? true
+        collapsedContentStaySeconds = max(0, try c.decodeIfPresent(Int.self, forKey: .collapsedContentStaySeconds) ?? 0)
         collapsedStyle = try c.decodeIfPresent(CollapsedStyle.self, forKey: .collapsedStyle) ?? .always
         foldIdleHosts = try c.decodeIfPresent(Bool.self, forKey: .foldIdleHosts) ?? true
         islandAlerts = try c.decodeIfPresent(Bool.self, forKey: .islandAlerts) ?? true
@@ -333,6 +349,79 @@ struct AppSettings: Codable, Equatable {
         progressFileStaySeconds = max(0, try c.decodeIfPresent(Int.self, forKey: .progressFileStaySeconds) ?? 0)
         autoCheckUpdates = try c.decodeIfPresent(Bool.self, forKey: .autoCheckUpdates) ?? true
         islandScreen = try c.decodeIfPresent(String.self, forKey: .islandScreen) ?? ""
+        starredJobs = try c.decodeIfPresent([StarredJob].self, forKey: .starredJobs) ?? []
+        alertScope = try c.decodeIfPresent(AlertScope.self, forKey: .alertScope) ?? .all
+        alertStarted = try c.decodeIfPresent(Bool.self, forKey: .alertStarted) ?? true
+        alertFinished = try c.decodeIfPresent(Bool.self, forKey: .alertFinished) ?? true
+        alertFailed = try c.decodeIfPresent(Bool.self, forKey: .alertFailed) ?? true
+        alertUnknown = try c.decodeIfPresent(Bool.self, forKey: .alertUnknown) ?? true
+        quietHours = try c.decodeIfPresent(Bool.self, forKey: .quietHours) ?? false
+        quietStart = try c.decodeIfPresent(Int.self, forKey: .quietStart) ?? 23 * 60
+        quietEnd = try c.decodeIfPresent(Int.self, forKey: .quietEnd) ?? 8 * 60
+    }
+
+    /// 现在是否在勿扰时段里。起点等于终点时不算勿扰。
+    func isQuiet(at date: Date = Date(), calendar: Calendar = .current) -> Bool {
+        guard quietHours, quietStart != quietEnd else { return false }
+        let c = calendar.dateComponents([.hour, .minute], from: date)
+        let m = (c.hour ?? 0) * 60 + (c.minute ?? 0)
+        return quietStart < quietEnd ? (m >= quietStart && m < quietEnd) : (m >= quietStart || m < quietEnd)
+    }
+
+    /// 勿扰时段的文字，例如 23:00–08:00。
+    var quietLabel: String { Self.clock(quietStart) + "–" + Self.clock(quietEnd) }
+    static func clock(_ minutes: Int) -> String { String(format: "%02d:%02d", minutes / 60 % 24, minutes % 60) }
+
+    func isStarred(_ hostID: UUID, _ jobID: String) -> Bool {
+        starredJobs.contains { $0.hostID == hostID && $0.jobID == jobID }
+    }
+
+    /// 这条提醒要不要发：服务器级提醒（没有任务号，如磁盘）总是发；任务提醒看种类开关和关注范围。
+    /// 静音在 emit 里判断，优先于这里。
+    func allowsAlert(_ e: IslandEvent) -> Bool {
+        guard let job = e.jobID, let host = e.hostID else { return true }
+        switch e.kind {
+        case .started: if !alertStarted { return false }
+        case .finished: if !alertFinished { return false }
+        case .failed: if !alertFailed { return false }
+        case .info: if !alertUnknown { return false }
+        case .warning: break
+        }
+        return alertScope == .all || isStarred(host, job)
+    }
+}
+
+/// 一个关注的任务。数组作业关注的是整个数组（主编号）。
+struct StarredJob: Codable, Equatable {
+    var hostID: UUID
+    var jobID: String
+    /// 关注时的名称（只用于日志和排查）。
+    var name = ""
+    var since = Date()
+
+    init(hostID: UUID, jobID: String, name: String = "", since: Date = Date()) {
+        self.hostID = hostID; self.jobID = jobID; self.name = name; self.since = since
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        hostID = try c.decode(UUID.self, forKey: .hostID)
+        jobID = try c.decode(String.self, forKey: .jobID)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        since = try c.decodeIfPresent(Date.self, forKey: .since) ?? Date()
+    }
+}
+
+enum AlertScope: String, Codable, CaseIterable, Identifiable {
+    case all
+    case starred
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .all: return L("全部任务", "All Jobs")
+        case .starred: return L("只提醒关注的任务", "Starred Jobs Only")
+        }
     }
 }
 
@@ -360,19 +449,46 @@ final class ConfigStore: ObservableObject {
 
     private var saveWork: DispatchWorkItem?
     let persist: Bool
+    /// 配置文件读不出来时的说明（启动后在刘海里提醒一次）；首次启动没有文件时为 nil。
+    private(set) var loadProblem: String?
+    /// 读取失败、原文件又没能备份时不再保存，免得默认设置把它覆盖掉。
+    private var saveBlocked = false
 
     init(persist: Bool = true) {
         self.persist = persist
-        if persist,
-           let data = try? Data(contentsOf: Self.fileURL),
-           let decoded = try? JSONDecoder().decode(AppSettings.self, from: data) {
-            settings = decoded
+        if persist {
+            let r = Self.load(from: Self.fileURL)
+            settings = r.settings ?? AppSettings()
+            loadProblem = r.problem
+            saveBlocked = r.blockSave
         } else {
             settings = AppSettings()
         }
         Lang.setting = settings.language
         ProgressRule.active = settings.progressRules
         SSHHosts.update(settings.hosts, write: persist)
+    }
+
+    /// 读配置文件。没有文件（首次启动）返回 nil、没有问题；读不出来时先把原文件复制成 `config.broken-<时间>.json`，
+    /// 再返回原因（之后改设置会覆盖 config.json，备份不动）。复制也失败时 blockSave 为 true。
+    nonisolated static func load(from url: URL) -> (settings: AppSettings?, problem: String?, blockSave: Bool) {
+        guard FileManager.default.fileExists(atPath: url.path) else { return (nil, nil, false) }
+        do {
+            return (try JSONDecoder().decode(AppSettings.self, from: Data(contentsOf: url)), nil, false)
+        } catch {
+            let stamp = DateFormatter()
+            stamp.dateFormat = "yyyyMMdd-HHmmss"
+            let backup = url.deletingLastPathComponent().appendingPathComponent("config.broken-\(stamp.string(from: Date())).json")
+            NSLog("ServerIsland: failed to read config: \(error)")
+            do {
+                try FileManager.default.copyItem(at: url, to: backup)
+                return (nil, L("设置文件读取失败，已改用默认设置；原文件备份为 \(backup.lastPathComponent)",
+                               "Couldn't read the settings file; using defaults. The original was saved as \(backup.lastPathComponent)"), false)
+            } catch {
+                return (nil, L("设置文件读取失败，也没能备份；这次改动不会保存，原文件留在 \(url.path)",
+                               "Couldn't read or back up the settings file; changes won't be saved. The original is at \(url.path)"), true)
+            }
+        }
     }
 
     func host(_ id: UUID) -> HostConfig? {
@@ -392,7 +508,7 @@ final class ConfigStore: ObservableObject {
     }
 
     func saveNow() {
-        guard persist else { return }
+        guard persist, !saveBlocked else { return }
         do {
             try FileManager.default.createDirectory(at: Self.directory, withIntermediateDirectories: true)
             let encoder = JSONEncoder()
