@@ -402,6 +402,18 @@ struct GeneralSettingsView: View {
                 Picker(L("收起时", "When Collapsed"), selection: $store.settings.collapsedStyle) {
                     ForEach(CollapsedStyle.allCases) { Text($0.label).tag($0) }
                 }
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker(L("收起后保留可视内容时长", "Keep Content After Collapse"), selection: $store.settings.collapsedContentStaySeconds) {
+                        Text(L("立即", "Immediately")).tag(0)
+                        ForEach([3, 5, 10, 30], id: \.self) { seconds in
+                            Text(L("\(seconds) 秒", "\(seconds) seconds")).tag(seconds)
+                        }
+                    }
+                    Text(store.settings.collapsedContentStaySeconds == 0
+                         ? L("刘海收起后立即将重置为首页", "The island resets to Home immediately after collapsing.")
+                         : L("刘海收起后 \(store.settings.collapsedContentStaySeconds) 秒将重置为首页", "The island resets to Home \(store.settings.collapsedContentStaySeconds) seconds after collapsing."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Picker(selection: $store.settings.islandScreen) {
                     ForEach(screenChoices, id: \.value) { Text($0.label).tag($0.value) }
                 } label: {

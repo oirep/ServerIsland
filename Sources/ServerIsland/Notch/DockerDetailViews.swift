@@ -30,6 +30,7 @@ struct DockerDetailTabs: View, Equatable {
 
 /// 指标两列排布，资源条与百分比在同一行；图表和日志各自按需显示。
 struct DockerContainerDetail: View {
+    @Environment(\.islandContentActive) private var contentActive
     var host: HostConfig
     var container: DockerContainer
     @ObservedObject var engine: MonitorEngine
@@ -64,7 +65,8 @@ struct DockerContainerDetail: View {
                 }
             }
         }
-        .task(id: host.id.uuidString + "|" + container.id) {
+        .task(id: host.id.uuidString + "|" + container.id + "|\(contentActive)") {
+            guard contentActive else { return }
             await engine.monitorDockerDetail(host: host, container: container.id) { result in
                 liveError = result.message
             }
@@ -157,6 +159,7 @@ struct DockerMetricCell: View {
 
 /// 日志仅驻留在当前页面内存；切换容器或离开页签后取消自动刷新。
 struct DockerLogView: View {
+    @Environment(\.islandContentActive) private var contentActive
     var host: HostConfig
     var containerID: String
     @ObservedObject var engine: MonitorEngine
@@ -177,7 +180,7 @@ struct DockerLogView: View {
     @State private var activeRequest = UUID()
     @State private var terminalError: String?
 
-    private var requestKey: String { "\(containerID)|\(follow)|\(tail)|\(reload)" }
+    private var requestKey: String { "\(containerID)|\(follow)|\(tail)|\(reload)|\(contentActive)" }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -223,6 +226,7 @@ struct DockerLogView: View {
             refreshMatches(reset: true, jump: true)
         }
         .task(id: requestKey) {
+            guard contentActive else { return }
             let token = UUID()
             activeRequest = token
             let requestIdentity = requestKey

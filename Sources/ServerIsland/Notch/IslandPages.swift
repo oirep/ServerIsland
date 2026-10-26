@@ -118,6 +118,7 @@ struct SmallIconButton: View {
 // MARK: - 任务详情
 
 struct JobDetailPage: View {
+    @Environment(\.islandContentActive) private var contentActive
     var host: HostConfig
     var job: RemoteJob
     var sampledAt: Date?
@@ -190,8 +191,8 @@ struct JobDetailPage: View {
             if let previewStage { stage = previewStage }
             if !preloadedCurves.isEmpty { curves = preloadedCurves }
         }
-        .task(id: job.id) {
-            guard preloaded == nil, job.array == nil else { return }
+        .task(id: "\(job.id)|\(contentActive)") {
+            guard contentActive, preloaded == nil, job.array == nil else { return }
             // 打开期间每 4 秒刷新一次日志末尾；曲线（增量）每 20 秒一次。离开页面自动停止。
             var tick = 0
             while !Task.isCancelled {

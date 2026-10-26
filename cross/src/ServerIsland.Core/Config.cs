@@ -245,6 +245,8 @@ public sealed class AppSettings
     public bool AutoRefresh { get; set; } = true;
     // Preserve the macOS menu bar preference when sharing configuration.
     public bool ShowMenuBarIcon { get; set; } = true;
+    // Preserve the macOS collapsed-content preference across configuration transfers.
+    public int CollapsedContentStaySeconds { get; set; }
     public CollapsedStyle CollapsedStyle { get; set; } = CollapsedStyle.Always;
     /// 展开面板里把空闲的机器合并成一行（全部空闲时照常显示卡片）。
     public bool FoldIdleHosts { get; set; } = true;

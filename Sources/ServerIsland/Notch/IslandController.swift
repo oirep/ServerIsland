@@ -29,6 +29,7 @@ final class IslandController {
     private var observers: [NSObjectProtocol] = []
     private var expandWork: DispatchWorkItem?
     private var collapseWork: DispatchWorkItem?
+    private var retainedContentReset: DispatchWorkItem?
     private var cancellables: Set<AnyCancellable> = []
     private var menuTracking = false
     private let hitTestCache = IslandHitTestCache()
@@ -178,10 +179,35 @@ final class IslandController {
         collapseWork?.cancel(); collapseWork = nil
         expandWork?.cancel(); expandWork = nil
         guard vm.hovering != on else { return }
+        retainedContentReset?.cancel(); retainedContentReset = nil
+        let restoringPage = on && vm.page != .list
+        if restoringPage { vm.expireRetainedContent() }
         vm.hovering = on
-        if !on { vm.page = .list; vm.pinned = false; vm.showIdle = false }
+        if on {
+            if restoringPage { vm.resumeRetainedContent() }
+        } else {
+            if vm.page == .list {
+                // 首页不需要恢复路径：直接释放内容，不读取保留时长或创建计时任务。
+                vm.resetVisibleContent()
+            } else {
+                let seconds = store.settings.collapsedContentStaySeconds
+                vm.retainCollapsedContent(seconds: seconds)
+                if seconds > 0 {
+                    let work = DispatchWorkItem { [weak self] in
+                        guard let self, !self.vm.hovering else { return }
+                        self.vm.expireRetainedContent()
+                    }
+                    retainedContentReset = work
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(seconds), execute: work)
+                }
+            }
+            panel?.resignKey()
+        }
         panel?.ignoresMouseEvents = !on
         if on {
+            // 保留的搜索页没有重新挂载，恢复本窗口按键路由，但不激活其它应用之外的输入窗口。
+            if case .docker = vm.page { panel?.makeKey() }
+            if case .jobs = vm.page { panel?.makeKey() }
             engine.dismissEvent()
             NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
         }

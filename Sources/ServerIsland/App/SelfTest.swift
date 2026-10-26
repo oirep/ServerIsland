@@ -255,6 +255,13 @@ enum SelfTest {
         MainActor.assumeIsolated { SelfTestScrollbars.run(check) }
         let legacyMenuSettings = try? JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8))
         check(legacyMenuSettings?.showMenuBarIcon == true, "菜单栏图标：旧配置缺少字段时默认显示")
+        check(legacyMenuSettings?.collapsedContentStaySeconds == 0,
+              "可视内容保留：旧配置默认立即重置")
+        var retainedConfig = AppSettings()
+        retainedConfig.collapsedContentStaySeconds = 30
+        let retainedConfigBack = (try? ConfigTransfer.exportData(retainedConfig)).flatMap { try? ConfigTransfer.read($0) }
+        check(retainedConfigBack?.collapsedContentStaySeconds == 30,
+              "可视内容保留：时长可持久化并随配置导入导出")
         var hiddenMenuSettings = AppSettings()
         hiddenMenuSettings.showMenuBarIcon = false
         let hiddenMenuRoundTrip = (try? JSONEncoder().encode(hiddenMenuSettings)).flatMap {

@@ -3,6 +3,7 @@ import SwiftUI
 
 /// 搜索框保持固定原生字体与高度；placeholder 由外层 SwiftUI 固定绘制，不随 field editor 改变基线。
 struct DockerSearchInput: NSViewRepresentable {
+    @Environment(\.islandContentActive) private var contentActive
     @Binding var text: String
     @Binding var focused: Bool
     var label: String
@@ -42,6 +43,7 @@ struct DockerSearchInput: NSViewRepresentable {
 
     func updateNSView(_ field: DockerSearchTextField, context: Context) {
         context.coordinator.parent = self
+        field.isEnabled = contentActive
         field.setAccessibilityLabel(label)
         field.redirectReadOnlyText = redirectReadOnlyText
         // 每秒刷新不重置原生选择、光标或输入法的 marked text。
@@ -146,7 +148,7 @@ final class DockerSearchTextField: NSTextField {
         })
         // 列表打开时让非激活面板接收本窗口按键，无需监听或吞掉其它 App 的输入。
         DispatchQueue.main.async { [weak self] in
-            guard let self, let window = self.window as? IslandPanel, window.isVisible else { return }
+            guard let self, let window = self.window as? IslandPanel, window.isVisible, self.isEnabled else { return }
             window.makeKey()
         }
     }
@@ -158,7 +160,7 @@ final class DockerSearchTextField: NSTextField {
     }
 
     private func route(_ event: NSEvent) -> NSEvent? {
-        guard let window, window.isKeyWindow, event.window === window else { return event }
+        guard isEnabled, let window, window.isKeyWindow, event.window === window else { return event }
         let responder = window.firstResponder
         // 日志文本可选中复制，但普通打字应进入搜索；其它可编辑输入框仍保留自己的输入。
         let textFocus = DockerSearchKeyRouting.preservesTextFocus(responder, redirectReadOnlyText: redirectReadOnlyText)
